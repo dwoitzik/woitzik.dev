@@ -1,0 +1,29 @@
+---
+import Container from "@components/Container.astro";
+import PageLayout from "@layouts/PageLayout.astro";
+import { SITE } from "@consts";
+---
+
+<PageLayout title="Privacy" description="Privacy information">
+  <Container>
+    <div class="space-y-10 animate">
+      <section>
+        <h1 class="text-3xl font-black text-black dark:text-white tracking-tighter mb-4">
+          Privacy & Contact
+        </h1>
+        <div class="space-y-4 text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed">
+          <p>
+            This is a strictly non-commercial, private website used for documenting personal homelab projects and learning purposes.
+          </p>
+          <p><strong>Contact:</strong><br />
+            For any inquiries or legal matters, please reach out via Email: <span class="font-bold">{SITE.EMAIL}</span>
+          </p>
+          <hr class="border-neutral-200 dark:border-neutral-800" />
+          <p>
+            <strong>Data Processing:</strong> This site is hosted on Cloudflare Pages. Cloudflare processes log data (including your IP address) to ensure the security and performance of the service. No personal data is stored or tracked by the owner of this website.
+          </p>
+        </div>
+      </section>
+    </div>
+  </Container>
+</PageLayout>

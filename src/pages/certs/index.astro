@@ -1,0 +1,64 @@
+---
+import { getCollection } from "astro:content";
+import PageLayout from "@layouts/PageLayout.astro";
+import Container from "@components/Container.astro";
+import { dateRange } from "@lib/utils";
+import { CERTS } from "@consts"; // Geändert von WORK zu CERTS
+import { Image } from "astro:assets";
+
+const collection = (await getCollection("certs"))
+  .sort((a, b) => new Date(b.data.dateStart).valueOf() - new Date(a.data.dateStart).valueOf());
+
+const certs = await Promise.all(
+  collection.map(async (item) => {
+    const { Content } = await item.render();
+    return { ...item, Content };
+  })
+);
+---
+
+<PageLayout title={CERTS.TITLE} description={CERTS.DESCRIPTION}>
+  <Container>
+    <div class="space-y-10">
+      <div class="animate font-semibold text-black dark:text-white text-2xl">
+        Certifications
+      </div>
+      
+      <ul class="flex flex-col space-y-8">
+        {certs.map(entry => (
+          <li class="animate flex flex-col sm:flex-row gap-6 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/50">
+            
+            {/* Bild/Badge Bereich */}
+            {entry.data.image && (
+              <div class="w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0">
+                <Image 
+                  src={entry.data.image} 
+                  alt={entry.data.company} 
+                  class="w-full h-full object-contain"
+                />
+              </div>
+            )}
+
+            <div class="flex-grow">
+              <div class="text-sm opacity-75">
+  {entry.data.dateEnd 
+    ? dateRange(entry.data.dateStart, entry.data.dateEnd) 
+    : `Issued ${new Date(entry.data.dateStart).toLocaleDateString("en-US", { month: 'short', year: 'numeric' })}`
+  }
+</div>
+              <div class="font-bold text-lg text-black dark:text-white leading-tight">
+                {entry.data.role}
+              </div>
+              <div class="text-sm font-medium text-sky-600 dark:text-sky-400 mb-4">
+                {entry.data.company}
+              </div>
+              <article class="prose prose-sm dark:prose-invert max-w-none">
+                <entry.Content />
+              </article>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </Container>
+</PageLayout>

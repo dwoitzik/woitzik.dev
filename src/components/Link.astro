@@ -1,0 +1,33 @@
+---
+// src/components/Link.astro
+import { cn } from "@lib/utils";
+
+interface Props {
+  href: string;
+  external?: boolean;
+  underline?: boolean;
+  class?: string;
+  [key: string]: any;
+}
+
+const { 
+  href, 
+  external, 
+  underline = true, 
+  class: className, 
+  ...rest 
+} = Astro.props;
+---
+
+<a 
+  href={href} 
+  target={external ? "_blank" : "_self"} 
+  class={cn(
+    "inline-block transition-colors duration-300",
+    underline && "underline underline-offset-2",
+    className
+  )}
+  {...rest}
+>
+  <slot/>
+</a>
