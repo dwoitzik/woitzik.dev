@@ -6,11 +6,14 @@ import ArrowCard from "@components/ArrowCard.astro";
 import Link from "@components/Link.astro";
 import { SITE, HOME, SOCIALS } from "@consts";
 
+const blog = (await getCollection("blog"))
+  .filter(post => !post.data.draft)
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+  
 const projects = (await getCollection("projects"))
   .filter(project => !project.data.draft)
   .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
 
-// Wir nutzen hier nur noch certs, wie von dir gewünscht
 const certs = (await getCollection("certs"))
   .sort((a, b) => new Date(b.data.dateStart).valueOf() - new Date(a.data.dateStart).valueOf());
 
@@ -32,33 +35,61 @@ const techStack = [
           David Woitzik
         </h1>
         <p class="text-lg text-neutral-500 dark:text-neutral-400 mt-2 font-medium">
-          Infrastructure & Automation enthusiast.
+          Hybrid Cloud Engineer & Infrastructure Automation.
         </p>
       </div>
 
       <article class="animate space-y-4 text-neutral-700 dark:text-neutral-300 leading-relaxed max-w-2xl">
         <p>
-          I build and automate IT infrastructure. What started with gaming servers in 2017 
-          has turned into a deep dive into <strong>Hybrid Cloud</strong> environments, 
-          Infrastructure-as-Code, and virtualization.
+          I'm a Hybrid Cloud Systems Engineer specializing in <strong>Azure</strong>, 
+          <strong>Terraform</strong>, and <strong>Zero-Trust network architecture</strong>. 
+          By day I design production infrastructure — here I publish the hardened templates 
+          and deep dives I wish existed when I needed them.
         </p>
         <p>
-          Currently focusing on <strong>self-hosting</strong> and building a resilient Homelab 
-          stack. This is my space to document the journey and share my configurations.
+          Currently focused on compliance-ready infrastructure blueprints for ISO 27001, 
+          NIS2, and KRITIS environments.
         </p>
       </article>
 
       <div class="animate flex flex-wrap gap-2 pt-2">
         {techStack.map(tech => (
-  <span class="flex items-center gap-1.5 px-3 py-1 ... hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors cursor-default">
-    <span class={`w-1.5 h-1.5 rounded-full ${tech.color}`}></span>
-    {tech.name}
-  </span>
-))}
+          <span class="flex items-center gap-1.5 px-3 py-1 hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors cursor-default">
+            <span class={`w-1.5 h-1.5 rounded-full ${tech.color}`}></span>
+            {tech.name}
+          </span>
+        ))}
       </div>
     </section>
 
     <div class="space-y-24 mt-24">
+      
+      {blog.length > 0 && (
+        <section class="animate space-y-6 mt-12 mb-16">
+          <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
+            <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">Enterprise Blueprints & Articles</h2>
+            <Link href="/blog" class="text-xs opacity-50 hover:opacity-100 transition-opacity">View all &rarr;</Link>
+          </div>
+          <div class="grid grid-cols-1 gap-4">
+            {blog.slice(0, 3).map(post => (
+              <div class="group p-6 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-500 transition-colors">
+                <div class="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 class="font-bold text-lg text-black dark:text-white">{post.data.title}</h3>
+                    <p class="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+                      {post.data.description}
+                    </p>
+                  </div>
+                </div>
+                <div class="flex gap-4 text-sm font-medium mt-4">
+                  <Link href={`/blog/${post.slug}`} class="text-sky-500 hover:text-sky-600">Read Article &rarr;</Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {projects.length > 0 && (
         <section class="animate space-y-6">
           <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
@@ -66,7 +97,7 @@ const techStack = [
             <Link href="/projects" class="text-xs opacity-50 hover:opacity-100 transition-opacity">View all &rarr;</Link>
           </div>
           <div class="grid grid-cols-1 gap-4">
-            {projects.map(project => (
+            {projects.slice(0, 3).map(project => (
               <ArrowCard entry={project} />
             ))}
           </div>
@@ -80,36 +111,40 @@ const techStack = [
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {certs.map(cert => (
-  <div class="group p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-all duration-300">
-    <div class="flex items-center gap-4">
-      {cert.data.image && (
-        <div class="w-12 h-12 flex-shrink-0 bg-neutral-100 dark:bg-neutral-800 rounded-lg p-2">
-          <img 
-            src={cert.data.image.src} 
-            alt={cert.data.company} 
-            class="w-full h-full object-contain"
-          />
-        </div>
-      )}
-      <div class="flex-grow">
-        <div class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-0.5">
-          {cert.data.company}
-        </div>
-        <div class="font-bold text-sm text-black dark:text-white leading-tight group-hover:text-sky-500 transition-colors">
-          {cert.data.role}
-        </div>
-      </div>
-    </div>
-  </div>
-))}
+              <div class="group p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-all duration-300">
+                <div class="flex items-center gap-4">
+                  {cert.data.image && (
+                    <div class="w-12 h-12 flex-shrink-0 bg-neutral-100 dark:bg-neutral-800 rounded-lg p-2">
+                      <img 
+                        src={cert.data.image.src} 
+                        alt={cert.data.company} 
+                        class="w-full h-full object-contain"
+                      />
+                    </div>
+                  )}
+                  <div class="flex-grow">
+                    <div class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-0.5">
+                      {cert.data.company}
+                    </div>
+                    <div class="font-bold text-sm text-black dark:text-white leading-tight group-hover:text-sky-500 transition-colors">
+                      {cert.data.role}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       )}
 
-      <footer class="animate pt-10 border-t border-neutral-200 dark:border-neutral-800 flex justify-between items-center">
+      <footer class="animate pt-10 border-t border-neutral-200 dark:border-neutral-800 flex flex-col sm:flex-row justify-between items-center gap-4">
         <div class="flex gap-4 text-sm font-medium">
           <Link href="https://github.com/dwoitzik" external class="hover:text-black dark:hover:text-white transition-colors">GitHub</Link>
-          <Link href="mailto:david@woitzik.dev" class="hover:text-black dark:hover:text-white transition-colors">Email</Link>
+          <Link href="https://linkedin.com/in/david-woitzik" external class="hover:text-black dark:hover:text-white transition-colors">LinkedIn</Link>
+          <Link href={`mailto:${SITE.EMAIL}`} class="hover:text-black dark:hover:text-white transition-colors">Email</Link>
+        </div>
+        <div class="flex gap-4 text-sm font-medium text-neutral-500">
+          <Link href="/legal" class="hover:text-black dark:hover:text-white transition-colors">Legal & Privacy</Link>
         </div>
       </footer>
     </div>

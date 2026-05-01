@@ -1,0 +1,206 @@
+---
+title: "Hardening Azure Acmebot for ISO 27001 & NIS2 Compliance"
+description: "A deep dive into architecting a Zero-Trust Let's Encrypt automation using Terraform, Azure Private Link, and VNet Integration."
+date: "2026-05-01"
+---
+
+Automating SSL/TLS certificates with Let's Encrypt and Azure Key Vault is a solved problem.
+Tools like the fantastic [Azure Acmebot](https://github.com/shibayan/keyvault-acmebot) make
+deployment incredibly simple.
+
+However, in corporate environments targeting **ISO 27001, KRITIS, or NIS2** compliance,
+"simple" is rarely sufficient. The standard Acmebot deployment relies on public endpoints —
+and in a hardened environment, a Storage Account or Key Vault reachable from the public
+internet will immediately trigger findings during a security audit, regardless of how strong
+your authentication is.
+
+In this article, I'll walk through how to transition from a standard Acmebot deployment to a
+fully network-isolated, Zero-Trust architecture — entirely managed with Terraform.
+
+## The Compliance Gap
+
+The default serverless architecture is optimized for ease of access, not isolation.
+Three components expose a public attack surface out of the box:
+
+1. **Storage Account:** The Function App requires a Storage Account for state and web job
+   management. By default, it accepts traffic from all networks.
+2. **Key Vault:** The certificate store operates with a public endpoint unless explicitly
+   restricted.
+3. **Function App:** The Acmebot dashboard and ACME webhook are publicly reachable with
+   no network-layer restriction.
+
+For any serious compliance framework, we need to invert this model entirely.
+The target principle: **Default-Deny at the network layer, not just the identity layer.**
+
+## Target Architecture
+
+We replace public internet routing with Azure's internal backbone using three controls:
+
+- **VNet Integration:** The Function App is injected into a dedicated, delegated subnet.
+  All outbound traffic originates from within your Virtual Network.
+- **Azure Private Link:** Storage Account and Key Vault receive private IP addresses inside
+  the VNet via Private Endpoints. Their public endpoints are disabled entirely.
+- **Private DNS Zones:** Internal DNS resolution ensures the Function App resolves
+  `*.blob.core.windows.net` and `*.vaultcore.azure.net` to private IPs — not public ones.
+
+## Step 1: VNet Integration
+
+The Function App needs a dedicated subnet with a delegation to `Microsoft.Web/serverFarms`.
+Note the `/27` prefix — that's sufficient for this workload and avoids wasting address space.
+
+```hcl
+resource "azurerm_subnet" "acmebot_integration" {
+  name                 = "snet-acmebot-integration"
+  resource_group_name  = var.existing_vnet_rg
+  virtual_network_name = var.existing_vnet_name
+  address_prefixes     = ["10.0.1.0/27"]
+
+  delegation {
+    name = "delegation-acmebot"
+    service_delegation {
+      name    = "Microsoft.Web/serverFarms"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
+    }
+  }
+
+  service_endpoints = ["Microsoft.Storage", "Microsoft.KeyVault"]
+}
+
+resource "azurerm_windows_function_app" "acmebot" {
+  # ... other configuration ...
+
+  virtual_network_subnet_id = azurerm_subnet.acmebot_integration.id
+
+  site_config {
+    vnet_route_all_enabled = true
+  }
+
+  app_settings = {
+    "WEBSITE_VNET_ROUTE_ALL"   = "1"
+    "WEBSITE_DNS_SERVER"       = "168.63.129.16" # Azure internal DNS — required
+    "WEBSITE_CONTENTOVERVNET"  = "1"
+  }
+}
+```
+
+Two details that will cost you hours if you miss them: `vnet_route_all_enabled = true` forces
+all outbound traffic through the VNet — without it, the Function will still try to reach
+Storage over the public internet and fail silently once we lock it down. And
+`WEBSITE_DNS_SERVER = 168.63.129.16` tells the Function to use Azure's internal DNS resolver,
+which is what makes Private DNS Zone resolution work at all.
+
+## Step 2: Private Endpoints & DNS
+
+This is the step where most engineers lose time. Private Endpoints alone are not enough —
+you also need Private DNS Zones linked to your VNet, otherwise the Function App will still
+resolve the public IP of the Storage Account and get blocked by the firewall rules we set
+in Step 3.
+
+```hcl
+# One Private Endpoint per Storage subresource
+resource "azurerm_private_endpoint" "storage_pe" {
+  for_each            = toset(["blob", "table", "queue", "file"])
+  name                = "pe-acmebot-st-${each.key}"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.rg.name
+  subnet_id           = azurerm_subnet.acmebot_endpoints.id
+
+  private_service_connection {
+    name                           = "psc-acmebot-st-${each.key}"
+    private_connection_resource_id = azurerm_storage_account.acmebot_storage.id
+    subresource_names              = [each.key]
+    is_manual_connection           = false
+  }
+
+  private_dns_zone_group {
+    name                 = "default"
+    private_dns_zone_ids = [var.private_dns_zone_ids[each.key]]
+  }
+}
+
+# Key Vault Private Endpoint
+resource "azurerm_private_endpoint" "kv_pe" {
+  name                = "pe-acmebot-kv"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.rg.name
+  subnet_id           = azurerm_subnet.acmebot_endpoints.id
+
+  private_service_connection {
+    name                           = "psc-acmebot-kv"
+    private_connection_resource_id = azurerm_key_vault.acmebot_kv.id
+    subresource_names              = ["vault"]
+    is_manual_connection           = false
+  }
+
+  private_dns_zone_group {
+    name                 = "default"
+    private_dns_zone_ids = [var.private_dns_zone_ids["vault"]]
+  }
+}
+```
+
+The Storage Account requires four separate Private Endpoints — one each for `blob`, `table`,
+`queue`, and `file`. Azure Functions uses all four subresources internally. Skipping any one
+of them will result in a Function App that deploys successfully but fails at runtime with
+cryptic storage errors.
+
+## Step 3: Default-Deny Firewall Rules
+
+With private routing in place, we can now enforce network-layer isolation. Both the Storage
+Account and Key Vault get explicit deny-all rules, with a narrow exception for the integration
+subnet.
+
+```hcl
+resource "azurerm_storage_account" "acmebot_storage" {
+  # ... other configuration ...
+
+  public_network_access_enabled   = false
+  allow_nested_items_to_be_public = false
+
+  network_rules {
+    default_action             = "Deny"
+    bypass                     = ["AzureServices"]
+    virtual_network_subnet_ids = [azurerm_subnet.acmebot_integration.id]
+  }
+}
+
+resource "azurerm_key_vault" "acmebot_kv" {
+  # ... other configuration ...
+
+  public_network_access_enabled = false
+  enable_rbac_authorization     = true
+
+  network_acls {
+    default_action             = "Deny"
+    bypass                     = "AzureServices"
+    virtual_network_subnet_ids = [azurerm_subnet.acmebot_integration.id]
+  }
+}
+```
+
+`bypass = "AzureServices"` is required — it allows Azure's internal control plane operations
+(like diagnostic log shipping) to continue working. Without it, certain platform features
+will silently break.
+
+At this point, neither resource has any publicly reachable endpoint. An external scanner
+will not even get a TCP connection — the endpoints simply don't resolve to a public IP.
+
+## The Result
+
+After applying this configuration, your Acmebot deployment meets the network isolation
+requirements of ISO 27001 Annex A.8, NIS2 Article 21, and KRITIS baseline controls:
+
+- No public endpoints on any data-plane resource
+- All inter-service traffic stays on Azure's private backbone
+- Identity-based access (Managed Identity + RBAC) layered on top of network controls
+- Full Infrastructure-as-Code — auditable, repeatable, version-controlled
+
+## Skip the Trial-and-Error
+
+Getting the DNS resolution, subnet delegations, and firewall rules right the first time
+takes a senior engineer 4–8 hours of troubleshooting. I've packaged the complete,
+tested architecture into a production-ready Terraform module.
+
+👉 **[Get the Enterprise VNet Edition](mailto:david@woitzik.dev?subject=Enterprise%20VNet%20Edition%20-%20License%20Request)**  
+Full source, default-deny configs, Entra ID automation included. Ready to deploy and
+pass your next audit.

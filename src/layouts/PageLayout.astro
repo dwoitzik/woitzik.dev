@@ -15,8 +15,16 @@ const { title, description } = Astro.props;
 <!doctype html>
 <html lang="en">
   <head>
-    <meta name="robots" content="noindex, nofollow">
-    <Head title={`${title} | ${SITE.NAME}`} description={description} />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="generator" content={Astro.generator} />
+  
+  <!-- SEO -->
+  <title>{title} | {SITE.NAME}</title>
+  <meta name="description" content={description} />
+  <meta name="robots" content="index, follow" />
+  
+  <Head title={`${title} | ${SITE.NAME}`} description={description} />
   </head>
   <body>
     <Header />
