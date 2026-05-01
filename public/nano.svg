@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- Dunkler Hintergrund (Tailwind slate-900) -->
+  <rect width="1200" height="630" fill="#0f172a"/>
+  
+  <!-- Dezentes Grid-Muster im Hintergrund für den Tech-Look -->
+  <g opacity="0.05">
+    <path d="M0 100 h1200 M0 200 h1200 M0 300 h1200 M0 400 h1200 M0 500 h1200 M0 600 h1200" stroke="#ffffff" stroke-width="2"/>
+    <path d="M100 0 v630 M200 0 v630 M300 0 v630 M400 0 v630 M500 0 v630 M600 0 v630 M700 0 v630 M800 0 v630 M900 0 v630 M1000 0 v630 M1100 0 v630" stroke="#ffffff" stroke-width="2"/>
+  </g>
+
+  <!-- Text Inhalte -->
+  <text x="100" y="260" font-family="monospace" font-size="28" fill="#38bdf8">&gt;_ infrastructure_as_code</text>
+  
+  <text x="96" y="360" font-family="system-ui, sans-serif" font-weight="bold" font-size="84" fill="#f8fafc">David Woitzik</text>
+  
+  <text x="100" y="440" font-family="system-ui, sans-serif" font-size="36" fill="#94a3b8">Cloud Infrastructure Solutions</text>
+  
+  <!-- Kleiner Deko-Akzent unten links -->
+  <rect x="100" y="520" width="60" height="8" fill="#38bdf8" />
+</svg>

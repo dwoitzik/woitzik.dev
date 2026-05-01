@@ -20,7 +20,7 @@ interface Props {
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 
-const { title, description, image = "/nano.png" } = Astro.props;
+const { title, description, image = "/nano.svg" } = Astro.props;
 ---
 
 <!-- Global Metadata -->
@@ -58,6 +58,25 @@ const { title, description, image = "/nano.png" } = Astro.props;
 <meta property="twitter:title" content={title} />
 <meta property="twitter:description" content={description} />
 <meta property="twitter:image" content={new URL(image, Astro.url)} />
+
+<!-- Schema.org JSON-LD für Google -->
+<script type="application/ld+json" is:inline>
+  {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    "name": "David Woitzik",
+    "url": "https://woitzik.dev",
+    "jobTitle": "System Engineer für Cloud Infrastruktur",
+    "worksFor": {
+      "@type": "Organization",
+      "name": "Cloud Infrastructure Solutions"
+    },
+    "sameAs": [
+      "https://www.linkedin.com/in/david-woitzik/",
+      "https://github.com/dwoitzik"
+    ]
+  }
+</script>
 
 <ClientRouter  />
 
@@ -142,7 +161,7 @@ const { title, description, image = "/nano.png" } = Astro.props;
     });
   }
 
-function toggleTheme(dark) {
+  function toggleTheme(dark) {
     const css = document.createElement("style");
 
     css.appendChild(

@@ -1,0 +1,212 @@
+---
+title: "Deploying Gemma 4 26B on Proxmox: IaC Setup with Terraform, Ansible & AMD iGPU"
+description: "A complete guide to automating a local AI stack on Proxmox LXC using Terraform and Ansible, including Open-WebUI and AMD Radeon Vega iGPU workarounds."
+date: "2026-05-02"
+---
+
+Running large language models (LLMs) like Gemma 4 26B locally usually requires massive Nvidia clusters. But what if you want to run it in a home lab or a constrained edge environment using Infrastructure as Code (IaC)? 
+
+In this guide, I will show you how to automate a complete local AI stack on Proxmox VE using **Terraform** for the infrastructure and **Ansible** for provisioning. We will cover the quirks of the Proxmox Terraform provider, setting up Ollama, and deploying Open-WebUI as our frontend. 
+
+As a bonus, I will show you how to enable hardware acceleration by passing through an unsupported AMD iGPU to the LXC container.
+
+## The Hardware Stack
+
+My current environment for this deployment runs on a compact, highly efficient node. For testing and baseline deployments, the 8-core Ryzen handles CPU inference surprisingly well:
+
+*   **CPU:** AMD Ryzen 7 5825U (8C/16T)
+*   **RAM:** 64 GB DDR4 3200 MT/s
+*   **GPU:** AMD Radeon Vega iGPU (Optional Passthrough)
+*   **Storage:** 512 GB NVMe (ZFS `rpool`)
+*   **OS:** Proxmox VE (Debian 13)
+
+## 1. Infrastructure Provisioning with Terraform
+
+We use Terraform (via the `bpg/proxmox` provider) to spin up dedicated, unprivileged LXC containers. To keep the environment secure and segmented, the containers are split across different VLANs.
+
+Here is the configuration for the AI stack container. Note the `device_passthrough` blocks—these are strictly required if you want to hand the host's iGPU over to the container for rendering.
+```hcl
+resource "proxmox_virtual_environment_container" "ct_srv_ai_01" {
+  vm_id        = 201
+  node_name    = "pve-mgmt-01"
+  started      = true
+  unprivileged = true
+
+  initialization {
+    hostname = "ct-srv-ai-01"
+  }
+
+  cpu {
+    cores = 8
+  }
+
+  memory {
+    dedicated = 32768
+    swap      = 8192
+  }
+
+  features {
+    nesting = true
+  }
+
+  disk {
+    datastore_id = "local-zfs"
+    size         = 80
+  }
+
+  network_interface {
+    name        = "eth0"
+    bridge      = "vmbr0"
+    mac_address = "bc:24:11:55:aa:f5"
+    vlan_id     = 20
+    firewall    = true
+  }
+  
+  # Optional: iGPU Passthrough for Hardware Acceleration
+  device_passthrough {
+    path = "/dev/dri/renderD128"
+  }
+  
+  device_passthrough {
+    path = "/dev/dri/card0"
+  }
+
+  operating_system {
+    template_file_id = "usb-templates:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst"
+    type             = "debian"
+  }
+
+  lifecycle {
+    ignore_changes = [
+      description,
+      initialization[0].user_account,
+      operating_system[0].template_file_id,
+      network_interface[0].mac_address,
+      features,
+    ]
+  }
+}
+```
+
+### 💡 Pro Tip: The `ignore_changes` Workaround
+If you manually enable features like `keyctl`, `fuse`, or `nesting` via the Proxmox Web UI, Terraform will often attempt to overwrite them or throw state errors on the next `apply`. Adding `features` to the `ignore_changes` lifecycle block prevents Terraform from actively fighting the Web UI overrides, keeping your deployments stable.
+
+## 2. Provisioning Ollama & The AMD Workaround (Ansible)
+
+Next, we use Ansible to install Ollama and pull the Gemma model. 
+
+If you enabled the `device_passthrough` in Terraform to utilize the integrated AMD Radeon Vega GPU, you will hit a roadblock: ROCm (AMD's compute stack) is extremely picky about officially supported hardware. We can force Ollama to utilize the Vega iGPU by overriding the GFX version in the systemd service using `HSA_OVERRIDE_GFX_VERSION`.
+```yaml
+---
+- name: Ensure required dependencies are installed (curl, zstd)
+  ansible.builtin.apt:
+    name: 
+      - curl
+      - zstd
+    state: present
+    update_cache: true
+
+- name: Check if Ollama is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/ollama
+  register: ollama_check_bin
+
+- name: Download and execute official Ollama install script
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL [https://ollama.com/install.sh](https://ollama.com/install.sh) | sh
+  args:
+    executable: /bin/bash
+  when: not ollama_check_bin.stat.exists
+  changed_when: true
+
+- name: Ensure Ollama user is in video and render groups
+  ansible.builtin.user:
+    name: ollama
+    groups: video, render
+    append: true
+
+- name: Ensure systemd override directory for Ollama exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/ollama.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Configure Ollama environment variables
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/ollama.service.d/override.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [Service]
+      Environment="OLLAMA_HOST=0.0.0.0"
+      # Only needed if utilizing the AMD iGPU passthrough
+      Environment="HSA_OVERRIDE_GFX_VERSION=9.0.0"
+  notify: Restart Ollama
+
+- name: Ensure Ollama service is enabled and started
+  ansible.builtin.systemd:
+    name: ollama
+    state: started
+    enabled: true
+
+- name: Pull the Gemma 4 26B-A4B model
+  ansible.builtin.command: ollama pull gemma4:26b
+  register: ollama_pull_result
+  changed_when: "'downloading' in ollama_pull_result.stdout"
+```
+
+*(Note: Downloading a massive 26B model takes time. Your Ansible playbook might look like it's hanging during the `ollama pull` task. Be patient, it's just processing gigabytes of data.)*
+
+## 3. Deploying the Frontend: Open-WebUI
+
+To interact with Gemma comfortably, we deploy Open-WebUI as a Docker container within our server stack.
+```yaml
+---
+- name: Ensure Open-WebUI directory exists
+  ansible.builtin.file:
+    path: /opt/open-webui
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy Open-WebUI docker-compose configuration
+  ansible.builtin.copy:
+    dest: /opt/open-webui/docker-compose.yml
+    content: |
+      services:
+        open-webui:
+          image: ghcr.io/open-webui/open-webui:main
+          container_name: open-webui
+          restart: unless-stopped
+          ports:
+            - "3005:8080"
+          environment:
+            - OLLAMA_BASE_URL=[http://10.0.20.251:11434](http://10.0.20.251:11434)
+            - WEBUI_AUTH=True
+          volumes:
+            - open-webui-data:/app/backend/data
+
+      volumes:
+        open-webui-data:
+
+- name: Ensure Open-WebUI stack is running
+  ansible.builtin.command: docker compose up -d
+  args:
+    chdir: /opt/open-webui
+  register: openwebui_start
+  changed_when: "'Started' in openwebui_start.stdout or 'Created' in openwebui_start.stdout or 'Pulled' in openwebui_start.stdout"
+```
+
+By explicitly setting the `OLLAMA_BASE_URL` to point to the dedicated IP of our AI LXC container, the WebUI immediately connects to the Gemma model without requiring manual API configuration in the interface.
+
+## Wrapping Up
+
+Building a private AI environment doesn't require cloud instances. With Proxmox, Terraform, and Ansible, you can treat your edge node or home lab exactly like an enterprise data center. The entire stack is ephemeral, version-controlled, and reproducible in minutes.
+
+**Need production-ready infrastructure?** 
+If you are building strictly regulated environments and need automated Zero-Trust setups for Azure, check out my [Enterprise Terraform Blueprints](https://woitzik-cloud.lemonsqueezy.com). For custom consulting and freelance engineering, feel free to reach out via [LinkedIn](https://www.linkedin.com/in/david-woitzik/).
