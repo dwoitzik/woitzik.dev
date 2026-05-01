@@ -6,10 +6,11 @@ My personal corner of the internet. A minimalist, high-performance portfolio and
 - **Framework:** [Astro](https://astro.build/) (Static Site Generation)
 - **Styling:** [Tailwind CSS](https://tailwindcss.com/)
 - **Theme:** Based on Astro Nano (heavily customized)
-- **Deployment:** Cloudflare Pages
+- **Deployment:** Vercel
 
-## 🏠 Homelab & Projects
-This repository serves a dual purpose: it's the source code for my website and a documentation hub for my **Homelab setup**. I share my configurations for Proxmox and other experiments to help others find inspiration for their own builds.
+## 🏠 Projects
+Source code and documentation for my infrastructure blueprints 
+and compliance-ready Terraform modules.
 
 ## ⚡ Quick Start
 1. `npm install`
