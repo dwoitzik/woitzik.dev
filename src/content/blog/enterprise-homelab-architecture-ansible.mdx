@@ -1,0 +1,113 @@
+---
+title: "Architecting an Enterprise-Grade Homelab: My Ansible Master Playbook"
+description: "Take a tour of a fully automated, segmented, and highly available homelab architecture orchestrated entirely via Ansible and GitOps."
+date: "2026-05-06"
+---
+
+Many homelabs start as a single Docker host or a messy Proxmox node where services are spun up manually. But as your infrastructure grows to include reverse proxies, DNS blocklists, network storage, and AI models, manual management becomes a nightmare. 
+
+To maintain sanity, I treat my home network exactly like an enterprise production environment. Everything is defined in code, strictly segmented by function, and deployed automatically. 
+
+In this post, I will break down my Ansible Master Playbook to show you how to architect a resilient, multi-tier homelab.
+
+**[View the complete Ansible architecture on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Master Playbook: A Tiered Approach
+
+Instead of running a massive, monolithic script, my `site.yml` acts as an orchestrator. It applies specific roles to specific host groups, ensuring that every node only gets exactly the software it needs.
+```yaml
+---
+- name: Provision Base OS and Docker infrastructure
+  hosts: nodes
+  become: true
+  roles:
+    - common
+    - docker
+    - watchtower
+    - monitoring_agent
+```
+
+### 1. The Foundation (Base OS)
+Every node in the network (whether an LXC container, a VM, or a physical Raspberry Pi) runs through this baseline. It installs core utilities, hardens the OS, installs Docker, and deploys the Prometheus/Telegraf monitoring agents. `Watchtower` is included to ensure baseline containers are automatically kept up to date.
+
+### 2. The High-Availability Core (Hardware Isolation)
+This is arguably the most critical design decision in the lab:
+```yaml
+- name: Provision HA Core Services
+  hosts: rpi_nodes
+  become: true
+  roles:
+    - rpi_optimize
+    - keepalived
+    - adguard
+    - unbound
+    - nginx_proxy_manager
+```
+
+**The Problem:** If you run your primary DNS on a Proxmox VM, your entire network loses internet resolution whenever you reboot the hypervisor for kernel updates.
+**The Solution:** I offloaded core networking services to physical Raspberry Pis. 
+
+By using `keepalived`, these Pi nodes share a Virtual IP (VIP). If Pi-1 dies, Pi-2 instantly takes over the IP. They run Unbound (recursive DNS), AdGuard Home (filtering), and the internal Nginx Proxy Manager. I can completely tear down my main server rack, and the house WiFi and DNS won't even blink.
+
+### 3. Application & Management Tiers
+The heavy lifting happens on the main Proxmox cluster. I separate management tools from standard applications.
+```yaml
+- name: Provision Management Services
+  hosts: mgmt_nodes
+  become: true
+  roles:
+    - pbs # Proxmox Backup Server
+
+- name: Provision Application Services
+  hosts: app_nodes
+  become: true
+  roles:
+    - minio
+    - vaultwarden
+    - mikrodash
+    - monitoring_core
+    - atlantis
+    - cloudflared
+    - paperless
+    - open_webui
+```
+
+Notice the inclusion of **Atlantis** and **Cloudflared**. 
+*   **Atlantis** gives me a true GitOps workflow. I can open a Pull Request on GitHub to change my infrastructure, and Atlantis will run `terraform plan` and `terraform apply` directly from the PR comments.
+*   **Cloudflared** provides secure, Zero-Trust ingress without opening ports on my firewall.
+
+### 4. The DMZ & External Exposure
+Services that face the hostile public internet are strictly isolated in a DMZ VLAN (which we secured via MikroTik firewall rules in a previous post).
+```yaml
+- name: Provision DMZ External Proxy
+  hosts: dmz_proxies
+  become: true
+  roles:
+    - nginx_proxy_manager
+    - crowdsec_bouncer
+
+- name: Provision DMZ Game Servers
+  hosts: dmz_games
+  become: true
+  roles:
+    - minecraft
+```
+
+To protect the external proxy, I deploy `crowdsec_bouncer`. CrowdSec acts as a collaborative, modern fail2ban. If an IP address is known for attacking other CrowdSec users globally, my proxy drops their connection before they even see the login screen.
+
+### 5. Dedicated Hardware (AI & LLMs)
+Finally, resource-intensive workloads like Local LLMs get their own dedicated provisioning, often requiring specific GPU drivers or hardware passthrough configurations.
+```yaml
+- name: Provision AI & LLM Services
+  hosts: ai_nodes
+  become: true
+  roles:
+    - ollama
+```
+
+## Why this matters for your career
+
+Building a setup like this at home is the best possible playground for modern DevOps. If you can confidently explain how you orchestrated a split-DNS, high-availability, Zero-Trust environment using Ansible and Terraform, you have the skills required to manage enterprise cloud environments.
+
+**Ready to apply this to the Cloud?** 
+If you are building strictly regulated cloud environments and need automated Zero-Trust setups for Azure, check out my [Enterprise Terraform Blueprints](https://woitzik-cloud.lemonsqueezy.com). For custom consulting and freelance engineering, feel free to reach out via [LinkedIn](https://www.linkedin.com/in/david-woitzik/).
