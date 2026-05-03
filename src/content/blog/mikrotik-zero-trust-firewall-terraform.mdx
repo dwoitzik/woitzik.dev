@@ -1,0 +1,141 @@
+---
+title: "Implementing a Zero-Trust MikroTik Firewall with Terraform"
+description: "Learn how to enforce strict VLAN isolation, fast-track traffic, and build a default-deny firewall for MikroTik RouterOS using Infrastructure as Code."
+date: "2026-05-03"
+---
+
+MikroTik routers are incredibly powerful, but configuring them manually via WinBox or the CLI often leads to configuration drift and security loopholes. If you are building a segmented edge network or a home lab with multiple VLANs, you need an architecture that is version-controlled, reproducible, and strictly "Default-Deny".
+
+In this post, I will break down how to build a robust, Zero-Trust firewall for RouterOS using the `terraform-routeros` provider.
+
+**[View the complete MikroTik IaC source code on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Core Philosophy: Default-Deny
+
+A standard home router allows everything outbound and blocks everything inbound. A Zero-Trust edge device blocks *everything* by default—even traffic between internal VLANs—unless explicitly permitted.
+
+We enforce this by anchoring our `input` (traffic to the router) and `forward` (traffic through the router) chains with absolute drop rules.
+```hcl
+# ===============================================
+# ANCHOR RULES
+# ===============================================
+
+resource "routeros_ip_firewall_filter" "drop_all_input" {
+  action  = "drop"
+  chain   = "input"
+  comment = "INPUT: Default drop"
+}
+
+resource "routeros_ip_firewall_filter" "fwd_99_drop_all" {
+  action     = "drop"
+  chain      = "forward"
+  log        = true
+  log_prefix = "FW_DROP"
+  comment    = "99: Global - Final Drop (Zero Trust Policy)"
+}
+```
+
+By placing these rules at the very end of their respective chains, anything that isn't explicitly caught by an `accept` rule will be discarded and logged.
+
+## 1. Securing the Router (The Input Chain)
+
+The `input` chain protects the MikroTik device itself. We only want established connections, our WireGuard VPN handshakes, and strict management access to reach the router's CPU.
+```hcl
+resource "routeros_ip_firewall_filter" "in_01_established" {
+  action           = "accept"
+  chain            = "input"
+  connection_state = "established,related,untracked"
+  place_before     = routeros_ip_firewall_filter.drop_all_input.id
+  comment          = "IN-01: Allow established/related"
+}
+
+# Allow Admin-VLAN to access the Router API/WinBox
+resource "routeros_ip_firewall_filter" "in_03_mgmt" {
+  action           = "accept"
+  chain            = "input"
+  src_address_list = "Mgmt_Devices"
+  place_before     = routeros_ip_firewall_filter.drop_all_input.id
+  comment          = "IN-03: Allow Admin-VLAN access to Router-API"
+}
+```
+
+*Note the `place_before` argument.* This is the magic of using Terraform for firewall rules. Instead of relying on fragile manual sequencing, we explicitly tell Terraform to always place these allow rules *above* our default drop anchor.
+
+## 2. Segmenting the Network (The Forward Chain)
+
+This is where the actual routing happens. In my setup, I have dedicated VLANs for Management (`vlan10`), Servers (`vlan20`), and a DMZ (`vlan30`).
+
+Because of our `fwd_99_drop_all` rule, a compromised Docker container in `vlan20` cannot blindly scan the management interface of the Proxmox node in `vlan10`. We must explicitly drill micro-segmentation holes for required traffic.
+```hcl
+# FastTrack for CPU Efficiency (Crucial for Gigabit speeds on MikroTik)
+resource "routeros_ip_firewall_filter" "fwd_00_fasttrack" {
+  action           = "fasttrack-connection"
+  chain            = "forward"
+  connection_state = "established,related"
+  hw_offload       = true
+  place_before     = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment          = "00: Global - Fasttrack for CPU efficiency"
+}
+
+# Allow internal Reverse Proxy to reach Management GUIs
+resource "routeros_ip_firewall_filter" "fwd_04_proxy_to_mgmt" {
+  chain        = "forward"
+  action       = "accept"
+  src_address  = "10.0.20.0/24"
+  dst_address  = "10.0.10.0/24"
+  dst_port     = "8006,8007"
+  protocol     = "tcp"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "04: SRV - Internal Proxy access to MGMT Web GUIs"
+}
+
+# Allow Prometheus to scrape DMZ node exporters
+resource "routeros_ip_firewall_filter" "fwd_05_srv_to_dmz_metrics" {
+  chain        = "forward"
+  action       = "accept"
+  src_address  = "10.0.20.252" # Specific Docker LXC IP
+  dst_address  = "10.0.30.0/24"
+  dst_port     = "9100,9080"
+  protocol     = "tcp"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "05: Monitoring - Prometheus scrape DMZ node exporters"
+}
+```
+
+By locking down the source to a specific IP (`10.0.20.252`), we ensure that only our Prometheus monitoring instance can query the DMZ metrics. 
+
+## 3. Handling Public Exposure (NAT & WAN)
+
+If you host services like a Minecraft server in your DMZ, you need Destination NAT (Port Forwarding). However, the NAT rule alone isn't enough; the firewall must also permit the traffic to cross from the WAN into the DMZ.
+```hcl
+# Port Forwarding
+resource "routeros_ip_firewall_nat" "dnat_minecraft" {
+  action       = "dst-nat"
+  chain        = "dstnat"
+  in_interface = "ether1"
+  protocol     = "tcp"
+  dst_port     = "25565"
+  to_addresses = "10.0.30.2"
+  to_ports     = "25565"
+  comment      = "NAT: Port Forwarding for DMZ Minecraft Server"
+}
+
+# Firewall Allow
+resource "routeros_ip_firewall_filter" "fwd_13_wan_to_dmz_minecraft" {
+  action       = "accept"
+  chain        = "forward"
+  dst_address  = "10.0.30.2"
+  dst_port     = "25565"
+  protocol     = "tcp"
+  in_interface = "ether1"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "13: WAN - Allow Internet traffic to DMZ Minecraft Server"
+}
+```
+
+## Moving Beyond the Edge
+
+Automating your edge router is just the first step in building a resilient, code-driven infrastructure. When you transition from homelabs to enterprise cloud environments, these same Zero-Trust principles apply, but the complexity scales exponentially.
+
+**Need production-ready cloud infrastructure?** 
+If you are building strictly regulated environments and need automated Zero-Trust setups for Azure, check out my [Enterprise Terraform Blueprints](https://woitzik-cloud.lemonsqueezy.com). For custom consulting, feel free to reach out via [LinkedIn](https://www.linkedin.com/in/david-woitzik/).

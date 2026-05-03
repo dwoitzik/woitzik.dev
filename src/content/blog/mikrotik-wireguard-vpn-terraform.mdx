@@ -1,0 +1,143 @@
+---
+title: "Automating MikroTik WireGuard VPN with Role-Based Access via Terraform"
+description: "Deploy a WireGuard VPN on MikroTik using Terraform. Learn how to implement role-based network access, isolating mobile devices from full admin laptops."
+date: "2026-05-05"
+---
+
+WireGuard has become the absolute standard for remote access VPNs due to its speed, simplicity, and cryptographic security. However, simplicity in setup often leads to sloppy security practices—like granting every connected device full access to the entire internal network.
+
+In a secure environment (whether an enterprise network or a well-architected homelab), a mobile phone checking a dashboard should not have the same network access as an admin laptop performing infrastructure deployments.
+
+In this guide, I will show you how to automate a WireGuard "Roadwarrior" setup on MikroTik RouterOS using Terraform, and more importantly, how to enforce role-based access controls using firewall filters.
+
+**[View the complete MikroTik IaC source code on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## 1. Defining the VPN Topology
+
+We start by defining our VPN network subnet, the listening port, and the static IPs we will assign to our specific peers (devices). Using Terraform locals keeps our configuration clean and prevents IP conflicts later on.
+```hcl
+locals {
+  vpn_config = {
+    subnet = "10.6.0.0/24"
+    port   = 51820
+    name   = "wg-roadwarrior"
+  }
+
+  vpn_handy_ip  = "10.6.0.2/32"
+  vpn_laptop_ip = "10.6.0.3/32"
+}
+```
+
+## 2. Setting up the WireGuard Interface
+
+Deploying the WireGuard interface and assigning the router its gateway IP within the VPN subnet is incredibly straightforward with the `terraform-routeros` provider.
+```hcl
+# Create the WireGuard Interface
+resource "routeros_wireguard" "wg_vpn" {
+  name        = local.vpn_config.name
+  listen_port = local.vpn_config.port
+  comment     = "Remote Access VPN"
+}
+
+# Assign the Gateway IP to the Router
+resource "routeros_ip_address" "wg_ip" {
+  interface = routeros_wireguard.wg_vpn.name
+  # Uses cidrhost to automatically calculate the first IP (.1)
+  address   = "${cidrhost(local.vpn_config.subnet, 1)}/24"
+}
+```
+
+*Note the use of `cidrhost()`. This Terraform function automatically calculates the `.1` address based on the subnet defined in our locals, preventing manual typo errors.*
+
+## 3. Provisioning the Peers (Devices)
+
+Next, we add the public keys of our devices to the router. WireGuard uses cryptokey routing; the router uses the `allowed_address` field to determine which peer a specific IP belongs to.
+
+By hardcoding the `/32` IP addresses to specific keys, we establish a fixed identity for our firewall rules later.
+
+```hcl
+resource "routeros_wireguard_peer" "handy_dw" {
+  interface            = routeros_wireguard.wg_vpn.name
+  comment              = "Smartphone DW - Limited Access"
+  public_key           = "X9iI0RGNf7kTxdBOs4CsDcOQtKRFMYALY/ugHv67uAo="
+  allowed_address      = [local.vpn_handy_ip]
+  persistent_keepalive = "25s"
+}
+
+resource "routeros_wireguard_peer" "laptop_dw" {
+  interface            = routeros_wireguard.wg_vpn.name
+  comment              = "Laptop DW - Full Admin Access"
+  public_key           = "zD+/yfLfjQ7N1H5NBIwa2zKNd/bLZ6VRdEbKBxCmOVA="
+  allowed_address      = [local.vpn_laptop_ip]
+  persistent_keepalive = "25s"
+}
+```
+
+## 4. Enforcing Role-Based Access (The Firewall)
+
+The VPN is up, but without firewall rules, traffic won't go anywhere (assuming you have a strict default-deny firewall in place, as discussed in my previous architecture posts). 
+
+We use the Forward chain to explicitly define what each device is allowed to access.
+
+### The Admin Laptop (Full Access)
+The laptop is a trusted administrative device. We grant it access to the entire `10.0.0.0/16` block, allowing it to reach servers, management interfaces, and the DMZ.
+```hcl
+resource "routeros_ip_firewall_filter" "fwd_06_vpn_laptop" {
+  action       = "accept"
+  chain        = "forward"
+  src_address  = local.vpn_laptop_ip
+  dst_address  = "10.0.0.0/16"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "06: VPN - Laptop Full Access"
+  
+  lifecycle {
+    ignore_changes = [src_address]
+  }
+}
+```
+
+### The Mobile Phone (Split-Tunnel / Limited Access)
+Mobile phones are inherently less secure. They connect to public WiFis and are easily lost. We restrict the phone strictly to specific internal service subnets (like the `vlan20` server network and the DMZ proxy). It has absolutely no access to the Proxmox management VLAN or internal infrastructure backends.
+```hcl
+resource "routeros_ip_firewall_filter" "fwd_07_vpn_handy_srv" {
+  action       = "accept"
+  chain        = "forward"
+  src_address  = local.vpn_handy_ip
+  dst_address  = "10.0.20.0/24"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "07: VPN - Mobile limited to internal services"
+}
+
+resource "routeros_ip_firewall_filter" "fwd_08_vpn_handy_dmz" {
+  action       = "accept"
+  chain        = "forward"
+  src_address  = local.vpn_handy_ip
+  dst_address  = "10.0.30.0/24"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "08: VPN - Mobile access to DMZ (External Proxy)"
+}
+```
+
+*Note: The `place_before` argument ensures these rules are injected dynamically above our final "Drop All" firewall anchor.*
+
+## 5. Don't Forget the Input Chain!
+
+Finally, for the VPN to establish a connection in the first place, we must open the listening port on the router's WAN interface. This rule goes into the `input` chain, as the traffic terminates at the router itself.
+```hcl
+resource "routeros_ip_firewall_filter" "in_02_wg" {
+  action       = "accept"
+  chain        = "input"
+  protocol     = "udp"
+  dst_port     = local.vpn_config.port
+  in_interface = "ether1"
+  place_before = routeros_ip_firewall_filter.drop_all_input.id
+  comment      = "IN-02: WireGuard handshake"
+}
+```
+
+## Conclusion
+
+WireGuard's static cryptokey routing makes it incredibly easy to map specific users to specific IP addresses. By managing this mapping through Terraform, we can seamlessly tie identity to infrastructure, ensuring our Zero-Trust policies remain strict, readable, and perfectly documented.
+
+**Need production-ready cloud networking?** 
+If you are designing secure architectures in the cloud and need automated Zero-Trust setups for Azure, check out my [Enterprise Terraform Blueprints](https://woitzik-cloud.lemonsqueezy.com). For consulting and freelance engineering, feel free to reach out via [LinkedIn](https://www.linkedin.com/in/david-woitzik/).

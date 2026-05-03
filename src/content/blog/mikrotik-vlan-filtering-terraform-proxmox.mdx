@@ -1,0 +1,164 @@
+---
+title: "Automating MikroTik Bridge VLAN Filtering & Proxmox Trunks with Terraform"
+description: "Master MikroTik's notoriously complex Bridge VLAN Filtering. Learn how to automate dynamic VLAN matrices, Proxmox trunk ports, and edge devices using Terraform."
+date: "2026-05-04"
+---
+
+If you have ever tried to configure VLANs on a MikroTik router, you know the pain. Transitioning from the legacy switch-chip VLAN methods to the modern **Bridge VLAN Filtering** often results in completely locking yourself out of the router. 
+
+When you add a virtualization host like Proxmox into the mix—which requires a trunk port passing multiple tagged VLANs—the complexity multiplies. Doing this via the WinBox GUI is a recipe for configuration drift and late-night network outages.
+
+In this deep dive, I will show you how to tame MikroTik VLANs using Infrastructure as Code (Terraform). We will build a dynamic, scalable L2 network architecture that includes a Proxmox trunk port, dedicated management access, and hardware-offloaded access ports for edge devices (like Raspberry Pis).
+
+**[View the complete MikroTik IaC source code on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Architecture & Locals
+
+Before writing any resources, we need to define our network's topology. Hardcoding VLAN IDs across dozens of resources is a bad practice. Instead, we use Terraform `locals` to create a central source of truth.
+```hcl
+locals {
+  homelab_vlans = {
+    "vlan20-srv"    = 20
+    "vlan30-dmz"    = 30
+    "vlan40-iot"    = 40
+    "vlan100-admin" = 100
+  }
+
+  rpi_port_mapping = {
+    "ether6" = 20 # RPi 4B #1 (Keepalived Node A)
+    "ether7" = 20 # RPi 4B #2 (Keepalived Node B)
+  }
+
+  proxmox_port = "ether5"
+}
+```
+
+This simple map dictates our entire Layer 2 strategy. If we ever need to add a "Guest" VLAN, we simply add it to the `homelab_vlans` map, and Terraform will automatically generate the interfaces, IP addresses, DHCP servers, and bridge matrix entries.
+
+## 1. The Core Bridge & Ports
+
+In modern RouterOS (v6.41+), the best practice is to use a **single bridge** for all ports and manage segmentation purely through VLAN filtering. This ensures maximum hardware offloading (if supported by your MikroTik switch chip).
+```hcl
+resource "routeros_interface_bridge" "core_bridge" {
+  name           = "bridge1"
+  vlan_filtering = true
+  comment        = "Core bridge managed by Terraform"
+}
+```
+
+### Assigning the Physical Ports
+
+Next, we attach our physical ethernet ports to the bridge. This is where we define whether a port is an Access Port (untagged) or a Trunk Port (tagged).
+
+**The Proxmox Trunk:**
+Our Proxmox server (`ether5`) needs to receive tagged traffic so the virtual machines can reside in different VLANs. We assign it a default `pvid = 1` (acting as the native VLAN).
+
+```hcl
+resource "routeros_interface_bridge_port" "proxmox_port" {
+  bridge    = routeros_interface_bridge.core_bridge.name
+  interface = local.proxmox_port
+  pvid      = 1
+  hw        = true
+  comment   = "Proxmox Trunk (Tagged VLANs)"
+}
+```
+
+**The Edge Access Ports:**
+For devices that don't understand VLAN tags (like a standard PC or Raspberry Pi), we assign a specific `pvid`. The bridge will automatically strip the VLAN tag when sending traffic to these ports and add it when receiving.
+```hcl
+resource "routeros_interface_bridge_port" "rpi_ports" {
+  for_each  = local.rpi_port_mapping
+  bridge    = routeros_interface_bridge.core_bridge.name
+  interface = each.key
+  pvid      = each.value
+  hw        = true
+  comment   = "Keepalived Node"
+}
+
+resource "routeros_interface_bridge_port" "mgmt_port" {
+  bridge    = routeros_interface_bridge.core_bridge.name
+  interface = "ether2"
+  pvid      = 100
+  hw        = true
+  comment   = "Admin Workstation Access Port"
+}
+```
+
+## 2. Creating the VLAN Interfaces
+
+A bridge connects physical ports, but the router itself needs an IP address in each VLAN to act as the default gateway. We create virtual VLAN interfaces attached to the `bridge1` interface.
+
+Using Terraform's `for_each` loop, we dynamically generate these based on our locals block:
+```hcl
+resource "routeros_interface_vlan" "vlans" {
+  for_each  = local.homelab_vlans
+  interface = routeros_interface_bridge.core_bridge.name
+  name      = each.key
+  vlan_id   = each.value
+}
+
+# Assign Gateway IPs to the Router
+resource "routeros_ip_address" "vlan_ips" {
+  for_each  = local.homelab_vlans
+  address   = "10.0.${each.value}.1/24"
+  interface = routeros_interface_vlan.vlans[each.key].name
+}
+```
+
+## 3. The Magic: Dynamic Bridge VLAN Matrix
+
+This is the hardest part of MikroTik configuration, and where Terraform truly shines. We must explicitly tell the bridge which ports are allowed to carry which VLANs. 
+
+If we forget to add `bridge1` to the `tagged` list, the router's CPU won't be able to process the traffic, and DHCP/Routing will fail entirely.
+
+### The Management Override
+
+First, we explicitly define the Management VLAN (`vlan100`). We tag the CPU (`core_bridge`) and the Proxmox trunk.
+
+```hcl
+resource "routeros_interface_bridge_vlan" "vlan100_mgmt" {
+  bridge   = routeros_interface_bridge.core_bridge.name
+  vlan_ids = [100]
+  tagged = [
+    routeros_interface_bridge.core_bridge.name,
+    local.proxmox_port
+  ]
+  # Note: ether2 is dynamically added as untagged by its PVID
+}
+```
+
+### The Dynamic Matrix Loop
+
+For the rest of the VLANs, we use an advanced Terraform loop. This block dynamically calculates the `untagged` ports by reading the `local.rpi_port_mapping` and checking if the required VLAN matches the port's assigned PVID.
+
+```hcl
+resource "routeros_interface_bridge_vlan" "vlan_matrix" {
+  # Loop through all VLANs EXCEPT 100 (since we handled it above)
+  for_each = { for k, v in local.homelab_vlans : k => v if v != 100 }
+
+  bridge   = routeros_interface_bridge.core_bridge.name
+  vlan_ids = [each.value]
+
+  tagged = [
+    routeros_interface_bridge.core_bridge.name,
+    local.proxmox_port
+  ]
+
+  untagged = [
+    for port, vlan in local.rpi_port_mapping : port if vlan == each.value
+  ]
+}
+```
+
+### Why this is a Game Changer
+
+Look at the `untagged` logic. If you decide to move a Raspberry Pi from the Server VLAN (20) to the DMZ VLAN (30), you don't have to touch the bridge configuration, the matrix, or the interface settings. 
+
+You simply change the `20` to `30` in the `local.rpi_port_mapping` at the top of the file. Terraform will calculate the diff, modify the port's PVID, and seamlessly update the Bridge VLAN table. This is true Infrastructure as Code.
+
+## Conclusion
+
+By treating network infrastructure as code, we transform a fragile, click-heavy configuration into a robust, auditable state. Proxmox gets its tagged trunks, hardware edge devices get their native access ports, and the router maintains secure L2 isolation.
+
+**Want to take your automation further?** 
+If you are managing complex environments and need automated Zero-Trust setups for Azure or compliance-ready infrastructure, check out my [Enterprise Terraform Blueprints](https://woitzik-cloud.lemonsqueezy.com). For custom engineering, connect with me on [LinkedIn](https://www.linkedin.com/in/david-woitzik/).
