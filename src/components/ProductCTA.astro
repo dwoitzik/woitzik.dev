@@ -1,0 +1,349 @@
+---
+
+interface Props {
+  variant?: "inline" | "end";
+  product?: "acme" | "hub-spoke";
+  href?: string;
+  title?: string;
+  price?: string;
+  description?: string;
+  bullets?: string[];
+}
+
+const productCatalog = {
+  "acme": {
+    href: "https://woitzik-cloud.lemonsqueezy.com/checkout/buy/", //TODO
+    title: "Enterprise VNet Edition (ACME)",
+    price: "€49",
+    description: "The complete, tested Terraform module — ready to deploy and pass your next audit.",
+    bullets: [
+      "Default-deny network architecture",
+      "Entra ID & Managed Identity automation",
+      "Full source code — no lock-in",
+      "Saves 4–8h of senior engineer troubleshooting",
+    ]
+  },
+  "hub-spoke": {
+    href: "https://woitzik-cloud.lemonsqueezy.com/checkout/buy/", //TODO
+    title: "Enterprise Hub & Spoke",
+    price: "€49",
+    description: "Zero-Trust NSGs, centralized Private DNS, DINE policy bypass — audit-ready on day one.",
+    bullets: [
+      "Zero-Trust NSG baseline bound to all Spokes",
+      "4 centralized Private DNS Zones",
+      "DINE policy lifecycle bypass",
+      "Environment-aware naming convention",
+    ]
+  }
+};
+
+const { 
+  variant = "inline", 
+  product = "acme", 
+  ...overrides 
+} = Astro.props;
+
+const currentProduct = productCatalog[product] || productCatalog["acme"];
+
+const href = overrides.href || currentProduct.href;
+const title = overrides.title || currentProduct.title;
+const price = overrides.price || currentProduct.price;
+const description = overrides.description || currentProduct.description;
+const bullets = overrides.bullets || currentProduct.bullets;
+---
+
+{variant === "inline" && (
+  <aside class="cta-inline not-prose my-10">
+    <div class="cta-inner">
+      <div class="cta-badge">Terraform Module</div>
+      <div class="cta-body">
+        <p class="cta-hook">
+          Skip the trial-and-error — get the production-ready module.
+        </p>
+        <a href={href} target="_blank" rel="noopener noreferrer" class="cta-button">
+          Get {title} &rarr;
+        </a>
+      </div>
+    </div>
+  </aside>
+)}
+
+{variant === "end" && (
+  <aside class="cta-end not-prose my-12">
+    <div class="cta-end-inner">
+      <div class="cta-end-left">
+        <div class="cta-badge">Terraform Module</div>
+        <h3 class="cta-end-title">{title}</h3>
+        <p class="cta-end-desc">{description}</p>
+        <ul class="cta-bullets">
+          {bullets.map((b) => (
+            <li>
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              {b}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div class="cta-end-right">
+        <div class="cta-price">{price}</div>
+        <div class="cta-price-note">one-time · instant download</div>
+        <a href={href} target="_blank" rel="noopener noreferrer" class="cta-button-lg">
+          Buy Now &rarr;
+        </a>
+        <p class="cta-sub">Full source · no subscription</p>
+      </div>
+    </div>
+  </aside>
+)}
+
+<style>
+  /* ── Shared ── */
+  .cta-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.6rem;
+    border-radius: 3px;
+    background: oklch(0.2 0 0 / 0.08);
+    color: oklch(0.4 0 0);
+    border: 1px solid oklch(0 0 0 / 0.12);
+    margin-bottom: 0.75rem;
+  }
+
+  :global(.dark) .cta-badge {
+    background: oklch(1 0 0 / 0.06);
+    color: oklch(0.75 0 0);
+    border-color: oklch(1 0 0 / 0.12);
+  }
+
+  .cta-button {
+    display: inline-block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.5rem 1.1rem;
+    border-radius: 5px;
+    background: oklch(0.15 0 0);
+    color: oklch(0.98 0 0);
+    text-decoration: none;
+    transition: background 0.2s ease, transform 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .cta-button:hover {
+    background: oklch(0.28 0 0);
+    transform: translateX(2px);
+  }
+
+  :global(.dark) .cta-button {
+    background: oklch(0.95 0 0);
+    color: oklch(0.1 0 0);
+  }
+
+  :global(.dark) .cta-button:hover {
+    background: oklch(1 0 0);
+  }
+
+  /* ── Inline variant ── */
+  .cta-inline {
+    border-left: 3px solid oklch(0.15 0 0);
+    border-radius: 0 6px 6px 0;
+    background: oklch(0.97 0 0);
+    padding: 1.25rem 1.5rem;
+  }
+
+  :global(.dark) .cta-inline {
+    border-left-color: oklch(0.85 0 0);
+    background: oklch(0.12 0 0);
+  }
+
+  .cta-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .cta-body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .cta-hook {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: oklch(0.25 0 0);
+  }
+
+  :global(.dark) .cta-hook {
+    color: oklch(0.85 0 0);
+  }
+
+  /* ── End variant ── */
+  .cta-end {
+    border: 1px solid oklch(0 0 0 / 0.12);
+    border-radius: 8px;
+    background: oklch(0.975 0 0);
+    padding: 2rem;
+  }
+
+  :global(.dark) .cta-end {
+    border-color: oklch(1 0 0 / 0.1);
+    background: oklch(0.1 0 0);
+  }
+
+  .cta-end-inner {
+    display: flex;
+    gap: 2rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .cta-end-left {
+    flex: 1;
+    min-width: 220px;
+  }
+
+  .cta-end-right {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding-left: 2rem;
+    border-left: 1px solid oklch(0 0 0 / 0.1);
+    min-width: 150px;
+  }
+
+  :global(.dark) .cta-end-right {
+    border-left-color: oklch(1 0 0 / 0.08);
+  }
+
+  .cta-end-title {
+    margin: 0 0 0.4rem;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: oklch(0.1 0 0);
+  }
+
+  :global(.dark) .cta-end-title {
+    color: oklch(0.95 0 0);
+  }
+
+  .cta-end-desc {
+    margin: 0 0 1rem;
+    font-size: 0.875rem;
+    color: oklch(0.35 0 0);
+    line-height: 1.5;
+  }
+
+  :global(.dark) .cta-end-desc {
+    color: oklch(0.65 0 0);
+  }
+
+  .cta-bullets {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .cta-bullets li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+    color: oklch(0.3 0 0);
+    line-height: 1.4;
+  }
+
+  :global(.dark) .cta-bullets li {
+    color: oklch(0.7 0 0);
+  }
+
+  .cta-bullets svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .cta-price {
+    font-size: 2rem;
+    font-weight: 800;
+    color: oklch(0.1 0 0);
+    line-height: 1;
+  }
+
+  :global(.dark) .cta-price {
+    color: oklch(0.95 0 0);
+  }
+
+  .cta-price-note {
+    font-size: 0.7rem;
+    color: oklch(0.5 0 0);
+    text-align: center;
+    margin-bottom: 0.5rem;
+  }
+
+  :global(.dark) .cta-price-note {
+    color: oklch(0.55 0 0);
+  }
+
+  .cta-button-lg {
+    display: inline-block;
+    font-size: 0.9rem;
+    font-weight: 700;
+    padding: 0.65rem 1.4rem;
+    border-radius: 5px;
+    background: oklch(0.15 0 0);
+    color: oklch(0.98 0 0);
+    text-decoration: none;
+    text-align: center;
+    width: 100%;
+    transition: background 0.2s ease, transform 0.15s ease;
+  }
+
+  .cta-button-lg:hover {
+    background: oklch(0.28 0 0);
+    transform: translateY(-1px);
+  }
+
+  :global(.dark) .cta-button-lg {
+    background: oklch(0.95 0 0);
+    color: oklch(0.1 0 0);
+  }
+
+  :global(.dark) .cta-button-lg:hover {
+    background: oklch(1 0 0);
+  }
+
+  .cta-sub {
+    font-size: 0.68rem;
+    color: oklch(0.55 0 0);
+    text-align: center;
+    margin: 0;
+  }
+
+  :global(.dark) .cta-sub {
+    color: oklch(0.5 0 0);
+  }
+
+  @media (max-width: 600px) {
+    .cta-end-right {
+      border-left: none;
+      border-top: 1px solid oklch(0 0 0 / 0.1);
+      padding-left: 0;
+      padding-top: 1.5rem;
+      width: 100%;
+    }
+    .cta-button-lg {
+      width: auto;
+    }
+  }
+</style>

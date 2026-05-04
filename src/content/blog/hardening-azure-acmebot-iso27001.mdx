@@ -4,6 +4,8 @@ description: "A deep dive into architecting a Zero-Trust Let's Encrypt automatio
 date: "2026-05-01"
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 Automating SSL/TLS certificates with Let's Encrypt and Azure Key Vault is a solved problem.
 Tools like the fantastic [Azure Acmebot](https://github.com/shibayan/keyvault-acmebot) make
 deployment incredibly simple.
@@ -146,6 +148,8 @@ The Storage Account requires four separate Private Endpoints — one each for `b
 of them will result in a Function App that deploys successfully but fails at runtime with
 cryptic storage errors.
 
+<ProductCTA variant="inline" product="acme"/>
+
 ## Step 3: Default-Deny Firewall Rules
 
 With private routing in place, we can now enforce network-layer isolation. Both the Storage
@@ -197,12 +201,4 @@ requirements of ISO 27001 Annex A.8, NIS2 Article 21, and KRITIS baseline contro
 - Identity-based access (Managed Identity + RBAC) layered on top of network controls
 - Full Infrastructure-as-Code — auditable, repeatable, version-controlled
 
-## Skip the Trial-and-Error
-
-Getting the DNS resolution, subnet delegations, and firewall rules right the first time
-takes a senior engineer 4–8 hours of troubleshooting. I've packaged the complete,
-tested architecture into a production-ready Terraform module.
-
-👉 **[Get the Enterprise VNet Edition](https://woitzik-cloud.lemonsqueezy.com)**  
-Full source, default-deny configs, Entra ID automation included. Ready to deploy and
-pass your next audit.
+<ProductCTA variant="end" product="acme" />
