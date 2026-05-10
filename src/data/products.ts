@@ -62,7 +62,7 @@ export const products: Product[] = [
     price: "€49",
     priceNote: "one-time · instant download",
     href: "https://woitzik-cloud.lemonsqueezy.com/checkout/buy/a955d698-acf5-4654-ae16-bb8ec1f7be15",
-    articleHref: "/blog/breaking-the-loop-azure-firewall-routing",
+    articleHref: "/blog/azure-firewall-cycle-error",
     tags: ["Azure", "Terraform", "Firewall", "Networking", "Zero-Trust"],
     bullets: [
       "Cycle-error-free resource ordering — deploys first time, every time",
