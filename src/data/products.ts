@@ -53,6 +53,26 @@ export const products: Product[] = [
     ],
     available: true,
   },
+  {
+    slug: "azure-firewall-enterprise",
+    badge: "Terraform Module",
+    title: "Azure Firewall — Enterprise Forced Tunneling Edition",
+    description:
+      "Cycle-error-free Forced Tunneling with KMS & Azure AD bypasses, dynamic IP Groups, and FQDN baseline policies. Drops into any existing Hub & Spoke without breaking Windows VMs or Managed Identities.",
+    price: "€49",
+    priceNote: "one-time · instant download",
+    href: "https://woitzik-cloud.lemonsqueezy.com/checkout/buy/a955d698-acf5-4654-ae16-bb8ec1f7be15",
+    articleHref: "/blog/breaking-the-loop-azure-firewall-routing",
+    tags: ["Azure", "Terraform", "Firewall", "Networking", "Zero-Trust"],
+    bullets: [
+      "Cycle-error-free resource ordering — deploys first time, every time",
+      "KMS & Azure AD bypass routes — no broken Windows VMs or auth failures",
+      "Dynamic for_each subnet binding — scales to any number of Spokes",
+      "IP Group-based firewall policies — no hardcoded IP addresses",
+      "FQDN baseline rules for Windows Updates and core Microsoft services",
+    ],
+    available: true,
+  },
 ];
 
 export function getProduct(slug: string): Product {
