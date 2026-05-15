@@ -73,6 +73,26 @@ export const products: Product[] = [
     ],
     available: true,
   },
+  {
+    slug: "azure-rag-enterprise",
+    badge: "Terraform Module",
+    title: "Enterprise AI RAG — Zero-Trust Networking",
+    description:
+      "A fully isolated, audit-ready AI infrastructure blueprint. Features automated Shared Private Link approval, VNet injection, Private DNS automation, and RBAC Identity Chaining for Azure OpenAI and AI Search.",
+    price: "€79",
+    priceNote: "one-time · instant download",
+    href: "https://woitzik-cloud.lemonsqueezy.com/checkout/buy/cd786faf-92b8-41c8-876e-c3a3fdf4f823",
+    articleHref: "/blog/azure-rag-shared-private-link-automation",
+    tags: ["Azure", "Terraform", "AI", "Zero-Trust", "OpenAI"],
+    bullets: [
+      "Automated AzAPI Link Approval — no manual Portal clicks required",
+      "Full VNet Injection — Public Network Access strictly disabled",
+      "Pre-configured Identity Chaining (System Managed Identities + RBAC)",
+      "Automated Private DNS Zone linking for both services",
+      "ISO 27001 & NIS2 compliant architecture on day one",
+    ],
+    available: true,
+  },
 ];
 
 export function getProduct(slug: string): Product {
