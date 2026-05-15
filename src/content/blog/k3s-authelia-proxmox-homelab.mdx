@@ -1,0 +1,371 @@
+---
+title: "Enterprise Homelab: K3s, Authelia & Longhorn on Proxmox with Terraform"
+description: "How to build a production-grade Kubernetes homelab with K3s, Authelia SSO, Longhorn storage, and ArgoCD — and the five painful mistakes that will cost you hours if you don't know about them."
+date: "2026-05-16"
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+Most Kubernetes homelab guides stop at "kubectl get pods" and call it a day. This one doesn't.
+
+This article documents a full production-grade homelab stack: three K3s nodes provisioned via Terraform on Proxmox, GitOps-managed with ArgoCD, persistent storage via Longhorn, and Authelia as a proper SSO gateway in front of every service. The kind of setup you'd actually trust to run real workloads.
+
+It also documents every painful mistake along the way — because that's the part nobody writes about.
+
+## The Stack
+
+```
+Proxmox (Bare Metal)
+└── Terraform (proxmox provider)
+    ├── vm-srv-k3s-11 (Master,  10.0.20.11, VLAN 20)
+    ├── vm-srv-k3s-12 (Worker,  10.0.20.12, VLAN 20)
+    └── vm-srv-k3s-13 (Worker,  10.0.20.13, VLAN 20)
+        │
+        └── K3s Cluster
+            ├── ArgoCD         (GitOps controller)
+            ├── Traefik        (Ingress + TLS termination)
+            ├── cert-manager   (Wildcard cert via Let's Encrypt)
+            ├── MetalLB        (Bare-metal LoadBalancer)
+            ├── Longhorn       (Distributed block storage)
+            ├── Authelia       (SSO + 2FA gateway)
+            └── Vaultwarden    (Self-hosted Bitwarden)
+```
+
+Everything is managed as code. The VMs are Terraform resources. The cluster applications are ArgoCD Applications pointing at a Git repository. No manual `helm install`, no imperative `kubectl apply` in production.
+
+## Provisioning the Nodes with Terraform
+
+Each K3s node is a full VM clone from a template (VM ID 9000) on Proxmox, provisioned via the `proxmox_virtual_environment_vm` provider:
+
+```hcl
+resource "proxmox_virtual_environment_vm" "vm_srv_k3s_11_master" {
+  vm_id     = 211
+  name      = "vm-srv-k3s-11"
+  node_name = local.target_node
+  tags      = ["k3s", "master", "kubernetes"]
+
+  clone {
+    vm_id = 9000
+    full  = true
+  }
+
+  cpu    { cores = 4; type = "host" }
+  memory { dedicated = 8192 }
+
+  disk {
+    datastore_id = local.storage
+    interface    = "scsi0"
+    size         = 40
+    file_format  = "raw"
+  }
+
+  network_device {
+    bridge  = "vmbr0"
+    vlan_id = 20  # Dedicated server VLAN
+  }
+
+  initialization {
+    ip_config {
+      ipv4 { address = "10.0.20.11/24"; gateway = "10.0.20.1" }
+    }
+    dns { servers = ["10.0.20.5"] }
+    user_account {
+      username = "dw"
+      keys     = ["ssh-ed25519 ..."]
+    }
+  }
+}
+```
+
+`cpu.type = "host"` passes through the host CPU flags directly — important for Longhorn's checksumming and for any workload that benefits from AVX instructions. Don't use the default `kvm64` if you're running real workloads.
+
+Three identical worker definitions follow the same pattern with IPs `.12` and `.13`.
+
+## Mistake 1: Docker Hub Rate Limits
+
+The first thing that breaks on a fresh K3s cluster: Docker Hub rate limits.
+
+Pods start appearing with `ErrImagePull` or `ImagePullBackOff`. Not because the images don't exist — because Docker Hub has silently throttled anonymous pulls. In a homelab where you're constantly tearing down and rebuilding, you hit the limit fast.
+
+The fix: switch image sources entirely for the affected images.
+
+- **Bitnami images** (Postgres, Redis) → `public.ecr.aws/bitnami/...` (Amazon's public registry, no rate limits)
+- **Authelia** → `ghcr.io/authelia/authelia:latest` (GitHub Container Registry, generous limits)
+
+This should be in every K3s getting-started guide. It isn't.
+
+## Mistake 2: Longhorn & iSCSI on WSL
+
+Longhorn requires the iSCSI protocol on the host to mount virtual block devices into containers. On a standard WSL Ubuntu installation, the iSCSI daemon is missing.
+
+Symptom: pods stuck in `ContainerCreating` forever. Longhorn volumes stay `Detached` or report `volume is not ready for workloads`.
+
+Fix — run this on every node (including WSL host if applicable):
+
+```bash
+sudo apt-get install -y open-iscsi
+sudo systemctl enable iscsid
+sudo systemctl start iscsid
+```
+
+Without this, Longhorn physically cannot attach its virtual disks to the nodes. The error messages are cryptic enough that most people spend hours debugging the wrong thing.
+
+The ArgoCD Application for Longhorn itself is straightforward once iSCSI is working:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: longhorn
+  namespace: argocd
+spec:
+  source:
+    repoURL: https://charts.longhorn.io
+    targetRevision: 1.6.1
+    chart: longhorn
+    helm:
+      values: |
+        preUpgradeChecker:
+          jobEnabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: longhorn-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+```
+
+`preUpgradeChecker.jobEnabled: false` disables the pre-upgrade check job that fires on every ArgoCD sync and clutters your logs.
+
+## Traefik: TLS Termination at the Edge
+
+Traefik runs in `kube-system` managed by ArgoCD, with HTTP-to-HTTPS redirect enforced at the ingress level and a wildcard certificate from cert-manager as the default TLS store:
+
+```yaml
+source:
+  repoURL: https://helm.traefik.io/traefik
+  targetRevision: 27.0.2
+  chart: traefik
+  helm:
+    values: |
+      ports:
+        web:
+          redirectTo:
+            port: websecure
+        websecure:
+          tls:
+            enabled: true
+      ingressRoute:
+        dashboard:
+          enabled: false
+      tlsStore:
+        default:
+          defaultCertificate:
+            secretName: wildcard-woitzik-dev-tls
+```
+
+The Traefik dashboard is disabled — it exposes too much information to be left on in a production-adjacent setup. Access it via `kubectl port-forward` if you need it.
+
+## Mistake 3: Authelia's Five Failure Modes
+
+Authelia is the most opinionated component in this stack. It fails hard and fast on configuration errors, which is actually good — but the error messages aren't always obvious.
+
+Here's the full working Deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authelia
+  namespace: apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: authelia
+  template:
+    metadata:
+      labels:
+        app: authelia
+    spec:
+      enableServiceLinks: false  # Critical — see Failure Mode 1
+      containers:
+      - name: authelia
+        image: ghcr.io/authelia/authelia:latest
+        ports:
+        - containerPort: 9091
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: secrets
+          mountPath: /config/secrets
+          readOnly: true
+        env:
+        - name: AUTHELIA_STORAGE_POSTGRES_PASSWORD_FILE
+          value: /config/secrets/storage-password
+        - name: AUTHELIA_SESSION_REDIS_PASSWORD_FILE
+          value: /config/secrets/redis-password
+      volumes:
+      - name: config
+        configMap:
+          name: authelia-config
+      - name: secrets
+        secret:
+          secretName: authelia-secrets
+```
+
+**Failure Mode 1: `enableServiceLinks: false`**
+
+Kubernetes automatically injects environment variables for every Service in the namespace — including `AUTHELIA_PORT`, `AUTHELIA_PORT_9091_TCP`, and others. These collide directly with Authelia's own configuration keys and cause a fatal startup error. The fix: `enableServiceLinks: false` disables this injection entirely.
+
+**Failure Mode 2: The Read-Only Filesystem**
+
+The `notifier` in Authelia's configuration needs a writable path to write notification files (used for password reset emails in filesystem mode). The `/config` directory is mounted from a ConfigMap — which is read-only by design in Kubernetes.
+
+Wrong:
+```yaml
+notifier:
+  filesystem:
+    filename: '/config/notification.txt'  # ConfigMap = read-only = crash
+```
+
+Correct:
+```yaml
+notifier:
+  filesystem:
+    filename: '/tmp/notification.txt'  # /tmp is always writable in containers
+```
+
+**Failure Mode 3: Backend DNS Names**
+
+Authelia connects to Postgres and Redis using Kubernetes internal DNS. The full service DNS format in a multi-namespace cluster is:
+
+```yaml
+session:
+  redis:
+    host: 'redis-authelia.database.svc.cluster.local'
+    port: 6379
+
+storage:
+  postgres:
+    address: 'tcp://postgres-authelia.database.svc.cluster.local:5432'
+    database: 'authelia'
+    username: 'authelia'
+```
+
+Short names like `redis-authelia` only work within the same namespace. Since Authelia lives in `apps` and the databases in `database`, the fully qualified name is required.
+
+**Failure Mode 4: YAML Corruption via Terminal Paste**
+
+Large YAML blocks pasted via `cat <<EOF` into a terminal buffer get silently truncated or corrupted. Authelia then crashes with a fatal parse error mid-configuration. The symptom looks like a config bug but is actually a paste artifact.
+
+Fix: always use `nano` or write files via `kubectl create configmap --from-file=...`. Never trust terminal paste for multi-hundred-line configs.
+
+**Failure Mode 5: The `server.address` Key**
+
+In current Authelia versions, the server bind address is configured as:
+
+```yaml
+server:
+  address: 'tcp://0.0.0.0:9091/'
+```
+
+Older guides use `server.host` and `server.port` separately. These keys are deprecated and cause a fatal error on startup in recent versions. If you're copying config from a guide older than 6 months, double-check the key names against the current Authelia documentation.
+
+## The Full Authelia Configuration
+
+```yaml
+server:
+  address: 'tcp://0.0.0.0:9091/'
+
+log:
+  level: 'debug'
+
+identity_validation:
+  reset_password:
+    jwt_secret: '/config/secrets/jwt-secret'
+
+default_redirection_url: 'https://auth.yourdomain.com'
+
+authentication_backend:
+  file:
+    path: '/config/users_database.yml'
+
+session:
+  name: 'authelia_session'
+  domain: 'yourdomain.com'
+  secret: '/config/secrets/session-secret'
+  same_site: 'lax'
+  expiration: '1h'
+  inactivity: '5m'
+  remember_me: '1M'
+  redis:
+    host: 'redis-authelia.database.svc.cluster.local'
+    port: 6379
+    database_index: 0
+
+storage:
+  encryption_key: '/config/secrets/storage-key'
+  postgres:
+    address: 'tcp://postgres-authelia.database.svc.cluster.local:5432'
+    database: 'authelia'
+    username: 'authelia'
+
+notifier:
+  filesystem:
+    filename: '/tmp/notification.txt'
+
+access_control:
+  default_policy: 'one_factor'
+  rules:
+    - domain: 'auth.yourdomain.com'
+      policy: 'bypass'
+```
+
+## The Ingress
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: authelia-ingress
+  namespace: apps
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: auth.yourdomain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: authelia
+            port:
+              number: 9091
+```
+
+## The Result
+
+After navigating Docker Hub rate limits, iSCSI daemons, Kubernetes service link injection, read-only ConfigMap filesystems, and deprecated configuration keys — the stack runs cleanly:
+
+- Every service behind Authelia SSO with Redis-backed sessions
+- Persistent storage via Longhorn distributed across three nodes
+- GitOps-managed via ArgoCD — every change is a Git commit
+- Wildcard TLS via cert-manager and Traefik
+- Zero manual `kubectl apply` in steady state
+
+The entire infrastructure — from bare metal to running pods — is reproducible from a `terraform apply` and a Git repository.
+
+If this level of network isolation and identity management sounds familiar from your corporate Azure environment, the same principles apply there — just with different primitives.
+
+## Wrapping Up
+
+If this level of network isolation and identity management sounds familiar 
+from your corporate Azure environment, the same principles apply there — 
+just with different primitives. Check out the 
+[Enterprise Terraform Blueprints](/templates) if you're building 
+for regulated environments.
