@@ -1,0 +1,200 @@
+---
+title: "Bare-Metal LoadBalancer on K3s: MetalLB + Traefik with ArgoCD"
+description: "How to get a real external IP on a bare-metal Kubernetes cluster using MetalLB L2 mode, and wire it up with Traefik for automatic HTTPS — fully GitOps-managed with ArgoCD."
+date: "2026-05-18"
+---
+
+Cloud Kubernetes clusters get LoadBalancers for free. You create a Service of type `LoadBalancer`, and within seconds your cloud provider hands you a public IP. On a bare-metal K3s cluster running on Proxmox VMs, that request hangs in `<pending>` forever.
+
+This is the first thing that breaks every homelab Kubernetes setup. MetalLB fixes it — but wiring it up correctly with Traefik and ArgoCD has a few non-obvious steps.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Why `<pending>` Happens
+
+Kubernetes delegates `LoadBalancer` service provisioning to the underlying cloud provider. On bare metal, there is no cloud provider — so the controller just waits forever for an external IP that never comes.
+
+MetalLB fills this gap by implementing a software load balancer that integrates directly with the Kubernetes API. In L2 mode, it responds to ARP requests for the assigned IP on your local network, making the service reachable like any other device on the subnet.
+
+## The Architecture
+
+```
+External Request (10.0.20.200)
+        │
+        ▼
+MetalLB (L2 ARP — announces IP on VLAN 20)
+        │
+        ▼
+Traefik Service (LoadBalancer type)
+        │
+        ├── Ingress: auth.yourdomain.com → Authelia
+        ├── Ingress: vault.yourdomain.com → Vaultwarden
+        └── Ingress: *.yourdomain.com → Wildcard TLS
+```
+
+MetalLB owns the IP. Traefik owns the routing. ArgoCD owns both.
+
+## Step 1: Deploy MetalLB via ArgoCD
+
+MetalLB ships as a Helm chart. The ArgoCD Application is minimal:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metallb
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://metallb.github.io/metallb
+    targetRevision: 0.14.3
+    chart: metallb
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: metallb-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+```
+
+This deploys the MetalLB controller and speaker pods but does not configure any IP pools yet. The configuration lives in a separate ArgoCD Application pointing at your Git repository — this is the App-of-Apps pattern in action.
+
+## Step 2: Configure the IP Pool
+
+MetalLB configuration is done via Kubernetes CRDs after v0.13. Two resources are required: an `IPAddressPool` that defines the range, and an `L2Advertisement` that tells MetalLB to announce those IPs via ARP on the local network.
+
+```yaml
+# kubernetes/system/metallb-config/pool.yaml
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: first-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 10.0.20.200-10.0.20.240
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: example
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - first-pool
+```
+
+The range `10.0.20.200-10.0.20.240` sits inside VLAN 20 (the server VLAN) but outside the DHCP range — so no address conflicts with dynamically assigned devices.
+
+The separate ArgoCD Application that applies this config:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metallb-config
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dwoitzik/homelab-infrastructure.git
+    targetRevision: HEAD
+    path: kubernetes/system/metallb-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: metallb-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+Splitting the Helm chart deployment from the CRD configuration into two separate Applications is intentional. MetalLB CRDs must exist before the configuration resources can be applied — ArgoCD's sync waves handle this ordering, but keeping them separate makes the dependency explicit and avoids race conditions on fresh cluster installs.
+
+## Step 3: Traefik as the Ingress Controller
+
+K3s ships with Traefik by default, but managing it via ArgoCD gives you version control and declarative configuration. We disable the built-in K3s Traefik and deploy our own:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://helm.traefik.io/traefik
+    targetRevision: 27.0.2
+    chart: traefik
+    helm:
+      values: |
+        ports:
+          web:
+            redirectTo:
+              port: websecure
+          websecure:
+            tls:
+              enabled: true
+        ingressRoute:
+          dashboard:
+            enabled: false
+        tlsStore:
+          default:
+            defaultCertificate:
+              secretName: wildcard-yourdomain-tls
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+Three deliberate decisions here:
+
+**`web.redirectTo: websecure`** — all HTTP traffic is immediately redirected to HTTPS at the ingress level. No application needs to handle this itself.
+
+**`tlsStore.default.defaultCertificate`** — sets the wildcard certificate as the default TLS certificate for all Ingress resources that don't specify their own. Every service behind Traefik gets HTTPS automatically.
+
+**`dashboard.enabled: false`** — the Traefik dashboard exposes routing configuration and middleware details. Disabled in production-adjacent setups; access it via `kubectl port-forward` when needed.
+
+## Step 4: Verify MetalLB Assignment
+
+After deploying both Applications and syncing, check that Traefik received an external IP:
+
+```bash
+kubectl get svc -n kube-system traefik
+```
+
+Expected output:
+```
+NAME      TYPE           CLUSTER-IP     EXTERNAL-IP    PORT(S)
+traefik   LoadBalancer   10.96.x.x      10.0.20.200    80:xxx/TCP,443:xxx/TCP
+```
+
+If `EXTERNAL-IP` shows `<pending>`, MetalLB is not yet running or the IP pool is not configured. Check the MetalLB speaker logs:
+
+```bash
+kubectl logs -n metallb-system -l component=speaker
+```
+
+## The Result
+
+Once MetalLB and Traefik are running:
+
+- Any Service of type `LoadBalancer` in the cluster gets a real IP from the `10.0.20.200-10.0.20.240` pool
+- Any Ingress resource gets automatic HTTPS via the wildcard certificate
+- HTTP is redirected to HTTPS at the edge — no application configuration needed
+- Everything is GitOps-managed — a `git push` is the only deployment mechanism
+
+Point your DNS wildcard (`*.yourdomain.com`) at `10.0.20.200` and every Ingress you create is immediately reachable with valid TLS.
+
+---
+
+The same principles — centralized ingress, TLS termination at the edge, declarative configuration — apply directly to enterprise Azure environments. In Azure, the equivalent is an Application Gateway or Azure Firewall in front of a private AKS cluster. If you are building that for a regulated environment, the [Enterprise Terraform Blueprints](/templates) cover the network isolation layer.

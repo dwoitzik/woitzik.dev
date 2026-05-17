@@ -1,0 +1,195 @@
+---
+title: "GitOps on K3s: Managing a Complete Homelab with ArgoCD"
+description: "How to manage an entire Kubernetes homelab — MetalLB, Traefik, Longhorn, Authelia, and more — as a Git repository using ArgoCD's App-of-Apps pattern."
+date: "2026-05-20"
+---
+
+Most Kubernetes tutorials end with `kubectl apply -f`. You deploy something, it works, and you move on. Three weeks later you have no idea what's running in your cluster, why it's configured that way, or how to recreate it if something breaks.
+
+GitOps solves this. With ArgoCD, your Git repository is the single source of truth for everything in the cluster. No manual `kubectl apply`, no Helm commands in your shell history, no configuration drift. If it's not in Git, it doesn't exist.
+
+This article documents how a complete homelab stack — MetalLB, Traefik, Longhorn, cert-manager, Authelia, and Vaultwarden — is managed as a single Git repository using ArgoCD's App-of-Apps pattern.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Repository Structure
+
+Everything lives in one repository under a `kubernetes/` directory:
+
+```
+homelab-infrastructure/
+└── kubernetes/
+    ├── apps/                    # User-facing applications
+    │   ├── authelia/
+    │   │   ├── authelia.yml     # Deployment + Service
+    │   │   ├── configuration.yml # ConfigMap
+    │   │   ├── ingress.yml
+    │   │   └── users_database.yml
+    │   └── vaultwarden/
+    │       ├── ingress.yml
+    │       └── pvc.yml
+    └── system/                  # Cluster infrastructure
+        ├── argocd-config/       # ArgoCD Application definitions
+        ├── cert-manager/        # Helm chart Application
+        ├── cert-manager-config/ # ClusterIssuer + Certificate CRDs
+        ├── longhorn/            # Helm chart Application
+        ├── metallb/             # Helm chart Application
+        ├── metallb-config/      # IPAddressPool + L2Advertisement
+        ├── traefik/             # Helm chart Application
+        └── test-app/            # nginx for smoke testing
+```
+
+The separation between `apps/` and `system/` is intentional. System components are cluster infrastructure — they need to exist before applications can run. Applications are workloads that depend on system components. ArgoCD sync waves enforce this ordering.
+
+## The App-of-Apps Pattern
+
+Instead of manually creating each ArgoCD Application, we use the App-of-Apps pattern: a single root Application that points at the `argocd-config/` directory, which contains Application manifests for everything else.
+
+The root Application:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dwoitzik/homelab-infrastructure.git
+    targetRevision: HEAD
+    path: kubernetes/system/argocd-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+This single Application bootstraps everything else. Once ArgoCD is installed and this root Application is created, the cluster self-assembles from Git.
+
+## How Applications Are Structured
+
+Each component follows one of two patterns depending on whether it's a Helm chart or raw manifests.
+
+**Pattern 1: Helm Chart from External Registry**
+
+For upstream charts (MetalLB, Traefik, Longhorn, cert-manager), the Application points directly at the Helm repository:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    targetRevision: v1.14.4
+    chart: cert-manager
+    helm:
+      values: |
+        installCRDs: true
+        extraArgs:
+          - --dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53
+          - --dns01-recursive-nameservers-only
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+```
+
+The chart version is pinned (`v1.14.4`) — never use `latest` for system components. You want to control when upgrades happen, not have ArgoCD surprise you on a random sync.
+
+**Pattern 2: Raw Manifests from Git**
+
+For CRD configurations and custom resources that extend Helm charts, a separate Application points at a path in the Git repository:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-config
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dwoitzik/homelab-infrastructure.git
+    targetRevision: main
+    path: kubernetes/system/cert-manager-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+This pattern — Helm chart Application + separate config Application — appears for MetalLB, cert-manager, and Longhorn. The split is necessary because CRDs installed by the Helm chart must exist before the configuration resources can be applied. Two Applications with an implicit ordering is cleaner than trying to manage this inside a single Application.
+
+## The Deployment Workflow
+
+Once the cluster is running, the entire deployment workflow is:
+
+```
+1. Edit a file in the repository
+2. git commit -m "describe the change"
+3. git push
+```
+
+ArgoCD polls the repository every 3 minutes by default. Within 3 minutes of a push, ArgoCD detects the drift between the desired state (Git) and the actual state (cluster), and reconciles automatically.
+
+No `kubectl apply`. No `helm upgrade`. No SSH into nodes. The Git history is the deployment log.
+
+## Handling the Bootstrap Problem
+
+There is one chicken-and-egg problem: ArgoCD itself must exist before it can manage anything. The bootstrap sequence is:
+
+```bash
+# 1. Install ArgoCD itself (one-time manual step)
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# 2. Create the root Application (one-time manual step)
+kubectl apply -f kubernetes/system/argocd-config/root-app.yaml
+
+# 3. Everything else is automatic
+```
+
+After step 2, ArgoCD reads the `argocd-config/` directory, creates all the child Applications, and the cluster self-assembles. This two-step bootstrap is the only manual intervention required for a full cluster rebuild.
+
+## Automated vs Manual Sync
+
+All Applications in this setup use `automated` sync with `selfHeal: true`. This means:
+
+- ArgoCD automatically applies changes when it detects drift from Git
+- If someone manually changes something in the cluster (`kubectl edit`, Portal click, etc.), ArgoCD reverts it within minutes
+- `prune: true` means resources deleted from Git are deleted from the cluster
+
+This is intentionally strict. The cluster enforces Git as the source of truth — manual changes don't survive a sync cycle.
+
+For production workloads where you want to review changes before they apply, switch to manual sync and use ArgoCD's UI or CLI to approve deployments.
+
+## The Result
+
+With ArgoCD managing the full stack:
+
+- **Reproducibility** — a fresh cluster rebuilds itself from `git push` in under 10 minutes
+- **Auditability** — every change is a Git commit with author, timestamp, and diff
+- **Drift prevention** — `selfHeal: true` reverts any manual changes automatically
+- **Dependency management** — the App-of-Apps pattern enforces ordering between system and application components
+
+The entire homelab — from bare metal to running Authelia and Vaultwarden — is a Git repository. If the cluster burns down, `kubectl apply -f root-app.yaml` and wait.
+
+---
+
+The same GitOps principles apply in enterprise Azure environments — with Terraform as the infrastructure layer and ArgoCD or Flux managing the application layer on top of AKS. If you are building the Azure network foundation for a regulated environment, the [Enterprise Terraform Blueprints](/templates) cover the Zero-Trust networking layer that sits underneath.
