@@ -29,6 +29,7 @@ interface Props {
 
 const { post, prev, next } = Astro.props;
 const { Content, headings } = await post.render();
+const tocHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
 
 const jsonLd = {
   "@context": "https://schema.org",
@@ -50,6 +51,14 @@ const jsonLd = {
   description={post.data.description}
   image={`/og/${post.slug}.png`}
 >
+  <!-- Reading progress bar -->
+  <div
+    id="reading-progress"
+    class="fixed top-0 left-0 h-[2px] bg-sky-500 z-[60] transition-[width] duration-75 ease-out pointer-events-none"
+    style="width: 0%"
+  >
+  </div>
+
   <Container>
     <div class="animate">
       <BackToPrev href="/blog/">Back to blog</BackToPrev>
@@ -80,49 +89,81 @@ const jsonLd = {
       }
     </div>
 
-    <div class="animate">
-      <TableOfContents headings={headings} />
-    </div>
-
-    <article class="animate">
-      <Content />
-    </article>
-
+    <!-- Mobile TOC (hidden on large screens) -->
     {
-      (prev || next) && (
-        <nav class="animate mt-12 pt-8 border-t border-neutral-200 dark:border-neutral-800 grid grid-cols-2 gap-4">
-          {prev ? (
-            <a
-              href={`/blog/${prev.slug}/`}
-              class="group flex flex-col gap-1 text-sm"
-            >
-              <span class="text-xs opacity-40 uppercase tracking-widest">
-                Previous
-              </span>
-              <span class="text-black dark:text-white font-medium group-hover:text-sky-500 transition-colors leading-snug">
-                &larr; {prev.data.title}
-              </span>
-            </a>
-          ) : (
-            <div />
-          )}
-          {next && (
-            <a
-              href={`/blog/${next.slug}/`}
-              class="group flex flex-col gap-1 text-sm text-right ml-auto"
-            >
-              <span class="text-xs opacity-40 uppercase tracking-widest">
-                Next
-              </span>
-              <span class="text-black dark:text-white font-medium group-hover:text-sky-500 transition-colors leading-snug">
-                {next.data.title} &rarr;
-              </span>
-            </a>
-          )}
-        </nav>
+      tocHeadings.length > 1 && (
+        <div class="animate lg:hidden">
+          <TableOfContents headings={headings} />
+        </div>
       )
     }
+
+    <!-- Two-column layout: article + sticky sidebar TOC on desktop -->
+    <div
+      class={`${tocHeadings.length > 1 ? "lg:grid lg:grid-cols-[1fr_220px] lg:gap-10 lg:items-start" : ""}`}
+    >
+      <div>
+        <article class="animate">
+          <Content />
+        </article>
+
+        {
+          (prev || next) && (
+            <nav class="animate mt-12 pt-8 border-t border-neutral-200 dark:border-neutral-800 grid grid-cols-2 gap-4">
+              {prev ? (
+                <a
+                  href={`/blog/${prev.slug}/`}
+                  class="group flex flex-col gap-1 text-sm"
+                >
+                  <span class="text-xs opacity-40 uppercase tracking-widest">
+                    Previous
+                  </span>
+                  <span class="text-black dark:text-white font-medium group-hover:text-sky-500 transition-colors leading-snug">
+                    &larr; {prev.data.title}
+                  </span>
+                </a>
+              ) : (
+                <div />
+              )}
+              {next && (
+                <a
+                  href={`/blog/${next.slug}/`}
+                  class="group flex flex-col gap-1 text-sm text-right ml-auto"
+                >
+                  <span class="text-xs opacity-40 uppercase tracking-widest">
+                    Next
+                  </span>
+                  <span class="text-black dark:text-white font-medium group-hover:text-sky-500 transition-colors leading-snug">
+                    {next.data.title} &rarr;
+                  </span>
+                </a>
+              )}
+            </nav>
+          )
+        }
+      </div>
+
+      <!-- Desktop sticky TOC -->
+      {
+        tocHeadings.length > 1 && (
+          <aside class="hidden lg:block sticky top-24 animate">
+            <TableOfContents headings={headings} sidebar />
+          </aside>
+        )
+      }
+    </div>
   </Container>
 </PageLayout>
 
 <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+
+<script is:inline>
+  function updateProgress() {
+    var bar = document.getElementById("reading-progress");
+    if (!bar) return;
+    var scrolled = window.scrollY;
+    var total = document.documentElement.scrollHeight - window.innerHeight;
+    bar.style.width = total > 0 ? (scrolled / total) * 100 + "%" : "0%";
+  }
+  window.addEventListener("scroll", updateProgress, { passive: true });
+</script>

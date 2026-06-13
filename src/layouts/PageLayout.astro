@@ -3,7 +3,7 @@ import Head from "@components/Head.astro";
 import Header from "@components/Header.astro";
 import Footer from "@components/Footer.astro";
 import { SITE } from "@consts";
-import Analytics from '@vercel/analytics/astro';
+import Analytics from "@vercel/analytics/astro";
 
 type Props = {
   title: string;
@@ -17,7 +17,11 @@ const { title, description, image } = Astro.props;
 <!doctype html>
 <html lang="en">
   <head>
-  <Head title={`${title} | ${SITE.NAME}`} description={description} image={image} />
+    <Head
+      title={`${title} | ${SITE.NAME}`}
+      description={description}
+      image={image}
+    />
   </head>
   <body>
     <Header />
@@ -26,5 +30,37 @@ const { title, description, image } = Astro.props;
     </main>
     <Footer />
     <Analytics />
+    <button
+      id="back-to-top"
+      aria-label="Back to top"
+      class="fixed bottom-6 right-6 z-40 p-2.5 rounded-full bg-neutral-900 dark:bg-white text-white dark:text-black shadow-lg transition-opacity duration-300"
+      onclick="window.scrollTo({top:0,behavior:'smooth'})"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M18 15l-6-6-6 6"></path>
+      </svg>
+    </button>
+    <script is:inline>
+      function handleBackToTop() {
+        document.documentElement.classList.toggle(
+          "scrolled",
+          window.scrollY > 400,
+        );
+      }
+      window.addEventListener("scroll", handleBackToTop, { passive: true });
+      document.addEventListener("astro:after-swap", function () {
+        window.addEventListener("scroll", handleBackToTop, { passive: true });
+      });
+    </script>
   </body>
 </html>
