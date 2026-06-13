@@ -53,36 +53,50 @@ import Container from "@components/Container.astro";
 </style>
 
 <script is:inline>
+  function loadScript(src, id) {
+    return new Promise(function (resolve, reject) {
+      if (document.getElementById(id)) {
+        resolve();
+        return;
+      }
+      var s = document.createElement("script");
+      s.id = id;
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
   function initSearch() {
-    const el = document.getElementById("pagefind-search");
+    var el = document.getElementById("pagefind-search");
     if (!el) return;
     el.innerHTML = "";
 
     if (!document.getElementById("pagefind-css")) {
-      const link = document.createElement("link");
+      var link = document.createElement("link");
       link.id = "pagefind-css";
       link.rel = "stylesheet";
       link.href = "/pagefind/pagefind-ui.css";
       document.head.appendChild(link);
     }
 
-    import("/pagefind/pagefind-ui.js")
-      .then(({ PagefindUI }) => {
-        new PagefindUI({
+    loadScript("/pagefind/pagefind-ui.js", "pagefind-script")
+      .then(function () {
+        new window.PagefindUI({
           element: "#pagefind-search",
           showSubResults: false,
           showImages: false,
           resetStyles: false,
         });
-        el.querySelector("input")?.focus();
+        el.querySelector("input") && el.querySelector("input").focus();
       })
-      .catch(() => {
-        el.innerHTML = '<p class="text-sm text-neutral-500">Search is not available in this environment.</p>';
+      .catch(function () {
+        el.innerHTML =
+          '<p class="text-sm text-neutral-500">Search is not available in this environment.</p>';
       });
   }
 
-  // Run immediately — script executes after the DOM is ready on this page
   initSearch();
-  // Re-run on future navigations back to this page
   document.addEventListener("astro:after-swap", initSearch);
 </script>
