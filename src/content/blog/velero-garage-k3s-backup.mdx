@@ -2,6 +2,7 @@
 title: "k3s Backup Without the Complexity: Velero + Garage S3 on Longhorn"
 description: "Replace MinIO with Garage — a single 50MB binary — as the Velero backup target. Full daily cluster backups with Longhorn volume snapshots, deployed via ArgoCD."
 date: "2026-06-20"
+tags: ["Kubernetes", "Homelab"]
 ---
 
 Every Kubernetes cluster needs a backup strategy. For a homelab running on bare metal, the options are limited: `etcd` snapshots cover cluster state but not persistent volumes, and MinIO is the standard S3 target for Velero — but MinIO is large, opinionated, and overkill for a single-node homelab.

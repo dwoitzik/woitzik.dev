@@ -1,0 +1,22 @@
+---
+import PageLayout from "@layouts/PageLayout.astro";
+import Container from "@components/Container.astro";
+import Link from "@components/Link.astro";
+---
+
+<PageLayout title="404 — Not Found" description="This page doesn't exist.">
+  <Container>
+    <div class="animate flex flex-col gap-6">
+      <div class="text-8xl font-black text-black dark:text-white tracking-tighter opacity-10">404</div>
+      <div class="space-y-2">
+        <h1 class="text-2xl font-bold text-black dark:text-white">Page not found</h1>
+        <p class="text-neutral-500 dark:text-neutral-400">This page doesn't exist or has been moved.</p>
+      </div>
+      <div class="flex gap-4 text-sm font-medium">
+        <Link href="/">Go home &rarr;</Link>
+        <Link href="/blog/">Browse articles &rarr;</Link>
+        <Link href="/templates/">View templates &rarr;</Link>
+      </div>
+    </div>
+  </Container>
+</PageLayout>

@@ -1,0 +1,62 @@
+---
+import PageLayout from "@layouts/PageLayout.astro";
+import Container from "@components/Container.astro";
+---
+
+<PageLayout title="Search" description="Search articles on woitzik.dev">
+  <Container>
+    <div class="space-y-6">
+      <div class="animate font-semibold text-black dark:text-white">Search</div>
+      <div id="search" class="animate"></div>
+    </div>
+  </Container>
+</PageLayout>
+
+<link href="/pagefind/pagefind-ui.css" rel="stylesheet" />
+<script is:inline>
+  window.addEventListener("DOMContentLoaded", () => {
+    import("/pagefind/pagefind-ui.js").then(({ PagefindUI }) => {
+      new PagefindUI({
+        element: "#search",
+        showSubResults: false,
+        showImages: false,
+      });
+    });
+  });
+</script>
+
+<style is:global>
+  .pagefind-ui__search-input {
+    border-radius: 0.75rem !important;
+    border-color: rgb(229 229 229) !important;
+    background: white !important;
+    font-size: 0.875rem !important;
+  }
+  .dark .pagefind-ui__search-input {
+    border-color: rgb(38 38 38) !important;
+    background: rgb(23 23 23) !important;
+    color: white !important;
+  }
+  .pagefind-ui__result {
+    border-bottom: 1px solid rgb(229 229 229) !important;
+    padding: 1rem 0 !important;
+  }
+  .dark .pagefind-ui__result {
+    border-color: rgb(38 38 38) !important;
+  }
+  .pagefind-ui__result-title a {
+    color: rgb(0 0 0) !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
+  }
+  .dark .pagefind-ui__result-title a {
+    color: white !important;
+  }
+  .pagefind-ui__result-title a:hover {
+    color: rgb(14 165 233) !important;
+  }
+  .pagefind-ui__button {
+    border-radius: 0.5rem !important;
+    font-size: 0.875rem !important;
+  }
+</style>

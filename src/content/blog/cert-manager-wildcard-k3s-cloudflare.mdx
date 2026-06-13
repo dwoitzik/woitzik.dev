@@ -2,6 +2,7 @@
 title: "Wildcard TLS Certificates on K3s with cert-manager and Cloudflare DNS"
 description: "How to automate wildcard Let's Encrypt certificates on a bare-metal K3s cluster using cert-manager's DNS-01 challenge with Cloudflare — and why HTTP-01 won't work for internal services."
 date: "2026-05-22"
+tags: ["Kubernetes", "Homelab", "Security"]
 ---
 
 Getting TLS certificates for public-facing services is straightforward — Let's Encrypt's HTTP-01 challenge just works. But for a homelab where services run on internal IPs behind a firewall, HTTP-01 is impossible. Let's Encrypt can't reach your cluster to verify ownership.

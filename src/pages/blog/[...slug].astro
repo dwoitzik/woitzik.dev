@@ -11,41 +11,84 @@ export async function getStaticPaths() {
   const posts = (await getCollection("blog"))
     .filter(post => !post.data.draft)
     .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
-  return posts.map((post) => ({
+  return posts.map((post, index) => ({
     params: { slug: post.slug },
-    props: post,
+    props: { post, prev: posts[index + 1] ?? null, next: posts[index - 1] ?? null },
   }));
 }
-type Props = CollectionEntry<"blog">;
 
-const post = Astro.props;
+interface Props {
+  post: CollectionEntry<"blog">;
+  prev: CollectionEntry<"blog"> | null;
+  next: CollectionEntry<"blog"> | null;
+}
+
+const { post, prev, next } = Astro.props;
 const { Content, headings } = await post.render();
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": post.data.title,
+  "description": post.data.description,
+  "datePublished": post.data.date.toISOString(),
+  "author": { "@type": "Person", "name": "David Woitzik", "url": "https://woitzik.dev" },
+  "url": `https://woitzik.dev/blog/${post.slug}/`,
+};
 ---
 
 <PageLayout title={post.data.title} description={post.data.description} image={`/og/${post.slug}.png`}>
   <Container>
     <div class="animate">
-      <BackToPrev href="/blog">
-        Back to blog
-      </BackToPrev>
+      <BackToPrev href="/blog/">Back to blog</BackToPrev>
     </div>
-    <div class="space-y-1 my-10">
-      <div class="animate flex items-center gap-1.5">
-        <div class="font-sans text-sm">
-          <FormattedDate date={post.data.date} />
-        </div>
+
+    <div class="space-y-3 my-10">
+      <div class="animate flex items-center gap-1.5 text-sm opacity-60">
+        <FormattedDate date={post.data.date} />
         &bull;
-        <div class="font-sans text-sm">
-          {readingTime(post.body)}
-        </div>
+        <span>{readingTime(post.body)}</span>
       </div>
-      <div class="animate text-2xl font-semibold text-black dark:text-white">
+      <h1 class="animate text-2xl font-semibold text-black dark:text-white">
         {post.data.title}
-      </div>
+      </h1>
+      {post.data.tags && post.data.tags.length > 0 && (
+        <div class="animate flex flex-wrap gap-2">
+          {post.data.tags.map(tag => (
+            <a
+              href={`/blog/tag/${tag.toLowerCase()}/`}
+              class="text-xs px-2 py-0.5 rounded border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-sky-500 hover:text-sky-500 transition-colors"
+            >
+              {tag}
+            </a>
+          ))}
+        </div>
+      )}
     </div>
+
     <TableOfContents headings={headings} />
+
     <article class="animate">
       <Content />
     </article>
+
+    {(prev || next) && (
+      <nav class="animate mt-12 pt-8 border-t border-neutral-200 dark:border-neutral-800 grid grid-cols-2 gap-4">
+        {prev ? (
+          <a href={`/blog/${prev.slug}/`} class="group flex flex-col gap-1 text-sm">
+            <span class="text-xs opacity-40 uppercase tracking-widest">Previous</span>
+            <span class="text-black dark:text-white font-medium group-hover:text-sky-500 transition-colors leading-snug">&larr; {prev.data.title}</span>
+          </a>
+        ) : <div />}
+        {next && (
+          <a href={`/blog/${next.slug}/`} class="group flex flex-col gap-1 text-sm text-right ml-auto">
+            <span class="text-xs opacity-40 uppercase tracking-widest">Next</span>
+            <span class="text-black dark:text-white font-medium group-hover:text-sky-500 transition-colors leading-snug">{next.data.title} &rarr;</span>
+          </a>
+        )}
+      </nav>
+    )}
   </Container>
 </PageLayout>
+
+<script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />

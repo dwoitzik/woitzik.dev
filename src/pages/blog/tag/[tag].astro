@@ -1,0 +1,32 @@
+---
+import { getCollection } from "astro:content";
+import PageLayout from "@layouts/PageLayout.astro";
+import Container from "@components/Container.astro";
+import ArrowCard from "@components/ArrowCard.astro";
+
+export async function getStaticPaths() {
+  const posts = await getCollection("blog");
+  const tags = [...new Set(posts.flatMap(p => p.data.tags ?? []))];
+  return tags.map(tag => ({
+    params: { tag: tag.toLowerCase() },
+    props: { tag, posts: posts.filter(p => p.data.tags?.includes(tag) && !p.data.draft).sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf()) },
+  }));
+}
+
+const { tag, posts } = Astro.props;
+---
+
+<PageLayout title={`${tag} articles`} description={`All articles tagged with ${tag} on woitzik.dev`}>
+  <Container>
+    <div class="space-y-8">
+      <div class="animate space-y-1">
+        <div class="text-xs font-bold uppercase tracking-widest opacity-40">Tag</div>
+        <h1 class="font-bold text-2xl text-black dark:text-white">{tag}</h1>
+        <p class="text-sm text-neutral-500">{posts.length} article{posts.length !== 1 ? "s" : ""}</p>
+      </div>
+      <ul class="animate flex flex-col gap-3">
+        {posts.map(post => <li><ArrowCard entry={post} /></li>)}
+      </ul>
+    </div>
+  </Container>
+</PageLayout>

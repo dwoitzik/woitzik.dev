@@ -2,6 +2,7 @@
 title: "Bare-Metal LoadBalancer on K3s: MetalLB + Traefik with ArgoCD"
 description: "How to get a real external IP on a bare-metal Kubernetes cluster using MetalLB L2 mode, and wire it up with Traefik for automatic HTTPS — fully GitOps-managed with ArgoCD."
 date: "2026-05-18"
+tags: ["Kubernetes", "Homelab", "Networking"]
 ---
 
 Cloud Kubernetes clusters get LoadBalancers for free. You create a Service of type `LoadBalancer`, and within seconds your cloud provider hands you a public IP. On a bare-metal K3s cluster running on Proxmox VMs, that request hangs in `<pending>` forever.
