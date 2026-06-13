@@ -101,7 +101,7 @@ spec:
 
 ## Step 2: Grafana OIDC via Authelia
 
-Grafana's generic OAuth provider connects to Authelia. Users authenticate once — the same session covers Grafana, Vaultwarden, and every other protected service.
+Grafana's generic OAuth provider connects to [Authelia](/blog/k3s-authelia-proxmox-homelab). Users authenticate once — the same session covers Grafana, Vaultwarden, and every other protected service.
 
 ```yaml
         grafana:
@@ -151,7 +151,7 @@ identity_providers:
 
 ## Step 3: Loki with Garage S3 Storage
 
-Loki needs durable object storage. Storing logs on a local PVC means a node failure loses your log history. Garage — the same lightweight S3 instance backing Velero — handles this.
+Loki needs durable object storage. Storing logs on a local PVC means a node failure loses your log history. Garage — the same lightweight S3 instance [already deployed for Velero backups](/blog/velero-garage-k3s-backup) — handles this.
 
 ```yaml
 # kubernetes/system/monitoring/loki.yaml
