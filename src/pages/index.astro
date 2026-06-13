@@ -65,60 +65,46 @@ const techStack = [
       </div>
     </section>
 
-    <div class="space-y-24 mt-24">
-      
+    <div class="space-y-12 mt-12">
+
       {blog.length > 0 && (
-        <section class="animate space-y-6 mt-12 mb-16">
+        <section class="animate space-y-4">
           <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
             <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">Enterprise Blueprints & Articles</h2>
             <Link href="/blog" class="text-xs opacity-50 hover:opacity-100 transition-opacity">View all &rarr;</Link>
           </div>
-          <div class="grid grid-cols-1 gap-4">
-            {blog.slice(0, 3).map(post => (
-              <div class="group p-6 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-500 transition-colors">
-                <div class="flex justify-between items-start mb-4">
-                  <div>
-                    <div class="flex items-center gap-3 flex-wrap">
-                      <h3 class="font-bold text-lg text-black dark:text-white">{post.data.title}</h3>
-                      <span class="text-xs opacity-40 shrink-0">
-                        {post.data.date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
-                      </span>
-                    </div>
-                    <p class="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-                      {post.data.description}
-                    </p>
-                  </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {blog.slice(0, 4).map(post => (
+              <a href={`/blog/${post.slug}/`} class="group flex flex-col gap-2 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-500 transition-colors">
+                <div class="flex items-center gap-2 justify-between">
+                  <h3 class="font-semibold text-sm text-black dark:text-white leading-snug">{post.data.title}</h3>
+                  <span class="text-xs opacity-30 shrink-0">{post.data.date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>
                 </div>
-                <div class="flex gap-4 text-sm font-medium mt-4">
-                  <Link href={`/blog/${post.slug}`} class="text-sky-500 hover:text-sky-600">Read Article &rarr;</Link>
-                </div>
-              </div>
+                <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">{post.data.description}</p>
+                <span class="text-xs text-sky-500 mt-auto">Read &rarr;</span>
+              </a>
             ))}
           </div>
         </section>
       )}
 
-      <div class="animate">
-        <EmailCapture />
-      </div>
-
-      <section class="animate space-y-6">
+      <section class="animate space-y-4">
         <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
           <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">Enterprise Modules</h2>
           <Link href="/templates" class="text-xs opacity-50 hover:opacity-100 transition-opacity">View all &rarr;</Link>
         </div>
-        <div class="grid grid-cols-1 gap-3">
-          {products.filter(p => p.available).slice(0, 3).map(product => (
-            <div class="flex items-center justify-between p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-500 transition-colors group">
-              <div class="min-w-0">
-                <div class="font-semibold text-sm text-black dark:text-white truncate">{product.title}</div>
-                <div class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 flex gap-2 flex-wrap">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {products.filter(p => p.available).map(product => (
+            <div class="flex flex-col gap-3 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-500 transition-colors">
+              <div>
+                <div class="font-semibold text-sm text-black dark:text-white">{product.title}</div>
+                <div class="text-xs text-neutral-500 dark:text-neutral-400 mt-1 flex gap-2 flex-wrap">
                   {product.tags.slice(0, 3).map(tag => (
                     <span>{tag}</span>
                   ))}
                 </div>
               </div>
-              <div class="flex items-center gap-4 shrink-0 ml-4">
+              <div class="flex items-center justify-between mt-auto">
                 <span class="font-bold text-sm text-black dark:text-white">{product.price}</span>
                 <a
                   href={product.href}
@@ -134,13 +120,17 @@ const techStack = [
         </div>
       </section>
 
+      <div class="animate">
+        <EmailCapture />
+      </div>
+
       {projects.length > 0 && (
-        <section class="animate space-y-6">
+        <section class="animate space-y-4">
           <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
             <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">Projects</h2>
             <Link href="/projects" class="text-xs opacity-50 hover:opacity-100 transition-opacity">View all &rarr;</Link>
           </div>
-          <div class="grid grid-cols-1 gap-4">
+          <div class="grid grid-cols-1 gap-3">
             {projects.slice(0, 3).map(project => (
               <ArrowCard entry={project} />
             ))}
