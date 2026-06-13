@@ -1,27 +1,25 @@
 ---
 title: "Homelab Infrastructure as Code"
-description: "Hybrid Cloud environment with Proxmox, Azure Arc and MikroTik."
+description: "Full-stack homelab managed entirely through Terraform and Ansible — Proxmox, k3s, MikroTik, and GitOps via Atlantis."
 date: "2026-03-24"
 repoURL: "https://github.com/dwoitzik/homelab-infrastructure"
 ---
 
-This project manages the lifecycle of local hardware and integrated cloud services through automated workflows. It serves as my primary sandbox for testing enterprise-grade configurations in a home environment.
+Production-grade infrastructure patterns running on consumer hardware. Everything is code — no manual clicks, no configuration drift.
 
-### Infrastructure Stack
-- **Hypervisor:** Proxmox VE (Ryzen 7 5725U)
-- **Networking:** MikroTik RB5009 (RouterOS) with strict VLAN-based segmentation.
-- **Edge Nodes:** 2x Raspberry Pi 4B (Debian) for lightweight services.
-- **Cloud Governance:** Microsoft Azure (Arc-enabled) for a true Hybrid Cloud experience.
+### Stack
+- **Hypervisor:** Proxmox VE on Ryzen 7 5725U
+- **Orchestration:** k3s (single-node) with ArgoCD GitOps
+- **Networking:** MikroTik RB5009 — zero-trust firewall, VLAN segmentation, WireGuard VPN
+- **Edge:** 2× Raspberry Pi 4B for lightweight DNS and monitoring
+- **Provisioning:** Terraform (Proxmox, MikroTik, Cloudflare)
+- **Configuration:** Ansible with Vault-encrypted secrets
+- **GitOps:** Atlantis for Terraform, ArgoCD for Kubernetes workloads
 
-### Core Concepts
-- **Zone Isolation:** Every service is isolated in its own VLAN.
-- **Security:** DNS-01 SSL challenges via Cloudflare; WireGuard for secure remote administration.
-- **Automation:** Fully automated via Terraform (Provisioning) and Ansible (Configuration Management).
-- **CI/CD:** GitHub Actions for linting, validation, and automated deployment triggers.
-
-### Repository Structure
-I've organized the project into logical modules:
-- `/network`: Logical topology and RouterOS definitions.
-- `/terraform`: Provisioning logic for Proxmox and Cloudflare.
-- `/ansible`: Node and application configuration.
-- `/docker`: Container specs organized by network zone.
+### Running Services
+- MetalLB + Traefik for ingress with wildcard TLS (cert-manager + Cloudflare DNS-01)
+- Authelia SSO with OIDC for all internal services
+- Headscale (self-hosted Tailscale) for remote access
+- Prometheus + Loki + Grafana for observability
+- Velero + Garage S3 for cluster backups
+- Unbound + AdGuard Home with Keepalived for HA DNS

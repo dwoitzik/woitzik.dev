@@ -56,10 +56,8 @@ import Container from "@components/Container.astro";
   function initSearch() {
     const el = document.getElementById("pagefind-search");
     if (!el) return;
-    // reset so we can re-init on navigation
     el.innerHTML = "";
 
-    // inject CSS once
     if (!document.getElementById("pagefind-css")) {
       const link = document.createElement("link");
       link.id = "pagefind-css";
@@ -76,14 +74,15 @@ import Container from "@components/Container.astro";
           showImages: false,
           resetStyles: false,
         });
-        // focus the input
         el.querySelector("input")?.focus();
       })
       .catch(() => {
-        el.innerHTML = '<p class="text-sm text-neutral-500">Search is not available yet. Please check back after the next deployment.</p>';
+        el.innerHTML = '<p class="text-sm text-neutral-500">Search is not available in this environment.</p>';
       });
   }
 
-  document.addEventListener("DOMContentLoaded", initSearch);
+  // Run immediately — script executes after the DOM is ready on this page
+  initSearch();
+  // Re-run on future navigations back to this page
   document.addEventListener("astro:after-swap", initSearch);
 </script>
