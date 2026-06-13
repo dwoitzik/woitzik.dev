@@ -6,6 +6,7 @@ import ArrowCard from "@components/ArrowCard.astro";
 import Link from "@components/Link.astro";
 import { SITE, HOME } from "@consts";
 import { products } from "@data/products";
+import EmailCapture from "@components/EmailCapture.astro";
 
 const blog = (await getCollection("blog"))
   .filter(post => !post.data.draft)
@@ -25,7 +26,7 @@ const techStack = [
   { name: "Packer", color: "bg-amber-500" },
   { name: "Azure", color: "bg-sky-500" },
   { name: "Linux", color: "bg-neutral-500" },
-  { name: "Kubernetes", color: "bg-blue-600", note: "learning" }
+  { name: "Kubernetes", color: "bg-blue-600" }
 ];
 ---
 
@@ -59,9 +60,6 @@ const techStack = [
           <span class="flex items-center gap-1.5 px-3 py-1 hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors cursor-default">
             <span class={`w-1.5 h-1.5 rounded-full ${tech.color}`}></span>
             {tech.name}
-            {tech.note && (
-              <span class="text-xs opacity-40">({tech.note})</span>
-            )}
           </span>
         ))}
       </div>
@@ -99,6 +97,10 @@ const techStack = [
           </div>
         </section>
       )}
+
+      <div class="animate">
+        <EmailCapture />
+      </div>
 
       <section class="animate space-y-6">
         <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">

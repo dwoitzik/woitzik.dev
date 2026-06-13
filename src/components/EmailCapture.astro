@@ -1,0 +1,77 @@
+---
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "Stay in the loop",
+  description = "New enterprise modules and deep dives — straight to your inbox. No spam.",
+} = Astro.props;
+---
+
+<div class="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 p-6">
+  <div class="mb-4">
+    <h3 class="font-bold text-base text-black dark:text-white">{title}</h3>
+    <p class="text-sm text-neutral-500 dark:text-neutral-400 mt-1">{description}</p>
+  </div>
+
+  <form id="email-capture-form" class="flex flex-col sm:flex-row gap-2">
+    <input
+      type="email"
+      name="email"
+      required
+      placeholder="you@company.com"
+      class="flex-1 px-3 py-2 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-black dark:text-white placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 transition-colors"
+    />
+    <button
+      type="submit"
+      class="px-4 py-2 text-sm font-semibold rounded bg-black dark:bg-white text-white dark:text-black hover:opacity-75 transition-opacity shrink-0"
+    >
+      Subscribe
+    </button>
+  </form>
+
+  <p id="email-capture-message" class="hidden text-sm mt-3"></p>
+</div>
+
+<script>
+  const form = document.getElementById("email-capture-form") as HTMLFormElement;
+  const message = document.getElementById("email-capture-message") as HTMLParagraphElement;
+
+  form?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const email = (form.elements.namedItem("email") as HTMLInputElement).value;
+    const button = form.querySelector("button") as HTMLButtonElement;
+
+    button.disabled = true;
+    button.textContent = "Subscribing…";
+
+    try {
+      const res = await fetch("/api/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        form.classList.add("hidden");
+        message.textContent = "You're in. I'll reach out when something new drops.";
+        message.className = "text-sm mt-3 text-green-600 dark:text-green-400";
+      } else {
+        message.textContent = data.error ?? "Something went wrong. Please try again.";
+        message.className = "text-sm mt-3 text-red-500 dark:text-red-400";
+        button.disabled = false;
+        button.textContent = "Subscribe";
+      }
+    } catch {
+      message.textContent = "Network error. Please try again.";
+      message.className = "text-sm mt-3 text-red-500 dark:text-red-400";
+      button.disabled = false;
+      button.textContent = "Subscribe";
+    }
+  });
+</script>

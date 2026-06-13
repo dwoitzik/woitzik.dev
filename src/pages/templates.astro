@@ -1,6 +1,7 @@
 ---
 import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
+import EmailCapture from "@components/EmailCapture.astro";
 import { products } from "@data/products";
 ---
 
@@ -91,6 +92,13 @@ import { products } from "@data/products";
 
           </article>
         ))}
+      </div>
+
+      <div class="animate">
+        <EmailCapture
+          title="New modules & deep dives"
+          description="Get notified when new enterprise modules drop. No spam, unsubscribe anytime."
+        />
       </div>
 
     </div>
