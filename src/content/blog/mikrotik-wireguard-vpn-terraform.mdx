@@ -139,5 +139,4 @@ resource "routeros_ip_firewall_filter" "in_02_wg" {
 
 WireGuard's static cryptokey routing makes it incredibly easy to map specific users to specific IP addresses. By managing this mapping through Terraform, we can seamlessly tie identity to infrastructure, ensuring our Zero-Trust policies remain strict, readable, and perfectly documented.
 
-**Need production-ready cloud networking?** 
-If you are designing secure architectures in the cloud and need automated Zero-Trust setups for Azure, check out my [Enterprise Terraform Blueprints](https://woitzik-cloud.lemonsqueezy.com). For consulting and freelance engineering, feel free to reach out via [LinkedIn](https://www.linkedin.com/in/david-woitzik/).
+Tying cryptographic identity to network access is the same principle that drives Azure Private Link and Managed Identity — just at a different layer. The [Enterprise Terraform Blueprints](/templates) apply the same Zero-Trust model to Azure Hub & Spoke environments.

@@ -18,6 +18,7 @@ const certs = defineCollection({
     dateStart: z.coerce.date(),
     dateEnd: z.coerce.date().optional(),
     image: image().optional(),
+    draft: z.boolean().optional(),
   }),
 });
 

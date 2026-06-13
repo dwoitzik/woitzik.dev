@@ -1,0 +1,308 @@
+---
+title: "HA DNS for Homelab: Unbound + AdGuard Home + Keepalived on Raspberry Pi"
+description: "A two-node recursive DNS stack with ad filtering, automatic config sync, and transparent failover — fully managed with Ansible."
+date: "2026-06-27"
+---
+
+DNS is the most critical service in any network. If it goes down, nothing works — browsers can't resolve hostnames, services can't reach each other, and the error messages are uniformly unhelpful. In a homelab, a single DNS server is a single point of failure.
+
+This is the DNS architecture running on two Raspberry Pi 4B edge nodes in my homelab: Unbound as a recursive resolver, AdGuard Home for filtering, and Keepalived for automatic failover. The whole stack is managed with Ansible.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Architecture
+
+```
+Client (any device on the network)
+        │
+        ▼
+Virtual IP 10.0.20.5 (Keepalived VIP)
+        │
+        ├── Primary: rpi-srv-01 (10.0.20.2) — MASTER
+        └── Backup:  rpi-srv-02 (10.0.20.3) — BACKUP
+               │
+               ▼
+        AdGuard Home (filtering + blocking)
+               │
+               ▼
+        Unbound :5335 (recursive resolver)
+               │
+               ▼
+        Root DNS servers (no upstream forwarder)
+```
+
+Clients point to a single IP (the VIP). If the primary Pi fails, Keepalived moves the VIP to the backup node within seconds. No client reconfiguration, no DNS TTL wait.
+
+## Why Recursive Resolution
+
+Most homelab DNS setups forward queries to a public upstream (Cloudflare, Google, Quad9). That works, but every query you make is visible to a third party.
+
+Unbound resolves queries by starting at the DNS root servers and following delegations down — the same way authoritative DNS actually works. No single upstream sees your full query history. The trade-off is slightly higher first-query latency; subsequent queries are cached locally.
+
+## Step 1: Unbound Ansible Role
+
+Unbound runs in Docker on each Pi. The Ansible role deploys the Compose stack and configuration:
+
+```yaml
+# ansible/roles/unbound/tasks/main.yml
+- name: Create Unbound configuration directory
+  ansible.builtin.file:
+    path: /opt/unbound/conf
+    state: directory
+    mode: '0755'
+
+- name: Deploy Unbound configuration
+  ansible.builtin.template:
+    src: unbound.conf.j2
+    dest: /opt/unbound/conf/unbound.conf
+  notify: Restart Unbound
+
+- name: Deploy Unbound Docker Compose stack
+  ansible.builtin.copy:
+    dest: /opt/unbound/docker-compose.yml
+    content: |
+      services:
+        unbound:
+          image: klutchell/unbound:latest
+          container_name: unbound
+          restart: unless-stopped
+          ports:
+            - "5335:53/udp"
+            - "5335:53/tcp"
+          healthcheck:
+            test: ["CMD", "dig", "+short", "@127.0.0.1", "-p", "5335", "google.com"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+          labels:
+            - "autoheal=true"
+          volumes:
+            - /opt/unbound/conf/unbound.conf:/etc/unbound/unbound.conf
+
+        autoheal:
+          image: willfarrell/autoheal:latest
+          container_name: autoheal
+          restart: always
+          environment:
+            - AUTOHEAL_CONTAINER_LABEL=autoheal
+          volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+
+- name: Optimize kernel network buffers for Unbound
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_set: true
+  loop:
+    - { name: "net.core.rmem_max", value: "4194304" }
+    - { name: "net.core.wmem_max", value: "4194304" }
+```
+
+Two things worth noting:
+
+**Port 5335** — Unbound does not bind to port 53. That port belongs to AdGuard Home. AdGuard forwards to `127.0.0.1:5335`.
+
+**Autoheal** — watches for containers with the `autoheal=true` label and restarts them if the healthcheck fails. DNS downtime on a Pi is silent and annoying; autoheal catches it automatically.
+
+The Unbound configuration template:
+
+```
+# ansible/roles/unbound/templates/unbound.conf.j2
+server:
+    interface: 0.0.0.0
+    port: 53
+    do-ip4: yes
+    do-udp: yes
+    do-tcp: yes
+    do-ip6: no
+
+    access-control: 127.0.0.0/8 allow
+    access-control: 10.0.0.0/8 allow
+
+    hide-identity: yes
+    hide-version: yes
+
+    # Cache settings
+    cache-min-ttl: 60
+    cache-max-ttl: 86400
+    prefetch: yes
+
+    # DNSSEC
+    auto-trust-anchor-file: "/var/lib/unbound/root.key"
+
+forward-zone:
+    name: "."
+    forward-first: no
+```
+
+`access-control: 10.0.0.0/8 allow` permits queries from all homelab VLANs. Queries from outside that range are refused.
+
+## Step 2: AdGuard Home Ansible Role
+
+AdGuard runs in `network_mode: host` so it can bind to port 53 directly on the Pi's interface:
+
+```yaml
+# ansible/roles/adguard/tasks/main.yml
+- name: Deploy AdGuard Home Docker Compose file
+  ansible.builtin.copy:
+    dest: /opt/adguardhome/docker-compose.yml
+    content: |
+      services:
+        adguardhome:
+          image: adguard/adguardhome
+          container_name: adguardhome
+          restart: always
+          network_mode: host
+          volumes:
+            - /opt/adguardhome/work:/opt/adguardhome/work
+            - /opt/adguardhome/conf:/opt/adguardhome/conf
+```
+
+In the AdGuard UI, set the upstream DNS to `127.0.0.1:5335` (Unbound). All filtered queries that pass through AdGuard's blocklists are forwarded to Unbound for recursive resolution.
+
+## Step 3: Config Sync to the Replica
+
+AdGuard doesn't natively replicate configuration between instances. The role uses [adguardhome-sync](https://github.com/bakito/adguardhome-sync) on the backup node to pull config from the primary:
+
+```yaml
+- name: Deploy AdGuardHome-Sync on replica node
+  when: inventory_hostname == 'rpi-srv-02'
+  block:
+    - name: Deploy Sync Docker Compose
+      ansible.builtin.copy:
+        dest: /opt/adguardhome-sync/docker-compose.yml
+        content: |
+          services:
+            adguardhome-sync:
+              image: ghcr.io/bakito/adguardhome-sync
+              container_name: adguardhome-sync
+              restart: unless-stopped
+              environment:
+                - ORIGIN_URL=http://10.0.20.2:3001
+                - ORIGIN_USERNAME=dw
+                - ORIGIN_PASSWORD={{ vault_adguard_password }}
+                - REPLICA1_URL=http://127.0.0.1:3001
+                - REPLICA1_USERNAME=dw
+                - REPLICA1_PASSWORD={{ vault_adguard_password }}
+                - CRON=*/10 * * * *
+```
+
+Every 10 minutes, the replica pulls filter lists, custom rules, and settings from the primary. If the primary goes down, the replica is already up to date and takes over immediately.
+
+## Step 4: Keepalived for Failover
+
+Keepalived uses VRRP to maintain a shared Virtual IP across both nodes:
+
+```
+# ansible/roles/keepalived/templates/keepalived.conf.j2
+vrrp_instance VI_1 {
+    state {{ "MASTER" if inventory_hostname == 'rpi-srv-01' else "BACKUP" }}
+    interface eth0
+    virtual_router_id 51
+    priority {{ 150 if inventory_hostname == 'rpi-srv-01' else 100 }}
+    advert_int 1
+
+    authentication {
+        auth_type PASS
+        auth_pass {{ keepalived_auth_pass }}
+    }
+
+    virtual_ipaddress {
+        10.0.20.5/24
+    }
+}
+```
+
+The primary node (`rpi-srv-01`) has priority 150, the backup has 100. As long as the primary is up, it holds the VIP. If it stops sending VRRP advertisements, the backup promotes itself and takes over the IP within ~3 seconds.
+
+VRRP uses multicast. If your switch filters multicast between ports (MikroTik does by default), you need to permit `224.0.0.18` on the VLAN carrying the Pi nodes.
+
+The Ansible task:
+
+```yaml
+# ansible/roles/keepalived/tasks/main.yml
+- name: Install Keepalived
+  ansible.builtin.apt:
+    name: keepalived
+    state: present
+
+- name: Deploy Keepalived configuration from template
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+  notify: Restart Keepalived
+
+- name: Ensure Keepalived service is started and enabled
+  ansible.builtin.service:
+    name: keepalived
+    state: started
+    enabled: true
+```
+
+## Deploying with Ansible
+
+The three roles are applied to the `rpi_nodes` host group:
+
+```yaml
+# ansible/playbooks/site.yml (relevant section)
+- hosts: rpi_nodes
+  roles:
+    - common
+    - docker
+    - unbound
+    - adguard
+    - keepalived
+```
+
+```bash
+# Deploy to both Pi nodes
+ansible-playbook ansible/playbooks/site.yml --limit rpi_nodes
+
+# Dry run first
+ansible-playbook ansible/playbooks/site.yml --limit rpi_nodes --check
+```
+
+## Testing Failover
+
+Confirm the VIP is on the primary:
+
+```bash
+ip addr show eth0 | grep 10.0.20.5
+# Should show the VIP on rpi-srv-01 only
+```
+
+Simulate a failure:
+
+```bash
+# On rpi-srv-01
+sudo systemctl stop keepalived
+
+# On any client
+dig @10.0.20.5 google.com
+# Should still resolve — now via rpi-srv-02
+```
+
+Check which node now holds the VIP:
+
+```bash
+# On rpi-srv-02
+ip addr show eth0 | grep 10.0.20.5
+# VIP should now appear here
+```
+
+Restart Keepalived on the primary and it re-claims the VIP automatically.
+
+## The Result
+
+- All devices point to `10.0.20.5` — a single address that never changes
+- Queries are filtered by AdGuard (blocklists, custom rules) then resolved recursively by Unbound
+- If either Pi goes down, the other takes over within 3 seconds
+- Filter lists and config sync automatically every 10 minutes
+- Kernel buffer tuning ensures Unbound can handle high-volume UDP traffic without dropping queries
+
+The entire stack is idempotent Ansible — running the playbook again changes nothing if everything is already in the desired state.
+
+---
+
+DNS control is the foundation of any Zero-Trust network — on-premises or in the cloud. In Azure, the equivalent of this setup is Azure Private DNS Zones with Private Link resolvers. The [Enterprise Terraform Blueprints](/templates) include pre-configured Private DNS Zones for all major Azure PaaS services.

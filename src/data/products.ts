@@ -42,7 +42,7 @@ export const products: Product[] = [
     price: "€49",
     priceNote: "one-time · instant download",
     href: "https://woitzik-cloud.lemonsqueezy.com/checkout/buy/e8caa68b-bc22-489e-b453-2ea28bd28eb0",
-    articleHref: "/blog/surviving-azure-policies-hub-spoke",
+    articleHref: "/blog/azure-terraform-hub-spoke-zero-trust",
     tags: ["Azure", "Terraform", "Zero-Trust", "Networking", "Compliance"],
     bullets: [
       "Zero-Trust NSG baseline bound to all Spoke subnets",

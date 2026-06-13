@@ -188,7 +188,7 @@ To interact with Gemma comfortably, we deploy Open-WebUI as a Docker container w
           ports:
             - "3005:8080"
           environment:
-            - OLLAMA_BASE_URL=[http://10.0.20.251:11434](http://10.0.20.251:11434)
+            - OLLAMA_BASE_URL=http://10.0.20.251:11434
             - WEBUI_AUTH=True
           volumes:
             - open-webui-data:/app/backend/data
@@ -210,5 +210,4 @@ By explicitly setting the `OLLAMA_BASE_URL` to point to the dedicated IP of our 
 
 Building a private AI environment doesn't require cloud instances. With Proxmox, Terraform, and Ansible, you can treat your edge node or home lab exactly like an enterprise data center. The entire stack is ephemeral, version-controlled, and reproducible in minutes.
 
-**Need production-ready infrastructure?** 
-If you are building strictly regulated environments and need automated Zero-Trust setups for Azure, check out my [Enterprise Terraform Blueprints](https://woitzik-cloud.lemonsqueezy.com). For custom consulting and freelance engineering, feel free to reach out via [LinkedIn](https://www.linkedin.com/in/david-woitzik/).
+The same IaC patterns — Terraform for provisioning, Ansible for configuration — apply directly to enterprise cloud environments. If you are building regulated Azure infrastructure, the [Enterprise Terraform Blueprints](/templates) cover the network isolation layer.

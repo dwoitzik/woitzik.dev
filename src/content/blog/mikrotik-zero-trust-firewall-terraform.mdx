@@ -137,5 +137,4 @@ resource "routeros_ip_firewall_filter" "fwd_13_wan_to_dmz_minecraft" {
 
 Automating your edge router is just the first step in building a resilient, code-driven infrastructure. When you transition from homelabs to enterprise cloud environments, these same Zero-Trust principles apply, but the complexity scales exponentially.
 
-**Need production-ready cloud infrastructure?** 
-If you are building strictly regulated environments and need automated Zero-Trust setups for Azure, check out my [Enterprise Terraform Blueprints](https://woitzik-cloud.lemonsqueezy.com). For custom consulting, feel free to reach out via [LinkedIn](https://www.linkedin.com/in/david-woitzik/).
+The same default-deny logic that drives the MikroTik firewall here applies at enterprise scale in Azure — just implemented through NSGs, Azure Firewall, and Private Link instead of RouterOS rules. The [Enterprise Terraform Blueprints](/templates) package that Zero-Trust network layer for Azure environments.
