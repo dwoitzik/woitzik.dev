@@ -47,6 +47,30 @@ article {
     @apply text-black dark:text-white;
     @apply decoration-black/25 dark:decoration-white/50;
   }
+
+  /* Anchor links on headings */
+  article :is(h1, h2, h3, h4) > a {
+    @apply no-underline text-inherit;
+  }
+  article :is(h1, h2, h3, h4):hover > a::after {
+    content: " #";
+    @apply text-sky-500 opacity-60 text-base font-normal;
+  }
+
+  /* Code block copy button */
+  .code-block-wrapper {
+    @apply relative;
+  }
+  .copy-button {
+    @apply absolute top-2 right-2 px-2 py-1 text-xs rounded;
+    @apply bg-neutral-700 text-neutral-300 opacity-0 transition-opacity;
+  }
+  .code-block-wrapper:hover .copy-button {
+    @apply opacity-100;
+  }
+  .copy-button.copied {
+    @apply text-green-400;
+  }
 }
 
 .animate {
