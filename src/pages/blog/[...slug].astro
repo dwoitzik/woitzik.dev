@@ -42,8 +42,10 @@ const { Content } = await post.render();
         {post.data.title}
       </div>
     </div>
-    <article class="animate">
-      <Content />
-    </article>
+    <div class="max-w-2xl">
+      <article class="animate">
+        <Content />
+      </article>
+    </div>
   </Container>
 </PageLayout>
