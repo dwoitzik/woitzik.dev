@@ -1,16 +1,14 @@
 #!/usr/bin/env node
 /**
- * Crosspost a blog article to dev.to and/or Hashnode.
+ * Crosspost a blog article to dev.to.
+ * (Hashnode API requires a paid plan as of May 2026 — skip it)
+ *
  * Usage:
- *   node scripts/crosspost.mjs <slug>               # post to both
- *   node scripts/crosspost.mjs <slug> --devto       # only dev.to
- *   node scripts/crosspost.mjs <slug> --hashnode    # only Hashnode
- *   node scripts/crosspost.mjs <slug> --dry-run     # preview without posting
+ *   node scripts/crosspost.mjs <slug>           # post to dev.to
+ *   node scripts/crosspost.mjs <slug> --dry-run # preview without posting
  *
  * Required env vars (set in .env.crosspost or export before running):
  *   DEVTO_API_KEY
- *   HASHNODE_TOKEN
- *   HASHNODE_PUBLICATION_ID
  */
 
 import { readFileSync, existsSync } from "fs";
