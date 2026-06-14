@@ -9,16 +9,20 @@ import { products } from "@data/products";
 import EmailCapture from "@components/EmailCapture.astro";
 
 const blog = (await getCollection("blog"))
-  .filter(post => !post.data.draft)
+  .filter((post) => !post.data.draft)
   .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
-  
+
 const projects = (await getCollection("projects"))
-  .filter(project => !project.data.draft)
+  .filter((project) => !project.data.draft)
   .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
 
 const certs = (await getCollection("certs"))
-  .filter(cert => !cert.data.draft)
-  .sort((a, b) => new Date(b.data.dateStart).valueOf() - new Date(a.data.dateStart).valueOf());
+  .filter((cert) => !cert.data.draft)
+  .sort(
+    (a, b) =>
+      new Date(b.data.dateStart).valueOf() -
+      new Date(a.data.dateStart).valueOf(),
+  );
 
 const techStack = [
   { name: "Terraform", color: "bg-purple-500" },
@@ -26,7 +30,7 @@ const techStack = [
   { name: "Packer", color: "bg-amber-500" },
   { name: "Azure", color: "bg-sky-500" },
   { name: "Linux", color: "bg-neutral-500" },
-  { name: "Kubernetes", color: "bg-blue-600" }
+  { name: "Kubernetes", color: "bg-blue-600" },
 ];
 ---
 
@@ -34,151 +38,236 @@ const techStack = [
   <Container>
     <section class="space-y-6">
       <div class="animate">
-        <h1 class="text-4xl font-black text-black dark:text-white tracking-tighter">
+        <h1
+          class="text-4xl font-black text-black dark:text-white tracking-tighter"
+        >
           David Woitzik
         </h1>
-        <p class="text-lg text-neutral-500 dark:text-neutral-400 mt-2 font-medium">
+        <p
+          class="text-lg text-neutral-500 dark:text-neutral-400 mt-2 font-medium"
+        >
           Hybrid Cloud Engineer & Infrastructure Automation.
         </p>
       </div>
 
-      <article class="animate space-y-4 text-neutral-700 dark:text-neutral-300 leading-relaxed max-w-2xl">
+      <article
+        class="animate space-y-4 text-neutral-700 dark:text-neutral-300 leading-relaxed max-w-2xl"
+      >
         <p>
-          I'm a Hybrid Cloud Systems Engineer specializing in <strong>Azure</strong>, 
-          <strong>Terraform</strong>, and <strong>Zero-Trust network architecture</strong>. 
-          By day I design production infrastructure — here I publish the hardened templates 
-          and deep dives I wish existed when I needed them.
+          I'm a Hybrid Cloud Systems Engineer specializing in <strong
+            >Azure</strong
+          >,
+          <strong>Terraform</strong>, and <strong
+            >Zero-Trust network architecture</strong
+          >. By day I design production infrastructure — here I publish the
+          hardened templates and deep dives I wish existed when I needed them.
         </p>
         <p>
-          Currently focused on compliance-ready infrastructure blueprints for ISO 27001, 
-          NIS2, and KRITIS environments.
+          Currently focused on compliance-ready infrastructure blueprints for
+          ISO 27001, NIS2, and KRITIS environments.
         </p>
       </article>
 
       <div class="animate flex flex-wrap gap-2 pt-2">
-        {techStack.map(tech => (
-          <span class="flex items-center gap-1.5 px-3 py-1 hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors cursor-default">
-            <span class={`w-1.5 h-1.5 rounded-full ${tech.color}`}></span>
-            {tech.name}
-          </span>
-        ))}
+        {
+          techStack.map((tech) => (
+            <span class="flex items-center gap-1.5 px-3 py-1 hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors cursor-default">
+              <span class={`w-1.5 h-1.5 rounded-full ${tech.color}`} />
+              {tech.name}
+            </span>
+          ))
+        }
       </div>
     </section>
 
     <div class="space-y-12 mt-12">
-
-      {blog.length > 0 && (
-        <section class="animate space-y-4">
-          <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
-            <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">Enterprise Blueprints & Articles</h2>
-            <Link href="/blog" class="text-xs opacity-50 hover:opacity-100 transition-opacity">View all &rarr;</Link>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {blog.slice(0, 4).map(post => (
-              <a href={`/blog/${post.slug}/`} class="group flex flex-col gap-2 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-500 transition-colors">
-                <div class="flex items-center gap-2 justify-between">
-                  <h3 class="font-semibold text-sm text-black dark:text-white leading-snug">{post.data.title}</h3>
-                  <span class="text-xs opacity-30 shrink-0">{post.data.date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>
-                </div>
-                <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">{post.data.description}</p>
-                <span class="text-xs text-sky-500 mt-auto">Read &rarr;</span>
-              </a>
-            ))}
-          </div>
-        </section>
-      )}
+      {
+        blog.length > 0 && (
+          <section class="animate space-y-4">
+            <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
+              <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">
+                Enterprise Blueprints & Articles
+              </h2>
+              <Link
+                href="/blog"
+                class="text-xs opacity-50 hover:opacity-100 transition-opacity"
+              >
+                View all &rarr;
+              </Link>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {blog.slice(0, 4).map((post) => (
+                <a
+                  href={`/blog/${post.slug}/`}
+                  class="group flex flex-col gap-2 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-500 transition-colors"
+                >
+                  <div class="flex items-center gap-2 justify-between">
+                    <h3 class="font-semibold text-sm text-black dark:text-white leading-snug">
+                      {post.data.title}
+                    </h3>
+                    <span class="text-xs opacity-30 shrink-0">
+                      {post.data.date.toLocaleDateString("en-GB", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </span>
+                  </div>
+                  <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                    {post.data.description}
+                  </p>
+                  <span class="text-xs text-sky-500 mt-auto">Read &rarr;</span>
+                </a>
+              ))}
+            </div>
+          </section>
+        )
+      }
 
       <section class="animate space-y-4">
-        <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
-          <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">Enterprise Modules</h2>
-          <Link href="/templates" class="text-xs opacity-50 hover:opacity-100 transition-opacity">View all &rarr;</Link>
+        <div
+          class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2"
+        >
+          <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">
+            Enterprise Modules
+          </h2>
+          <Link
+            href="/templates"
+            class="text-xs opacity-50 hover:opacity-100 transition-opacity"
+            >View all &rarr;</Link
+          >
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {products.filter(p => p.available).map(product => (
-            <div class="flex flex-col gap-3 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-500 transition-colors">
-              <div>
-                <div class="font-semibold text-sm text-black dark:text-white">{product.title}</div>
-                <div class="text-xs text-neutral-500 dark:text-neutral-400 mt-1 flex gap-2 flex-wrap">
-                  {product.tags.slice(0, 3).map(tag => (
-                    <span>{tag}</span>
-                  ))}
+          {
+            products
+              .filter((p) => p.available)
+              .map((product) => (
+                <div class="flex flex-col gap-3 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-500 transition-colors">
+                  <div>
+                    <div class="font-semibold text-sm text-black dark:text-white">
+                      {product.title}
+                    </div>
+                    <div class="text-xs text-neutral-500 dark:text-neutral-400 mt-1 flex gap-2 flex-wrap">
+                      {product.tags.slice(0, 3).map((tag) => (
+                        <span>{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div class="flex items-center justify-between mt-auto">
+                    <span class="font-bold text-sm text-black dark:text-white">
+                      {product.price}
+                    </span>
+                    <a
+                      href={product.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-xs font-semibold px-3 py-1.5 rounded bg-black dark:bg-white text-white dark:text-black hover:opacity-75 transition-opacity"
+                    >
+                      Buy &rarr;
+                    </a>
+                  </div>
                 </div>
-              </div>
-              <div class="flex items-center justify-between mt-auto">
-                <span class="font-bold text-sm text-black dark:text-white">{product.price}</span>
-                <a
-                  href={product.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-xs font-semibold px-3 py-1.5 rounded bg-black dark:bg-white text-white dark:text-black hover:opacity-75 transition-opacity"
-                >
-                  Buy &rarr;
-                </a>
-              </div>
-            </div>
-          ))}
+              ))
+          }
         </div>
       </section>
 
       <div class="animate">
-        <EmailCapture />
+        <EmailCapture
+          title="Free: Azure Zero-Trust Terraform Cheat Sheet"
+          description="8 production-ready patterns for NSGs, Private Endpoints, Forced Tunneling, and Managed Identities. Sent to your inbox instantly."
+          buttonText="Send me the cheat sheet"
+        />
       </div>
 
-      {projects.length > 0 && (
-        <section class="animate space-y-4">
-          <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
-            <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">Projects</h2>
-            <Link href="/projects" class="text-xs opacity-50 hover:opacity-100 transition-opacity">View all &rarr;</Link>
-          </div>
-          <div class="grid grid-cols-1 gap-3">
-            {projects.slice(0, 3).map(project => (
-              <ArrowCard entry={project} />
-            ))}
-          </div>
-        </section>
-      )}
+      {
+        projects.length > 0 && (
+          <section class="animate space-y-4">
+            <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
+              <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">
+                Projects
+              </h2>
+              <Link
+                href="/projects"
+                class="text-xs opacity-50 hover:opacity-100 transition-opacity"
+              >
+                View all &rarr;
+              </Link>
+            </div>
+            <div class="grid grid-cols-1 gap-3">
+              {projects.slice(0, 3).map((project) => (
+                <ArrowCard entry={project} />
+              ))}
+            </div>
+          </section>
+        )
+      }
 
-      {certs.length > 0 && (
-        <section class="animate space-y-6">
-          <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
-            <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">Certifications</h2>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {certs.map(cert => (
-              <div class="group p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-all duration-300">
-                <div class="flex items-center gap-4">
-                  {cert.data.image && (
-                    <div class="w-12 h-12 flex-shrink-0 bg-neutral-100 dark:bg-neutral-800 rounded-lg p-2">
-                      <img 
-                        src={cert.data.image.src} 
-                        alt={cert.data.company} 
-                        class="w-full h-full object-contain"
-                      />
-                    </div>
-                  )}
-                  <div class="flex-grow">
-                    <div class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-0.5">
-                      {cert.data.company}
-                    </div>
-                    <div class="font-bold text-sm text-black dark:text-white leading-tight group-hover:text-sky-500 transition-colors">
-                      {cert.data.role}
+      {
+        certs.length > 0 && (
+          <section class="animate space-y-6">
+            <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
+              <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">
+                Certifications
+              </h2>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {certs.map((cert) => (
+                <div class="group p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-all duration-300">
+                  <div class="flex items-center gap-4">
+                    {cert.data.image && (
+                      <div class="w-12 h-12 flex-shrink-0 bg-neutral-100 dark:bg-neutral-800 rounded-lg p-2">
+                        <img
+                          src={cert.data.image.src}
+                          alt={cert.data.company}
+                          class="w-full h-full object-contain"
+                        />
+                      </div>
+                    )}
+                    <div class="flex-grow">
+                      <div class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-0.5">
+                        {cert.data.company}
+                      </div>
+                      <div class="font-bold text-sm text-black dark:text-white leading-tight group-hover:text-sky-500 transition-colors">
+                        {cert.data.role}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+              ))}
+            </div>
+          </section>
+        )
+      }
 
-      <footer class="animate pt-10 border-t border-neutral-200 dark:border-neutral-800 flex flex-col sm:flex-row justify-between items-center gap-4">
+      <footer
+        class="animate pt-10 border-t border-neutral-200 dark:border-neutral-800 flex flex-col sm:flex-row justify-between items-center gap-4"
+      >
         <div class="flex gap-4 text-sm font-medium">
-          <Link href="https://github.com/dwoitzik" external class="hover:text-black dark:hover:text-white transition-colors">GitHub</Link>
-          <Link href="https://linkedin.com/in/david-woitzik" external class="hover:text-black dark:hover:text-white transition-colors">LinkedIn</Link>
-          <Link href={`mailto:${SITE.EMAIL}`} class="hover:text-black dark:hover:text-white transition-colors">Email</Link>
+          <Link
+            href="https://github.com/dwoitzik"
+            external
+            class="hover:text-black dark:hover:text-white transition-colors"
+            >GitHub</Link
+          >
+          <Link
+            href="https://linkedin.com/in/david-woitzik"
+            external
+            class="hover:text-black dark:hover:text-white transition-colors"
+            >LinkedIn</Link
+          >
+          <Link
+            href={`mailto:${SITE.EMAIL}`}
+            class="hover:text-black dark:hover:text-white transition-colors"
+            >Email</Link
+          >
         </div>
         <div class="flex gap-4 text-sm font-medium text-neutral-500">
-          <Link href="/legal" class="hover:text-black dark:hover:text-white transition-colors">Legal & Privacy</Link>
+          <Link
+            href="/legal"
+            class="hover:text-black dark:hover:text-white transition-colors"
+            >Legal & Privacy</Link
+          >
         </div>
       </footer>
     </div>

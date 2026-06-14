@@ -2,18 +2,24 @@
 interface Props {
   title?: string;
   description?: string;
+  buttonText?: string;
 }
 
 const {
   title = "Stay in the loop",
   description = "New enterprise modules and deep dives — straight to your inbox. No spam.",
+  buttonText = "Subscribe",
 } = Astro.props;
 ---
 
-<div class="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 p-6">
+<div
+  class="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 p-6"
+>
   <div class="mb-4">
     <h3 class="font-bold text-base text-black dark:text-white">{title}</h3>
-    <p class="text-sm text-neutral-500 dark:text-neutral-400 mt-1">{description}</p>
+    <p class="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+      {description}
+    </p>
   </div>
 
   <form id="email-capture-form" class="flex flex-col sm:flex-row gap-2">
@@ -28,7 +34,7 @@ const {
       type="submit"
       class="px-4 py-2 text-sm font-semibold rounded bg-black dark:bg-white text-white dark:text-black hover:opacity-75 transition-opacity shrink-0"
     >
-      Subscribe
+      {buttonText}
     </button>
   </form>
 
@@ -37,7 +43,9 @@ const {
 
 <script>
   const form = document.getElementById("email-capture-form") as HTMLFormElement;
-  const message = document.getElementById("email-capture-message") as HTMLParagraphElement;
+  const message = document.getElementById(
+    "email-capture-message",
+  ) as HTMLParagraphElement;
 
   form?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -59,10 +67,12 @@ const {
 
       if (res.ok && data.success) {
         form.classList.add("hidden");
-        message.textContent = "You're in. I'll reach out when something new drops.";
+        message.textContent =
+          "You're in. I'll reach out when something new drops.";
         message.className = "text-sm mt-3 text-green-600 dark:text-green-400";
       } else {
-        message.textContent = data.error ?? "Something went wrong. Please try again.";
+        message.textContent =
+          data.error ?? "Something went wrong. Please try again.";
         message.className = "text-sm mt-3 text-red-500 dark:text-red-400";
         button.disabled = false;
         button.textContent = "Subscribe";

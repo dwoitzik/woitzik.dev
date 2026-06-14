@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Azure Zero-Trust Terraform Cheat Sheet — woitzik.dev</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --black: #0a0a0a;
+      --white: #ffffff;
+      --gray-100: #f5f5f5;
+      --gray-200: #e5e5e5;
+      --gray-400: #a3a3a3;
+      --gray-600: #525252;
+      --sky: #0ea5e9;
+      --sky-dark: #0284c7;
+      --code-bg: #1a1a2e;
+      --code-comment: #6b7280;
+      --code-key: #7dd3fc;
+      --code-string: #86efac;
+      --code-value: #fbbf24;
+      --code-fn: #c084fc;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 11pt;
+      color: var(--black);
+      background: var(--white);
+      line-height: 1.5;
+    }
+
+    /* ── Layout ── */
+    .page { max-width: 900px; margin: 0 auto; padding: 0 24px 40px; }
+
+    /* ── Header ── */
+    header {
+      background: var(--black);
+      color: var(--white);
+      padding: 28px 32px 24px;
+      margin: 0 -24px 32px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    header .headline { flex: 1; }
+    header .badge {
+      font-size: 9pt;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--sky);
+      margin-bottom: 6px;
+    }
+    header h1 {
+      font-size: 22pt;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+    }
+    header p {
+      font-size: 10pt;
+      color: #a3a3a3;
+      margin-top: 6px;
+    }
+    .brand {
+      text-align: right;
+      font-size: 10pt;
+      color: #737373;
+      white-space: nowrap;
+    }
+    .brand strong { color: var(--white); font-weight: 700; display: block; font-size: 13pt; }
+
+    /* ── Section headings ── */
+    h2 {
+      font-size: 8pt;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--gray-400);
+      border-bottom: 1px solid var(--gray-200);
+      padding-bottom: 5px;
+      margin: 28px 0 14px;
+    }
+    h3 {
+      font-size: 11pt;
+      font-weight: 700;
+      color: var(--black);
+      margin-bottom: 6px;
+    }
+
+    /* ── Two-column grid ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+    /* ── Card ── */
+    .card {
+      border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 8px 14px;
+      background: var(--gray-100);
+      font-size: 9pt;
+      font-weight: 700;
+      color: var(--gray-600);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .card-header .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--sky);
+      flex-shrink: 0;
+    }
+
+    /* ── Code blocks ── */
+    pre {
+      background: var(--code-bg);
+      color: #e2e8f0;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 8.5pt;
+      line-height: 1.6;
+      padding: 12px 14px;
+      overflow: hidden;
+      margin: 0;
+    }
+    .cm  { color: var(--code-comment); }  /* comment */
+    .ck  { color: var(--code-key); }      /* keyword / attr */
+    .cs  { color: var(--code-string); }   /* string value */
+    .cv  { color: var(--code-value); }    /* number / bool */
+    .cf  { color: var(--code-fn); }       /* resource type / fn */
+
+    /* ── Table ── */
+    table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+    th {
+      background: var(--black);
+      color: var(--white);
+      text-align: left;
+      padding: 7px 10px;
+      font-size: 8pt;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+    td { padding: 7px 10px; border-bottom: 1px solid var(--gray-200); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: var(--gray-100); }
+    .tag {
+      display: inline-block;
+      font-size: 7.5pt;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .tag.green { background: #dcfce7; color: #166534; }
+    .tag.amber { background: #fef3c7; color: #92400e; }
+
+    /* ── Tip box ── */
+    .tip {
+      border-left: 3px solid var(--sky);
+      background: #f0f9ff;
+      padding: 8px 12px;
+      font-size: 9.5pt;
+      color: var(--gray-600);
+      border-radius: 0 6px 6px 0;
+      margin-top: 8px;
+    }
+    .tip strong { color: var(--sky-dark); }
+
+    /* ── Footer ── */
+    footer {
+      margin-top: 36px;
+      padding-top: 16px;
+      border-top: 1px solid var(--gray-200);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 8.5pt;
+      color: var(--gray-400);
+    }
+    footer a { color: var(--sky-dark); text-decoration: none; }
+
+    /* ── Print ── */
+    @media print {
+      @page { size: A4; margin: 14mm 14mm 14mm 14mm; }
+      body { font-size: 9.5pt; }
+      header { margin: 0 0 24px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      pre  { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      th   { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .no-break { page-break-inside: avoid; }
+      .page-break { page-break-before: always; }
+      .print-hide { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="headline">
+      <div class="badge">Free Reference Sheet</div>
+      <h1>Azure Zero-Trust<br>Terraform Cheat Sheet</h1>
+      <p>8 production-ready patterns for NSGs, Private Endpoints, Managed Identities &amp; Forced Tunneling</p>
+    </div>
+    <div class="brand">
+      <strong>woitzik.dev</strong>
+      cloud infrastructure engineering
+    </div>
+  </header>
+
+  <!-- ─────────────────────────────────────────────
+       SECTION 1 — NSG Default-Deny Baseline
+  ───────────────────────────────────────────── -->
+  <h2>1 — NSG Default-Deny Baseline</h2>
+  <div class="grid-2">
+
+    <div class="card no-break">
+      <div class="card-header"><span class="dot"></span>Deny-All Outbound (ISO 27001 baseline)</div>
+<pre><span class="cf">resource</span> <span class="cs">"azurerm_network_security_rule"</span> <span class="cs">"deny_all_out"</span> {
+  name                        = <span class="cs">"DenyAllOutbound"</span>
+  priority                    = <span class="cv">4096</span>
+  direction                   = <span class="cs">"Outbound"</span>
+  access                      = <span class="cs">"Deny"</span>
+  protocol                    = <span class="cs">"*"</span>
+  source_port_range           = <span class="cs">"*"</span>
+  destination_port_range      = <span class="cs">"*"</span>
+  source_address_prefix       = <span class="cs">"*"</span>
+  destination_address_prefix  = <span class="cs">"*"</span>
+  resource_group_name         = <span class="ck">var</span>.resource_group_name
+  network_security_group_name = <span class="ck">azurerm_network_security_group</span>.spoke.name
+}</pre>
+    </div>
+
+    <div class="card no-break">
+      <div class="card-header"><span class="dot"></span>Deny-All Inbound + Allow VNet Internal</div>
+<pre><span class="cm"># 4095 — allow internal VNet traffic</span>
+<span class="cf">resource</span> <span class="cs">"azurerm_network_security_rule"</span> <span class="cs">"allow_vnet_in"</span> {
+  priority                   = <span class="cv">4095</span>
+  direction                  = <span class="cs">"Inbound"</span>
+  access                     = <span class="cs">"Allow"</span>
+  protocol                   = <span class="cs">"*"</span>
+  source_address_prefix      = <span class="cs">"VirtualNetwork"</span>
+  destination_address_prefix = <span class="cs">"VirtualNetwork"</span>
+  <span class="cm"># ... (name, rg, nsg_name)</span>
+}
+<span class="cm"># 4096 — deny everything else</span>
+<span class="cf">resource</span> <span class="cs">"azurerm_network_security_rule"</span> <span class="cs">"deny_all_in"</span> {
+  priority  = <span class="cv">4096</span>
+  direction = <span class="cs">"Inbound"</span>
+  access    = <span class="cs">"Deny"</span>
+  <span class="cm"># source/dest = "*"</span>
+}</pre>
+    </div>
+
+  </div>
+  <div class="tip"><strong>Rule:</strong> Always set 4096 deny-all as the last rule. Never rely on Azure's implicit deny — make it explicit for audit evidence.</div>
+
+  <!-- ─────────────────────────────────────────────
+       SECTION 2 — Private Endpoint Pattern
+  ───────────────────────────────────────────── -->
+  <h2>2 — Private Endpoint + Automatic DNS</h2>
+  <div class="card no-break">
+    <div class="card-header"><span class="dot"></span>Key Vault — full Private Link stack (works identically for Storage, ACR, SQL)</div>
+<pre><span class="cf">resource</span> <span class="cs">"azurerm_private_endpoint"</span> <span class="cs">"kv"</span> {
+  name                = <span class="cs">"pe-kv-${var.environment}"</span>
+  location            = <span class="ck">var</span>.location
+  resource_group_name = <span class="ck">var</span>.resource_group_name
+  subnet_id           = <span class="ck">azurerm_subnet</span>.private_endpoints.id
+
+  private_service_connection {
+    name                           = <span class="cs">"psc-kv"</span>
+    private_connection_resource_id = <span class="ck">azurerm_key_vault</span>.main.id
+    subresource_names              = [<span class="cs">"vault"</span>]     <span class="cm"># "blob", "sqlServer", "registry"</span>
+    is_manual_connection           = <span class="cv">false</span>
+  }
+
+  private_dns_zone_group {
+    name                 = <span class="cs">"kv-dns-group"</span>
+    private_dns_zone_ids = [<span class="ck">azurerm_private_dns_zone</span>.kv.id]
+  }
+}
+
+<span class="cf">resource</span> <span class="cs">"azurerm_private_dns_zone"</span> <span class="cs">"kv"</span> {
+  name                = <span class="cs">"privatelink.vaultcore.azure.net"</span>
+  resource_group_name = <span class="ck">var</span>.resource_group_name
+}
+
+<span class="cf">resource</span> <span class="cs">"azurerm_private_dns_zone_virtual_network_link"</span> <span class="cs">"kv"</span> {
+  name                  = <span class="cs">"link-kv-${var.environment}"</span>
+  resource_group_name   = <span class="ck">var</span>.resource_group_name
+  private_dns_zone_name = <span class="ck">azurerm_private_dns_zone</span>.kv.name
+  virtual_network_id    = <span class="ck">azurerm_virtual_network</span>.spoke.id
+  registration_enabled  = <span class="cv">false</span>
+}</pre>
+  </div>
+
+  <h2>Private DNS Zone Names — Quick Reference</h2>
+  <div class="card no-break">
+    <table>
+      <thead><tr><th>Service</th><th>subresource_names</th><th>Private DNS Zone</th></tr></thead>
+      <tbody>
+        <tr><td>Key Vault</td><td><code>["vault"]</code></td><td><code>privatelink.vaultcore.azure.net</code></td></tr>
+        <tr><td>Storage — Blob</td><td><code>["blob"]</code></td><td><code>privatelink.blob.core.windows.net</code></td></tr>
+        <tr><td>Storage — File</td><td><code>["file"]</code></td><td><code>privatelink.file.core.windows.net</code></td></tr>
+        <tr><td>Azure SQL</td><td><code>["sqlServer"]</code></td><td><code>privatelink.database.windows.net</code></td></tr>
+        <tr><td>Azure Container Registry</td><td><code>["registry"]</code></td><td><code>privatelink.azurecr.io</code></td></tr>
+        <tr><td>Azure OpenAI</td><td><code>["account"]</code></td><td><code>privatelink.openai.azure.com</code></td></tr>
+        <tr><td>AI Search</td><td><code>["searchService"]</code></td><td><code>privatelink.search.windows.net</code></td></tr>
+        <tr><td>App Service / Functions</td><td><code>["sites"]</code></td><td><code>privatelink.azurewebsites.net</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+       SECTION 3 — Managed Identity + RBAC
+  ───────────────────────────────────────────── -->
+  <div class="page-break"></div>
+  <h2>3 — Managed Identity + RBAC Assignment</h2>
+  <div class="grid-2">
+
+    <div class="card no-break">
+      <div class="card-header"><span class="dot"></span>System-Assigned (simplest)</div>
+<pre><span class="cf">resource</span> <span class="cs">"azurerm_linux_function_app"</span> <span class="cs">"main"</span> {
+  <span class="cm"># ...</span>
+  identity {
+    type = <span class="cs">"SystemAssigned"</span>
+  }
+}
+
+<span class="cf">resource</span> <span class="cs">"azurerm_role_assignment"</span> <span class="cs">"fn_kv_reader"</span> {
+  scope                = <span class="ck">azurerm_key_vault</span>.main.id
+  role_definition_name = <span class="cs">"Key Vault Secrets User"</span>
+  principal_id         = <span class="ck">azurerm_linux_function_app</span>.main
+                           .identity[<span class="cv">0</span>].principal_id
+}</pre>
+    </div>
+
+    <div class="card no-break">
+      <div class="card-header"><span class="dot"></span>User-Assigned (reusable, recommended)</div>
+<pre><span class="cf">resource</span> <span class="cs">"azurerm_user_assigned_identity"</span> <span class="cs">"app"</span> {
+  name                = <span class="cs">"id-app-${var.environment}"</span>
+  location            = <span class="ck">var</span>.location
+  resource_group_name = <span class="ck">var</span>.resource_group_name
+}
+
+<span class="cf">resource</span> <span class="cs">"azurerm_role_assignment"</span> <span class="cs">"app_blob_contrib"</span> {
+  scope                = <span class="ck">azurerm_storage_account</span>.main.id
+  role_definition_name = <span class="cs">"Storage Blob Data Contributor"</span>
+  principal_id         = <span class="ck">azurerm_user_assigned_identity</span>.app
+                           .principal_id
+}
+<span class="cm"># Attach to any resource:</span>
+<span class="cm"># identity { type = "UserAssigned"</span>
+<span class="cm">#   identity_ids = [azurerm_user_assigned_identity.app.id] }</span></pre>
+    </div>
+
+  </div>
+  <div class="tip"><strong>Role Principle:</strong> Always use the least-privileged built-in role. <code>Key Vault Secrets User</code> (read-only) beats <code>Key Vault Contributor</code> (control plane). Never assign <code>Owner</code> to a managed identity.</div>
+
+  <!-- ─────────────────────────────────────────────
+       SECTION 4 — Forced Tunneling
+  ───────────────────────────────────────────── -->
+  <h2>4 — Azure Firewall Forced Tunneling Routes</h2>
+  <div class="card no-break">
+    <div class="card-header"><span class="dot"></span>Route table — default route + KMS / Azure AD bypass (prevents broken Windows VMs &amp; auth failures)</div>
+<pre><span class="cf">resource</span> <span class="cs">"azurerm_route_table"</span> <span class="cs">"spoke"</span> {
+  name                          = <span class="cs">"rt-spoke-${var.environment}"</span>
+  location                      = <span class="ck">var</span>.location
+  resource_group_name           = <span class="ck">var</span>.resource_group_name
+  disable_bgp_route_propagation = <span class="cv">true</span>
+}
+
+<span class="cm"># Default route — send everything to the firewall</span>
+<span class="cf">resource</span> <span class="cs">"azurerm_route"</span> <span class="cs">"default"</span> {
+  name                   = <span class="cs">"DefaultRoute"</span>
+  resource_group_name    = <span class="ck">var</span>.resource_group_name
+  route_table_name       = <span class="ck">azurerm_route_table</span>.spoke.name
+  address_prefix         = <span class="cs">"0.0.0.0/0"</span>
+  next_hop_type          = <span class="cs">"VirtualAppliance"</span>
+  next_hop_in_ip_address = <span class="ck">azurerm_firewall</span>.main.ip_configuration[<span class="cv">0</span>].private_ip_address
+}
+
+<span class="cm"># KMS bypass — without this, Windows VMs fail to activate</span>
+<span class="cf">resource</span> <span class="cs">"azurerm_route"</span> <span class="cs">"kms"</span> {
+  name                = <span class="cs">"KMSBypass"</span>
+  route_table_name    = <span class="ck">azurerm_route_table</span>.spoke.name
+  address_prefix      = <span class="cs">"168.63.129.16/32"</span>   <span class="cm"># Azure platform IP</span>
+  next_hop_type       = <span class="cs">"Internet"</span>
+}
+
+<span class="cm"># AzureAD bypass — prevents Managed Identity auth failures</span>
+<span class="cf">resource</span> <span class="cs">"azurerm_route"</span> <span class="cs">"aad"</span> {
+  name                = <span class="cs">"AzureADBypass"</span>
+  route_table_name    = <span class="ck">azurerm_route_table</span>.spoke.name
+  address_prefix      = <span class="cs">"AzureActiveDirectory"</span>
+  next_hop_type       = <span class="cs">"Internet"</span>
+}</pre>
+  </div>
+  <div class="tip"><strong>Why 168.63.129.16/32?</strong> This is Azure's internal platform IP used for KMS activation, health probes, and DNS. Routing it through a firewall drops these platform calls silently — Windows VMs will activate but show license errors hours later.</div>
+
+  <!-- ─────────────────────────────────────────────
+       SECTION 5 — DINE Policy Bypass
+  ───────────────────────────────────────────── -->
+  <h2>5 — DINE Policy Lifecycle Bypass</h2>
+  <div class="card no-break">
+    <div class="card-header"><span class="dot"></span>Prevent "Resource was modified after deployment" pipeline failures</div>
+<pre><span class="cf">resource</span> <span class="cs">"azurerm_private_dns_zone_virtual_network_link"</span> <span class="cs">"kv"</span> {
+  <span class="cm"># ... standard config ...</span>
+
+  lifecycle {
+    ignore_changes = [
+      tags,           <span class="cm"># DINE policies inject tags after creation</span>
+      registration_enabled,
+    ]
+  }
+}
+
+<span class="cm"># Same pattern for NSGs — DeployIfNotExists policies</span>
+<span class="cm"># modify NSG rules or add diagnostic settings:</span>
+<span class="cf">resource</span> <span class="cs">"azurerm_network_security_group"</span> <span class="cs">"spoke"</span> {
+  <span class="cm"># ...</span>
+  lifecycle {
+    ignore_changes = [security_rule, tags]
+  }
+}</pre>
+  </div>
+  <div class="tip"><strong>When to use:</strong> Any resource in a tenant with Azure Policy (DINE or Modify effects). Without this, every <code>terraform plan</code> after policy remediation shows a diff — and applies break the policy-managed state.</div>
+
+  <!-- ─────────────────────────────────────────────
+       SECTION 6 — AzAPI Private Link Approval
+  ───────────────────────────────────────────── -->
+  <div class="page-break"></div>
+  <h2>6 — AzAPI Shared Private Link Auto-Approval (AI / Search)</h2>
+  <div class="card no-break">
+    <div class="card-header"><span class="dot"></span>Automate the Portal click that blocks every AI RAG deployment</div>
+<pre><span class="cf">resource</span> <span class="cs">"azapi_update_resource"</span> <span class="cs">"approve_search_link"</span> {
+  type      = <span class="cs">"Microsoft.Search/searchServices@2024-03-01-preview"</span>
+  resource_id = <span class="ck">azurerm_search_service</span>.main.id
+
+  body = {
+    properties = {
+      sharedPrivateLinkResources = [
+        {
+          name = <span class="cs">"pl-to-openai"</span>
+          properties = {
+            groupId             = <span class="cs">"openai_account"</span>
+            privateLinkResourceId = <span class="ck">azurerm_cognitive_account</span>.openai.id
+            requestMessage      = <span class="cs">"Approved by Terraform"</span>
+            status              = <span class="cs">"Approved"</span>
+          }
+        }
+      ]
+    }
+  }
+
+  depends_on = [<span class="ck">azurerm_search_service</span>.main]
+}
+
+<span class="cm"># Required provider block:</span>
+<span class="cm"># terraform { required_providers {</span>
+<span class="cm">#   azapi = { source = "Azure/azapi", version = "~> 1.0" } }}</span></pre>
+  </div>
+  <div class="tip"><strong>Why AzAPI and not azurerm?</strong> The <code>azurerm</code> provider has no resource for Shared Private Link approval — it's missing from the SDK. <code>azapi_update_resource</code> patches the ARM API directly, eliminating the manual Portal approval step that breaks every automated AI RAG deployment.</div>
+
+  <!-- ─────────────────────────────────────────────
+       SECTION 7 — Key Vault Hardened Config
+  ───────────────────────────────────────────── -->
+  <h2>7 — Key Vault — Hardened Configuration</h2>
+  <div class="card no-break">
+    <div class="card-header"><span class="dot"></span>Zero public access, soft-delete, purge protection — ISO 27001 / NIS2 baseline</div>
+<pre><span class="cf">resource</span> <span class="cs">"azurerm_key_vault"</span> <span class="cs">"main"</span> {
+  name                          = <span class="cs">"kv-${var.project}-${var.environment}"</span>
+  location                      = <span class="ck">var</span>.location
+  resource_group_name           = <span class="ck">var</span>.resource_group_name
+  tenant_id                     = <span class="ck">data.azurerm_client_config</span>.current.tenant_id
+  sku_name                      = <span class="cs">"standard"</span>
+
+  enable_rbac_authorization     = <span class="cv">true</span>   <span class="cm"># disable legacy access policies</span>
+  soft_delete_retention_days    = <span class="cv">90</span>
+  purge_protection_enabled      = <span class="cv">true</span>   <span class="cm"># mandatory for KRITIS / NIS2</span>
+  public_network_access_enabled = <span class="cv">false</span>  <span class="cm"># Private Endpoint only</span>
+
+  network_acls {
+    default_action = <span class="cs">"Deny"</span>
+    bypass         = <span class="cs">"AzureServices"</span>   <span class="cm"># allow ARM to reach it for policy</span>
+    ip_rules       = []
+  }
+}</pre>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+       SECTION 8 — NIS2 / ISO 27001 Control Map
+  ───────────────────────────────────────────── -->
+  <h2>8 — NIS2 Art. 21 / ISO 27001 Control → Terraform Resource Map</h2>
+  <div class="card no-break">
+    <table>
+      <thead>
+        <tr>
+          <th>Control Requirement</th>
+          <th>NIS2 Art. 21</th>
+          <th>ISO 27001</th>
+          <th>Terraform Resource(s)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Network segmentation</td>
+          <td><span class="tag">§21(2)(i)</span></td>
+          <td><span class="tag green">A.8.22</span></td>
+          <td><code>azurerm_subnet</code> + <code>azurerm_network_security_group</code></td>
+        </tr>
+        <tr>
+          <td>Default-deny access control</td>
+          <td><span class="tag">§21(2)(i)</span></td>
+          <td><span class="tag green">A.8.20</span></td>
+          <td><code>azurerm_network_security_rule</code> priority 4096 Deny</td>
+        </tr>
+        <tr>
+          <td>Eliminate public exposure</td>
+          <td><span class="tag">§21(2)(h)</span></td>
+          <td><span class="tag green">A.8.21</span></td>
+          <td><code>azurerm_private_endpoint</code> + <code>public_network_access_enabled = false</code></td>
+        </tr>
+        <tr>
+          <td>Least-privilege identity</td>
+          <td><span class="tag">§21(2)(j)</span></td>
+          <td><span class="tag green">A.8.2</span></td>
+          <td><code>azurerm_user_assigned_identity</code> + <code>azurerm_role_assignment</code></td>
+        </tr>
+        <tr>
+          <td>Encrypt data in transit</td>
+          <td><span class="tag">§21(2)(h)</span></td>
+          <td><span class="tag green">A.8.24</span></td>
+          <td><code>min_tls_version = "TLS1_2"</code> on all storage/app resources</td>
+        </tr>
+        <tr>
+          <td>Secret management / key rotation</td>
+          <td><span class="tag">§21(2)(h)</span></td>
+          <td><span class="tag green">A.8.24</span></td>
+          <td><code>azurerm_key_vault</code> with <code>purge_protection_enabled = true</code></td>
+        </tr>
+        <tr>
+          <td>Audit trail / immutable logging</td>
+          <td><span class="tag">§21(2)(f)</span></td>
+          <td><span class="tag green">A.8.15</span></td>
+          <td><code>azurerm_monitor_diagnostic_setting</code> → Log Analytics / Storage</td>
+        </tr>
+        <tr>
+          <td>Egress traffic filtering</td>
+          <td><span class="tag">§21(2)(i)</span></td>
+          <td><span class="tag green">A.8.22</span></td>
+          <td><code>azurerm_firewall_policy_rule_collection_group</code> (FQDN allow-list)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+       FOOTER
+  ───────────────────────────────────────────── -->
+  <footer>
+    <span>woitzik.dev &mdash; Cloud Infrastructure Engineering &mdash; david@woitzik.dev</span>
+    <span>Enterprise Terraform Modules: <a href="https://woitzik.dev/templates">woitzik.dev/templates</a></span>
+  </footer>
+
+  <p class="print-hide" style="text-align:center; margin-top: 32px; font-size: 10pt; color: #737373;">
+    <strong>To save as PDF:</strong> Ctrl+P (or Cmd+P) → Destination: Save as PDF → Paper: A4 → Margins: None → Enable "Background graphics"
+  </p>
+
+</div>
+</body>
+</html>
