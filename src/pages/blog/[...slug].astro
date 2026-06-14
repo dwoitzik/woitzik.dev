@@ -6,6 +6,7 @@ import FormattedDate from "@components/FormattedDate.astro";
 import { readingTime } from "@lib/utils";
 import BackToPrev from "@components/BackToPrev.astro";
 import TableOfContents from "@components/TableOfContents.astro";
+import EmailCapture from "@components/EmailCapture.astro";
 
 export async function getStaticPaths() {
   const posts = (await getCollection("blog"))
@@ -106,6 +107,13 @@ const jsonLd = {
         <article class="animate">
           <Content />
         </article>
+
+        <div class="animate mt-12">
+          <EmailCapture
+            title="More like this in your inbox"
+            description="New enterprise modules and deep dives — straight to your inbox. No spam."
+          />
+        </div>
 
         {
           (prev || next) && (
