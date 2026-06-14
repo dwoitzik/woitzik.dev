@@ -7,27 +7,28 @@ interface Props {
   external?: boolean;
   underline?: boolean;
   class?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 
-const { 
-  href, 
-  external, 
-  underline = true, 
-  class: className, 
-  ...rest 
+const {
+  href,
+  external,
+  underline = true,
+  class: className,
+  ...rest
 } = Astro.props;
 ---
 
-<a 
-  href={href} 
-  target={external ? "_blank" : "_self"} 
+<a
+  href={href}
+  target={external ? "_blank" : "_self"}
   class={cn(
     "inline-block transition-colors duration-300",
     underline && "underline underline-offset-2",
-    className
+    className,
   )}
   {...rest}
 >
-  <slot/>
+  <slot />
 </a>
