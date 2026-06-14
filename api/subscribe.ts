@@ -53,7 +53,7 @@ const DAY3_BODY = emailBody(`
   <p style="margin:0 0 16px">I wrote a deep-dive on how to resolve this, including:</p>
   <ul style="margin:0 0 16px;padding-left:20px;color:#404040">
     <li style="margin-bottom:6px">The correct resource ordering to avoid the cycle</li>
-    <li style="margin-bottom:6px">The KMS bypass route (168.63.129.16/32) that prevents Windows VMs from breaking</li>
+    <li style="margin-bottom:6px">The KMS bypass route (23.102.135.246/32) that prevents Windows VMs from breaking</li>
     <li>Why routing Azure AD through the firewall silently breaks Managed Identity auth</li>
   </ul>
   <p style="margin:0 0 20px">

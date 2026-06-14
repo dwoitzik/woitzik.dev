@@ -3,95 +3,144 @@ import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
 import EmailCapture from "@components/EmailCapture.astro";
 import { products } from "@data/products";
+
+const foundationSlug = "hub-spoke-enterprise-vnet";
 ---
 
-<PageLayout title="Templates" description="Production-ready Terraform modules for hardened Azure environments.">
+<PageLayout
+  title="Azure Terraform Modules"
+  description="Production-ready Terraform modules for ISO 27001, NIS2, and KRITIS-compliant Azure environments. Zero-Trust networking, Private Link, Managed Identity — ready to deploy."
+>
   <Container>
     <div class="space-y-10">
-
-      <div class="animate font-semibold text-black dark:text-white">
-        Templates
+      <div class="animate space-y-3">
+        <h1 class="font-semibold text-black dark:text-white">
+          Enterprise Terraform Modules
+        </h1>
+        <p class="text-sm text-black/60 dark:text-white/60 max-w-lg">
+          Compliance-ready infrastructure blueprints for ISO 27001, NIS2, and
+          KRITIS environments. Each module is tested, documented, and ready to
+          deploy.
+        </p>
+        <p class="text-xs text-black/40 dark:text-white/40 max-w-lg">
+          New to this stack? Start with the <strong
+            class="text-black/60 dark:text-white/60">Hub &amp; Spoke</strong
+          > foundation — the Firewall and other modules are designed to drop into
+          it.
+        </p>
       </div>
 
-      <p class="animate text-sm text-black/60 dark:text-white/60 max-w-lg">
-        Compliance-ready infrastructure blueprints for ISO 27001, NIS2, and KRITIS environments.
-        Each module is tested, documented, and ready to deploy.
-      </p>
-
       <div class="space-y-6">
-        {products.map((product) => (
-          <article class="animate rounded-lg border border-black/15 dark:border-white/20 overflow-hidden">
-
-            <!-- Header -->
-            <div class="px-6 pt-6 pb-4 flex flex-wrap gap-4 items-start justify-between">
-              <div class="space-y-1">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-xs font-bold tracking-widest uppercase opacity-40">
-                    {product.badge}
-                  </span>
-                  {product.tags.map(tag => (
-                    <span class="text-xs px-2 py-0.5 rounded border border-black/10 dark:border-white/10 opacity-60">
-                      {tag}
+        {
+          products.map((product) => (
+            <article class="animate rounded-lg border border-black/15 dark:border-white/20 overflow-hidden">
+              <div class="px-6 pt-6 pb-4 flex flex-wrap gap-4 items-start justify-between">
+                <div class="space-y-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-xs font-bold tracking-widest uppercase opacity-40">
+                      {product.badge}
                     </span>
+                    {product.slug === foundationSlug && (
+                      <span class="text-xs font-bold px-2 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                        Start here
+                      </span>
+                    )}
+                    {product.tags.map((tag) => (
+                      <span class="text-xs px-2 py-0.5 rounded border border-black/10 dark:border-white/10 opacity-60">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                  <h2 class="font-semibold text-black dark:text-white text-base">
+                    {product.title}
+                  </h2>
+                  <p class="text-sm text-black/60 dark:text-white/60 max-w-xl leading-relaxed">
+                    {product.description}
+                  </p>
+                </div>
+
+                <div class="flex flex-col items-end gap-1 shrink-0">
+                  <div class="text-2xl font-bold text-black dark:text-white">
+                    {product.price}
+                  </div>
+                  <div class="text-xs opacity-40">{product.priceNote}</div>
+                </div>
+              </div>
+
+              <div class="px-6 pb-4">
+                <ul class="space-y-1.5">
+                  {product.bullets.map((b) => (
+                    <li class="flex items-start gap-2 text-sm text-black/70 dark:text-white/70">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        class="mt-0.5 shrink-0 opacity-70"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      {b}
+                    </li>
                   ))}
-                </div>
-                <h2 class="font-semibold text-black dark:text-white text-base">
-                  {product.title}
-                </h2>
-                <p class="text-sm text-black/60 dark:text-white/60 max-w-xl leading-relaxed">
-                  {product.description}
-                </p>
+                </ul>
               </div>
 
-              <!-- Price block -->
-              <div class="flex flex-col items-end gap-1 shrink-0">
-                <div class="text-2xl font-bold text-black dark:text-white">
-                  {product.price}
-                </div>
-                <div class="text-xs opacity-40">{product.priceNote}</div>
-              </div>
-            </div>
-
-            <!-- Bullets -->
-            <div class="px-6 pb-4">
-              <ul class="space-y-1.5">
-                {product.bullets.map(b => (
-                  <li class="flex items-start gap-2 text-sm text-black/70 dark:text-white/70">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0 opacity-70">
-                      <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                    {b}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <!-- Footer -->
-            <div class="px-6 py-4 border-t border-black/10 dark:border-white/10 flex flex-wrap gap-3 items-center">
-              {product.available ? (
+              <div class="px-6 py-4 border-t border-black/10 dark:border-white/10 flex flex-wrap gap-3 items-center">
+                {product.available ? (
+                  <a
+                    href={product.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded bg-black dark:bg-white text-white dark:text-black hover:opacity-80 transition-opacity"
+                  >
+                    Buy Now &rarr;
+                  </a>
+                ) : (
+                  <span class="inline-flex items-center text-sm font-semibold px-4 py-2 rounded bg-black/5 dark:bg-white/10 text-black/40 dark:text-white/40 cursor-not-allowed">
+                    Coming Soon
+                  </span>
+                )}
                 <a
-                  href={product.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded bg-black dark:bg-white text-white dark:text-black hover:opacity-80 transition-opacity"
+                  href={product.articleHref}
+                  class="text-sm underline underline-offset-2 opacity-50 hover:opacity-80 transition-opacity"
                 >
-                  Buy Now &rarr;
+                  Read the article
                 </a>
-              ) : (
-                <span class="inline-flex items-center text-sm font-semibold px-4 py-2 rounded bg-black/5 dark:bg-white/10 text-black/40 dark:text-white/40 cursor-not-allowed">
-                  Coming Soon
-                </span>
-              )}
-              <a
-                href={product.articleHref}
-                class="text-sm underline underline-offset-2 opacity-50 hover:opacity-80 transition-opacity"
-              >
-                Read the article
-              </a>
-            </div>
+              </div>
+            </article>
+          ))
+        }
+      </div>
 
-          </article>
-        ))}
+      <!-- License & Trust signals -->
+      <div
+        class="animate rounded-lg border border-black/10 dark:border-white/10 px-6 py-5 space-y-2"
+      >
+        <p class="text-xs font-bold uppercase tracking-widest opacity-40">
+          License & Delivery
+        </p>
+        <ul class="space-y-1.5 text-sm text-black/60 dark:text-white/60">
+          <li>Full Terraform source code — no compiled binaries, no lock-in</li>
+          <li>
+            One-time payment via Lemon Squeezy (MoR — VAT handled automatically)
+          </li>
+          <li>
+            Single-organization license: use in your own infrastructure or for a
+            single client engagement
+          </li>
+          <li>
+            Questions? <a
+              href="mailto:david@woitzik.dev"
+              class="underline underline-offset-2 hover:opacity-80 transition-opacity"
+              >david@woitzik.dev</a>
+          </li>
+        </ul>
       </div>
 
       <div class="animate">
@@ -100,7 +149,6 @@ import { products } from "@data/products";
           description="Get notified when new enterprise modules drop. No spam, unsubscribe anytime."
         />
       </div>
-
     </div>
   </Container>
 </PageLayout>

@@ -144,6 +144,16 @@ function parseFrontmatter(raw) {
 }
 
 // ─── dev.to ───────────────────────────────────────────────────────────────
+async function alreadyOnDevTo(slug, apiKey) {
+  const canonical = `https://woitzik.dev/blog/${slug}/`;
+  const res = await fetch("https://dev.to/api/articles/me/published?per_page=100", {
+    headers: { "api-key": apiKey },
+  });
+  if (!res.ok) return false;
+  const articles = await res.json();
+  return articles.some((a) => a.canonical_url === canonical);
+}
+
 async function postToDevTo(slug, fm, markdown, dryRun) {
   const apiKey = process.env.DEVTO_API_KEY;
   if (!apiKey) { console.error("❌  DEVTO_API_KEY not set"); return; }
@@ -167,6 +177,11 @@ async function postToDevTo(slug, fm, markdown, dryRun) {
   if (dryRun) {
     console.log("\n[DRY RUN] dev.to payload:");
     console.log(JSON.stringify(payload, null, 2).slice(0, 600) + "...");
+    return;
+  }
+
+  if (await alreadyOnDevTo(slug, apiKey)) {
+    console.log(`⏭️   dev.to: already published (${slug}) — skipping`);
     return;
   }
 

@@ -51,6 +51,9 @@ const jsonLd = {
   title={post.data.title}
   description={post.data.description}
   image={`/og/${post.slug}.png`}
+  type="article"
+  publishedTime={post.data.date.toISOString()}
+  tags={post.data.tags}
 >
   <!-- Reading progress bar -->
   <div
