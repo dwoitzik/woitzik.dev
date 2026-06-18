@@ -13,11 +13,9 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { createRequire } from "module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
-const require = createRequire(import.meta.url);
 
 // Load .env.crosspost if present
 const envFile = resolve(ROOT, ".env.crosspost");
@@ -29,7 +27,9 @@ if (existsSync(envFile)) {
 }
 
 // ─── Product data (single source of truth: src/data/products.json) ───────────
-const productsArray = require("../src/data/products.json");
+const productsArray = JSON.parse(
+  readFileSync(resolve(ROOT, "src/data/products.json"), "utf8")
+);
 const PRODUCTS = Object.fromEntries(productsArray.map((p) => [p.slug, p]));
 
 // ─── MDX → Markdown conversion ────────────────────────────────────────────

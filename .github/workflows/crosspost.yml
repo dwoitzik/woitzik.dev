@@ -25,15 +25,16 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Check required secrets
+        id: check-secrets
         if: steps.new-posts.outputs.posts != ''
         run: |
           if [ -z "${{ secrets.DEVTO_API_KEY }}" ]; then
-            echo "❌ DEVTO_API_KEY secret is not set — aborting crosspost"
-            exit 1
+            echo "⚠️  DEVTO_API_KEY secret is not set — skipping crosspost"
+            echo "skip=true" >> $GITHUB_OUTPUT
           fi
 
       - name: Crosspost to dev.to
-        if: steps.new-posts.outputs.posts != ''
+        if: steps.new-posts.outputs.posts != '' && steps.check-secrets.outputs.skip != 'true'
         env:
           DEVTO_API_KEY: ${{ secrets.DEVTO_API_KEY }}
         run: |
@@ -41,5 +42,5 @@ jobs:
             [ -z "$file" ] && continue
             slug=$(basename "$file" .mdx)
             echo "Crossposting: $slug"
-            node scripts/crosspost.mjs "$slug" --devto
+            node scripts/crosspost.mjs "$slug"
           done <<< "${{ steps.new-posts.outputs.posts }}"
