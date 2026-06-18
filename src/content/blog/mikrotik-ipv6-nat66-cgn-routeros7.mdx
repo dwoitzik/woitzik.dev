@@ -1,0 +1,235 @@
+---
+title: "IPv6 NAT66 Behind a FritzBox: The RouterOS 7 Bug That Broke WiFi Clients"
+description: "Setting up IPv6 on MikroTik behind a FritzBox with CGN should be straightforward — ULA prefix, NAT66 masquerade, done. Instead, RouterOS 7 started advertising router advertisements on the WAN interface, turning MikroTik into an uninvited IPv6 gateway for FritzBox WiFi clients. Here's the full setup and fix."
+date: "2026-06-18"
+tags: ["MikroTik", "Networking", "Homelab"]
+---
+
+Most homelab IPv6 guides assume you have native IPv6 from your ISP: a delegated /56 prefix, clean RA on the WAN, no NAT. That describes maybe 30% of actual deployments in Germany.
+
+The other 70% sits behind a FritzBox with DS-Lite or CGN, gets a GUA on the WAN interface via SLAAC, and has no delegated prefix to distribute internally. If you want IPv6 inside your network, you build it yourself.
+
+This is the setup I run: ULA addressing internally, NAT66 masquerade for outbound, everything Terraform-managed. It worked until RouterOS 7's router advertisement defaults caused every FritzBox WiFi client to route IPv6 through MikroTik — and then get dropped.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Topology
+
+```
+Internet
+    │
+FritzBox (CGN / DS-Lite)
+    │  ether1 (WAN) — gets GUA via SLAAC from FritzBox
+MikroTik RB5009
+    ├── vlan10-mgmt   fd10::1/64
+    ├── vlan20-srv    fd20::1/64
+    ├── vlan30-dmz    fd30::1/64
+    ├── vlan40-iot    fd40::1/64
+    └── vlan100-admin fd64::1/64
+```
+
+The FritzBox provides:
+- IPv4 via CGN/DS-Lite (no public IPv4)
+- IPv6 GUA prefix via RA on its LAN port — MikroTik's ether1 picks this up via SLAAC
+
+Internally, I use ULA (`fd00::/8`, RFC 4193). ULA is the IPv6 equivalent of RFC1918 private addressing. It's stable — it doesn't change when the ISP rotates the GUA prefix — and it works for all internal communication. The NAT66 rule masquerades ULA sources to the GUA when leaving ether1.
+
+## Step 1: ULA Addresses Per VLAN
+
+Each VLAN gets a /64 from the `fd::/8` space. I use the VLAN number as the second octet for readability:
+
+```hcl
+# terraform/stacks/network/ipv6_network.tf
+
+locals {
+  ipv6_ula_prefixes = {
+    "vlan10-mgmt"   = "fd10::/64"
+    "vlan20-srv"    = "fd20::/64"
+    "vlan30-dmz"    = "fd30::/64"
+    "vlan40-iot"    = "fd40::/64"
+    "vlan100-admin" = "fd64::/64"
+  }
+}
+
+resource "routeros_ipv6_address" "vlan_ula" {
+  for_each = local.ipv6_ula_prefixes
+
+  address   = replace(each.value, "::/64", "::1/64")
+  interface = each.key
+  advertise = true
+  comment   = "ULA gateway for ${each.key}"
+}
+```
+
+`advertise = true` enables IPv6 ND (Neighbor Discovery) on each interface. Hosts on each VLAN receive a Router Advertisement with the /64 prefix and auto-configure a ULA address via SLAAC. No DHCPv6 needed.
+
+The router address is `::1` in each /64: `fd10::1/64`, `fd20::1/64`, etc.
+
+## Step 2: Accept RA on ether1
+
+MikroTik defaults to ignoring Router Advertisements when `forward = true` (i.e., when acting as a router). You have to explicitly enable RA acceptance on the WAN interface:
+
+```hcl
+resource "routeros_ipv6_settings" "global" {
+  accept_router_advertisements = "yes"
+  forward                      = true
+}
+```
+
+With this, ether1 accepts the RA from the FritzBox and configures its GUA via SLAAC. `ip6 address print` will show the GUA alongside the manually configured ULA if you have any internal IPv6 config on ether1.
+
+## Step 3: NAT66 Masquerade
+
+The NAT66 rule masquerades outbound IPv6 from ULA sources to the GUA on ether1:
+
+```hcl
+resource "routeros_ipv6_firewall_nat" "nat66_masquerade" {
+  chain         = "srcnat"
+  action        = "masquerade"
+  src_address   = "fd00::/8"
+  out_interface = "ether1"
+  comment       = "NAT66: ULA → WAN GUA (FritzBox upstream)"
+}
+```
+
+The `src_address = "fd00::/8"` constraint is critical. Without it, the rule matches ALL IPv6 traffic leaving ether1 — including traffic from FritzBox WiFi clients that happens to transit MikroTik. This is one half of the bug that caused problems (more on that below).
+
+## Step 4: IPv6 Firewall
+
+The IPv6 firewall mirrors the IPv4 firewall philosophy: default-drop, explicit allows, `place_before` for deterministic rule ordering.
+
+```hcl
+# INPUT chain
+resource "routeros_ipv6_firewall_filter" "v6_in_00_established" {
+  action           = "accept"
+  chain            = "input"
+  connection_state = "established,related,untracked"
+  place_before     = routeros_ipv6_firewall_filter.v6_in_01_icmpv6.id
+  comment          = "V6-IN-00: Allow established/related"
+}
+
+resource "routeros_ipv6_firewall_filter" "v6_in_01_icmpv6" {
+  action       = "accept"
+  chain        = "input"
+  protocol     = "icmpv6"
+  place_before = routeros_ipv6_firewall_filter.v6_input_drop_all.id
+  comment      = "V6-IN-01: Allow ICMPv6 (NDP, RA, ping6)"
+}
+
+resource "routeros_ipv6_firewall_filter" "v6_input_drop_all" {
+  action  = "drop"
+  chain   = "input"
+  comment = "V6-IN-DROP: Drop all other IPv6 input"
+}
+
+# FORWARD chain
+resource "routeros_ipv6_firewall_filter" "v6_fwd_00_established" {
+  action           = "accept"
+  chain            = "forward"
+  connection_state = "established,related,untracked"
+  place_before     = routeros_ipv6_firewall_filter.v6_fwd_01_icmpv6.id
+  comment          = "V6-FWD-00: Allow established/related"
+}
+
+resource "routeros_ipv6_firewall_filter" "v6_fwd_01_icmpv6" {
+  action       = "accept"
+  chain        = "forward"
+  protocol     = "icmpv6"
+  place_before = routeros_ipv6_firewall_filter.v6_fwd_02_internal_out.id
+  comment      = "V6-FWD-01: Allow ICMPv6"
+}
+
+resource "routeros_ipv6_firewall_filter" "v6_fwd_02_internal_out" {
+  action        = "accept"
+  chain         = "forward"
+  src_address   = "fd00::/8"
+  out_interface = "ether1"
+  place_before  = routeros_ipv6_firewall_filter.v6_forward_drop_all.id
+  comment       = "V6-FWD-02: Allow internal ULA to WAN"
+}
+
+resource "routeros_ipv6_firewall_filter" "v6_forward_drop_all" {
+  action  = "drop"
+  chain   = "forward"
+  comment = "V6-FWD-DROP: Drop all other IPv6 forward"
+}
+```
+
+The forward rule `v6_fwd_02_internal_out` only allows ULA sources (`fd00::/8`) to exit via ether1. That's intentional — and it's what exposed the RouterOS 7 bug.
+
+## The Bug: RouterOS 7 Sends RA on All Interfaces
+
+After deploying this configuration, FritzBox WiFi clients started losing IPv6 connectivity.
+
+The symptom: devices on the FritzBox WiFi (SSID, not the MikroTik VLANs) had IPv6 addresses but couldn't reach the internet via IPv6. `traceroute6` on an affected device showed the path going through MikroTik — not the FritzBox.
+
+The cause: **RouterOS 7 enables Router Advertisement on all interfaces by default**, including `ether1` (WAN).
+
+Here's the sequence:
+
+1. MikroTik receives a GUA prefix from FritzBox via RA on ether1
+2. RouterOS 7 then *re-advertises* a Router Advertisement on ether1 — back towards the FritzBox
+3. The FritzBox sees MikroTik advertising itself as an IPv6 router on the LAN
+4. FritzBox WiFi clients pick up MikroTik's RA and install it as their default IPv6 gateway
+5. IPv6 traffic from WiFi clients routes through MikroTik's FORWARD chain
+6. FORWARD chain only accepts `fd00::/8` sources — GUA addresses from WiFi clients don't match
+7. Traffic dropped. IPv6 broken for all FritzBox WiFi clients.
+
+The fix is to disable RA on ether1. In RouterOS `/ip6/nd`, find the ether1 entry and set `advertise=no`.
+
+The problem: as of `terraform-routeros` provider version 1.99.1 (latest at time of writing), there is no `routeros_ipv6_nd` resource to manage this via Terraform. The fix has to be applied manually:
+
+```
+/ipv6/nd set [find interface=ether1] advertise=no
+```
+
+This is documented in the Terraform configuration as a comment so it doesn't get overwritten by a future `terraform apply`:
+
+```hcl
+# RouterOS 7 enables RA advertisement on ALL interfaces by default — including
+# ether1 (WAN). Once ether1 gets a GUA via SLAAC, MikroTik starts sending RAs
+# on the FritzBox LAN. FritzBox WiFi clients then use MikroTik as their IPv6
+# gateway, but the FORWARD chain only allows fd00::/8 sources → GUA clients
+# are dropped → IPv6 broken on FritzBox WiFi.
+# RA on ether1 is disabled in RouterOS: /ipv6/nd set [find interface=ether1] advertise=no
+# routeros_ipv6_nd is not exposed in terraform-routeros/routeros ≤ 1.99.1 (latest as of 2026-06).
+```
+
+Once `routeros_ipv6_nd` is added to the provider (tracked upstream), this should be managed as:
+
+```hcl
+resource "routeros_ipv6_nd" "ether1_no_ra" {
+  interface = "ether1"
+  advertise = false
+}
+```
+
+## ULA vs. GUA: Why Not Just Use the ISP Prefix?
+
+The obvious alternative: use the GUA prefix the FritzBox receives from the ISP, delegate a /64 to each VLAN, and skip NAT66 entirely. IPv6 was designed to eliminate NAT.
+
+The problem: German ISPs frequently rotate GUA prefixes. A prefix change means every device on every VLAN gets a new address — breaking DNS records, Ansible inventory, firewall rules, and anything else that references addresses directly.
+
+ULA solves this. The `fd::/8` prefix is locally assigned and never changes. Internal addressing is stable forever. The NAT66 rule handles the GUA ↔ ULA translation at the WAN boundary transparently.
+
+The trade-off: ULA + NAT66 breaks end-to-end IPv6 reachability (GUA hosts on the internet can't initiate connections to your ULA hosts). For a homelab where all inbound connections come through a Cloudflare Tunnel or Traefik ingress anyway, that's not a problem.
+
+## Verifying the Setup
+
+After applying the Terraform config and the manual RA fix:
+
+```bash
+# From a device on vlan20-srv (should have fd20::/64 address)
+ip -6 addr show
+# Should see: fd20::xxx/64
+
+# Test outbound IPv6
+ping6 -c 3 ipv6.google.com
+# Should succeed (NAT66 masquerades the ULA source to the GUA)
+
+# From a FritzBox WiFi device
+ip -6 route show
+# Default via should point to FritzBox, not MikroTik
+```
+
+If WiFi clients still route through MikroTik after setting `advertise=no`, run `ip6/nd print` on the RouterOS terminal to verify the change persisted. RouterOS can be slow to propagate ND configuration changes.

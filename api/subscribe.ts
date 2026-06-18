@@ -165,13 +165,12 @@ export default async function handler(
     return;
   }
 
-  // Fire and forget all three emails — contact creation already succeeded
-  const scheduleEmail = (
+  const scheduleEmail = async (
     subject: string,
     htmlContent: string,
     scheduledAt?: string,
-  ) =>
-    fetch("https://api.brevo.com/v3/smtp/email", {
+  ) => {
+    const r = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: brevoHeaders,
       body: JSON.stringify({
@@ -181,20 +180,32 @@ export default async function handler(
         htmlContent,
         ...(scheduledAt ? { scheduledAt } : {}),
       }),
-    }).then(async (r) => {
-      if (!r.ok)
-        console.error(
-          `Brevo email error (${subject}):`,
-          r.status,
-          await r.json().catch(() => ({})),
-        );
     });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(
+        `Brevo email failed (${subject}): ${r.status} ${JSON.stringify(err)}`,
+      );
+    }
+  };
 
-  await Promise.all([
-    scheduleEmail(DAY0_SUBJECT, DAY0_BODY),
-    scheduleEmail(DAY3_SUBJECT, DAY3_BODY, daysFromNow(3)),
-    scheduleEmail(DAY7_SUBJECT, DAY7_BODY, daysFromNow(7)),
-  ]);
+  try {
+    await Promise.all([
+      scheduleEmail(DAY0_SUBJECT, DAY0_BODY),
+      scheduleEmail(DAY3_SUBJECT, DAY3_BODY, daysFromNow(3)),
+      scheduleEmail(DAY7_SUBJECT, DAY7_BODY, daysFromNow(7)),
+    ]);
+  } catch (err) {
+    console.error("Brevo email sequence error:", err);
+    res.writeHead(500);
+    res.end(
+      JSON.stringify({
+        error:
+          "Subscribed, but failed to send confirmation email. Please try again.",
+      }),
+    );
+    return;
+  }
 
   res.writeHead(200);
   res.end(JSON.stringify({ success: true }));

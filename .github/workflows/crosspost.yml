@@ -24,6 +24,14 @@ jobs:
           echo "$NEW" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+      - name: Check required secrets
+        if: steps.new-posts.outputs.posts != ''
+        run: |
+          if [ -z "${{ secrets.DEVTO_API_KEY }}" ]; then
+            echo "❌ DEVTO_API_KEY secret is not set — aborting crosspost"
+            exit 1
+          fi
+
       - name: Crosspost to dev.to
         if: steps.new-posts.outputs.posts != ''
         env:

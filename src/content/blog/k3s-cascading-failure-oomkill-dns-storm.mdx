@@ -1,0 +1,220 @@
+---
+title: "How a 1 GiB Memory Limit Took Down My Entire k3s Cluster"
+description: "A single misconfigured resource limit triggered a cascade: OOMKill on the control-plane, load average of 90, 1.2M DNS queries per day, and kubelet reporting the wrong allocatable memory. Here's the full post-mortem."
+date: "2026-06-18"
+tags: ["Kubernetes", "Homelab", "Debugging"]
+---
+
+It started with Paperless-ngx crashing.
+
+It ended with my control-plane node sitting at a load average of 90, CoreDNS generating 1.2 million DNS queries per day, and worker nodes reporting 3.8 GiB of allocatable memory instead of the 16 GiB they actually had.
+
+The root cause of all of it: a single 1 GiB memory limit set three months earlier without much thought.
+
+This is the full post-mortem — not the sanitized version where everything was obvious in hindsight, but the actual sequence of failures and how I traced each one back to its cause.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Setup
+
+Three-node k3s cluster running on Proxmox VMs (VLAN 20, server subnet):
+
+- `vm-srv-k3s-11` — control-plane, 4 cores, 12 GiB dedicated
+- `vm-srv-k3s-12` — worker, 4 cores, up to 16 GiB (balloon)
+- `vm-srv-k3s-13` — worker, 4 cores, up to 16 GiB (balloon)
+
+Apps namespace runs about 20 workloads: Nextcloud, Authelia, Paperless-ngx, Jellyfin, Home Assistant, Gitea, Mealie, and more. GitOps via ArgoCD; Longhorn for distributed storage.
+
+## Failure 1: Paperless OOMKilled 16 Times in 5 Hours
+
+Paperless-ngx uses Tesseract for OCR and Apache Tika for document ingestion. When a batch of documents hits at once — invoice exports, scanned PDFs — both workers burst memory hard and fast.
+
+The deployment had this:
+
+```yaml
+resources:
+  requests:
+    memory: 512Mi
+    cpu: 250m
+  limits:
+    memory: 1Gi
+    cpu: 500m
+```
+
+That 1 GiB ceiling is too low. When Tesseract processes a high-resolution scanned document, it easily needs 2–3 GiB. The kernel OOM killer terminates the container every time. Kubernetes restarts it. The next document in the queue triggers another OOM. Repeat sixteen times.
+
+Fix: raised limits and reduced concurrency to stay under the higher ceiling:
+
+```yaml
+resources:
+  requests:
+    memory: 1Gi
+    cpu: 500m
+  limits:
+    memory: 3Gi
+    cpu: 2000m
+env:
+  - name: PAPERLESS_TASK_WORKERS
+    value: "2"
+  - name: PAPERLESS_THREADS_PER_WORKER
+    value: "2"
+```
+
+**But this didn't explain the load average of 90.**
+
+## Failure 2: The Control-Plane Was Scheduling App Workloads
+
+When I checked where Paperless was running, it was on `vm-srv-k3s-11` — the control-plane.
+
+In a standard k3s setup, the control-plane has a `node-role.kubernetes.io/control-plane:NoSchedule` taint. User workloads shouldn't land there. But somewhere along the way, the Paperless deployment had picked up a toleration:
+
+```yaml
+tolerations:
+  - operator: Exists
+```
+
+`operator: Exists` with no `key` or `effect` matches **every taint on every node**, including `NoSchedule` on the control-plane. The pod scheduled there, and every OOMKill → restart cycle added another spike of CPU load to a node already running etcd, the k3s API server, CoreDNS, kube-proxy, and Longhorn replica management.
+
+The fix was to remove the blanket toleration entirely. The Paperless deployment doesn't need to run on the control-plane.
+
+With the toleration removed and the memory limit raised, load on `vm-srv-k3s-11` dropped from 90 to 1.04 immediately. But two more problems had already developed in the background.
+
+## Failure 3: CoreDNS Was Generating 1.2 Million Queries Per Day
+
+During the OOM cascade, I noticed AdGuard Home (running on two Raspberry Pi nodes in HA via Keepalived) was under unusually high load. I checked the query log: **1.2 million DNS queries in 24 hours** for a three-node homelab cluster.
+
+The culprit: CoreDNS default cache TTL.
+
+CoreDNS ships with a 30-second cache TTL. Every pod that makes a DNS lookup for a Kubernetes service gets an answer that expires in 30 seconds. In a healthy cluster that's fine. During an OOM cascade — where pods are restarting constantly, new IPs are being assigned, and connection state is unstable — the DNS query rate explodes. Pods that are restarting frequently keep hammering CoreDNS for the same records.
+
+The fix was a one-line patch to the CoreDNS ConfigMap:
+
+```bash
+kubectl patch configmap coredns -n kube-system --patch '
+data:
+  Corefile: |
+    .:53 {
+      errors
+      health
+      ready
+      kubernetes cluster.local in-addr.arpa ip6.arpa {
+        pods insecure
+        fallthrough in-addr.arpa ip6.arpa
+        ttl 30
+      }
+      prometheus :9153
+      forward . /etc/resolv.conf
+      cache 300
+      loop
+      reload
+      loadbalance
+    }
+'
+```
+
+Raising the cache TTL from 30 to 300 seconds reduced the upstream query volume by roughly 10x. I also updated AdGuard Home (via Ansible) to enable optimistic caching and increase its cache size:
+
+```yaml
+# ansible/roles/adguard/templates/AdGuardHome.yaml.j2
+dns:
+  cache_size: 67108864  # 64 MiB
+  cache_optimistic: true
+```
+
+`cache_optimistic: true` means AdGuard returns the cached (possibly stale) answer immediately while refreshing in the background — eliminating the latency spike on cache expiry. Combined, these two changes brought the daily query count down to ~120k.
+
+## Failure 4: Worker Nodes Reporting Wrong Allocatable Memory
+
+While fixing the above, I noticed something odd in `kubectl describe node vm-srv-k3s-12`:
+
+```
+Capacity:
+  cpu:     4
+  memory:  3981384Ki  ← ~3.8 GiB
+Allocatable:
+  cpu:     4
+  memory:  3878584Ki  ← ~3.7 GiB
+```
+
+The VM was allocated 16 GiB in Proxmox. Why was kubelet reporting 3.8 GiB?
+
+The answer is Proxmox balloon memory.
+
+Balloon memory in Proxmox works like this: you set a `dedicated` (maximum) and a `floating` (minimum) value. When the host is under memory pressure, Proxmox can shrink the guest down to the `floating` minimum. The key detail: **kubelet reads available memory at startup time**. If kubelet starts when the VM has been ballooned down to its minimum, that's what it registers as the node's capacity — and it doesn't update that value dynamically.
+
+My Terraform config had this:
+
+```hcl
+memory {
+  dedicated = 16384  # 16 GiB max
+  floating  = 4096   # 4 GiB min ← too low
+}
+```
+
+The workers had been under pressure during the OOM cascade, Proxmox had ballooned them down to 4 GiB, kubelet restarted and registered 3.8 GiB (4096 MB minus kernel + system overhead), and that's what Kubernetes thought the nodes had.
+
+The fix: raise the minimum balloon to ensure kubelet always sees adequate memory:
+
+```hcl
+memory {
+  dedicated = 16384
+  floating  = 8192   # 8 GiB min — safe floor for kubelet registration
+}
+```
+
+After restarting `k3s-agent` on both workers, capacity showed correctly:
+
+```
+Capacity:
+  memory: 16383272Ki  # 16 GiB
+```
+
+## The Full Cascade, Traced
+
+```
+1Gi Paperless limit + Exists toleration
+        ↓
+OOMKill × 16 on the control-plane
+        ↓
+k3s-11 load average: 90
+(etcd + API server + OCR workers + Longhorn replicas all competing)
+        ↓
+Pods restarting constantly → high DNS churn
+        ↓
+CoreDNS 30s TTL → 1.2M queries/day → AdGuard overload
+        ↓
+Balloon minimum 4096 MB → kubelet restart → 3.8 GiB registered
+        ↓
+Scheduler thinks workers have less capacity → over-schedules control-plane
+        ↓
+(back to top)
+```
+
+Each failure made the next one worse. Raising the memory limit without fixing the toleration would have helped Paperless but left the control-plane overloaded. Fixing the toleration without fixing the balloon minimum would have moved the problem to a worker node with 3.8 GiB of visible capacity. The DNS fix was independent but would have eventually caused its own stability issues at scale.
+
+## What Would Have Caught This Earlier
+
+A few things would have surfaced these issues before they compounded:
+
+**1. Resource limit policy at admission time.** A Kyverno `require-resource-limits` policy in Audit mode would have flagged the original 1 GiB limit as a potential issue and made it visible in PolicyReports before OOMKills started.
+
+**2. Control-plane taint monitoring.** A simple alert on `kube_pod_info{node="vm-srv-k3s-11"} unless kube_pod_info{namespace="kube-system"}` would have fired the moment a user workload landed on the control-plane.
+
+**3. Node capacity validation in Terraform.** The balloon minimum should be part of the VM definition review — ideally validated against the minimum kubelet requires to start safely.
+
+None of these are exotic. They're standard practice in production clusters. The lesson is that homelab clusters accumulate the same failure modes as production clusters, just with less monitoring to catch them.
+
+## The Fixes, Summarised
+
+| Problem | Root Cause | Fix |
+|---|---|---|
+| OOMKill × 16 | 1 GiB limit too low for Tesseract burst | Limit → 3 GiB, workers → 2 |
+| Control-plane load 90 | `tolerations: operator: Exists` | Remove blanket toleration |
+| 1.2M DNS queries/day | CoreDNS TTL 30s + OOM-induced restart churn | CoreDNS cache → 300s, AdGuard optimistic + 64 MiB |
+| 3.8 GiB allocatable | Proxmox balloon min 4096 MB, kubelet reads at startup | `floating = 8192` in Terraform |
+
+The cluster has been stable since. Paperless processes the same document batches without issue. CoreDNS query volume is down 90%. And kubelet now correctly reports 16 GiB on both workers.
+
+---
+
+The same failure modes — resource limits without ceiling analysis, overly permissive scheduling constraints, and hypervisor-level capacity mismatches — appear in enterprise Kubernetes deployments running on Azure VMs or bare-metal. The only difference is scale: one misconfigured limit in a 500-node cluster can trigger the same DNS storm, just with three extra zeros behind the query count.

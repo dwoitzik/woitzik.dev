@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
  * Crosspost a blog article to dev.to.
- * (Hashnode API requires a paid plan as of May 2026 — skip it)
  *
  * Usage:
  *   node scripts/crosspost.mjs <slug>           # post to dev.to
@@ -14,9 +13,11 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
+const require = createRequire(import.meta.url);
 
 // Load .env.crosspost if present
 const envFile = resolve(ROOT, ".env.crosspost");
@@ -27,57 +28,9 @@ if (existsSync(envFile)) {
   }
 }
 
-// ─── Product data (mirrors src/data/products.ts) ──────────────────────────
-const PRODUCTS = {
-  "acmebot-enterprise-vnet": {
-    title: "Azure Acmebot — Enterprise VNet Edition",
-    price: "€49",
-    href: "https://woitzik-cloud.lemonsqueezy.com/checkout/buy/9ba80f4b-ce9c-40bf-a831-e012b538da8b",
-    bullets: [
-      "Default-deny network architecture (VNet Integration + Private Link)",
-      "Private DNS Zones — correct resolution out of the box",
-      "Entra ID & Managed Identity automation included",
-      "Saves 4–8h of senior engineer troubleshooting",
-      "Full source code — no lock-in, no black box",
-    ],
-  },
-  "hub-spoke-enterprise-vnet": {
-    title: "Enterprise Hub & Spoke — Zero-Trust Edition",
-    price: "€49",
-    href: "https://woitzik-cloud.lemonsqueezy.com/checkout/buy/e8caa68b-bc22-489e-b453-2ea28bd28eb0",
-    bullets: [
-      "Zero-Trust NSG baseline bound to all Spoke subnets",
-      "4 centralized Private DNS Zones (Blob, SQL, Key Vault, ACR)",
-      "DINE policy lifecycle bypass — no more broken pipelines",
-      "Environment-aware naming convention throughout",
-      "Full source code — no lock-in, no black box",
-    ],
-  },
-  "azure-firewall-enterprise": {
-    title: "Azure Firewall — Enterprise Forced Tunneling Edition",
-    price: "€49",
-    href: "https://woitzik-cloud.lemonsqueezy.com/checkout/buy/a955d698-acf5-4654-ae16-bb8ec1f7be15",
-    bullets: [
-      "Cycle-error-free resource ordering — deploys first time, every time",
-      "KMS & Azure AD bypass routes — no broken Windows VMs or auth failures",
-      "Dynamic for_each subnet binding — scales to any number of Spokes",
-      "IP Group-based firewall policies — no hardcoded IP addresses",
-      "FQDN baseline rules for Windows Updates and core Microsoft services",
-    ],
-  },
-  "azure-rag-enterprise": {
-    title: "Enterprise AI RAG — Zero-Trust Networking",
-    price: "€79",
-    href: "https://woitzik-cloud.lemonsqueezy.com/checkout/buy/cd786faf-92b8-41c8-876e-c3a3fdf4f823",
-    bullets: [
-      "Automated AzAPI Link Approval — no manual Portal clicks required",
-      "Full VNet Injection — Public Network Access strictly disabled",
-      "Pre-configured Identity Chaining (System Managed Identities + RBAC)",
-      "Automated Private DNS Zone linking for both services",
-      "ISO 27001 & NIS2 compliant architecture on day one",
-    ],
-  },
-};
+// ─── Product data (single source of truth: src/data/products.json) ───────────
+const productsArray = require("../src/data/products.json");
+const PRODUCTS = Object.fromEntries(productsArray.map((p) => [p.slug, p]));
 
 // ─── MDX → Markdown conversion ────────────────────────────────────────────
 function mdxToMarkdown(raw, slug) {
@@ -118,7 +71,7 @@ function mdxToMarkdown(raw, slug) {
     }
   );
 
-  // Add canonical note at the top for dev.to / Hashnode readers
+  // Add canonical note at the top for dev.to readers
   const canonicalNote = `> _Originally published at [woitzik.dev](${canonicalUrl})_\n\n`;
 
   return canonicalNote + body.trim();
@@ -156,7 +109,10 @@ async function alreadyOnDevTo(slug, apiKey) {
 
 async function postToDevTo(slug, fm, markdown, dryRun) {
   const apiKey = process.env.DEVTO_API_KEY;
-  if (!apiKey) { console.error("❌  DEVTO_API_KEY not set"); return; }
+  if (!apiKey) {
+    console.error("❌  DEVTO_API_KEY not set");
+    process.exit(1);
+  }
 
   // dev.to tags: lowercase, no spaces, letters/numbers only, max 4
   const tags = (fm.tags || [])
@@ -196,60 +152,7 @@ async function postToDevTo(slug, fm, markdown, dryRun) {
     console.log(`✅  dev.to: ${data.url}`);
   } else {
     console.error("❌  dev.to error:", data);
-  }
-}
-
-// ─── Hashnode ─────────────────────────────────────────────────────────────
-async function postToHashnode(slug, fm, markdown, dryRun) {
-  const token = process.env.HASHNODE_TOKEN;
-  const publicationId = process.env.HASHNODE_PUBLICATION_ID;
-  if (!token || !publicationId) {
-    console.error("❌  HASHNODE_TOKEN or HASHNODE_PUBLICATION_ID not set");
-    return;
-  }
-
-  const tags = (fm.tags || []).map((t) => ({ name: t, slug: t.toLowerCase().replace(/\s+/g, "-") }));
-
-  const query = `
-    mutation PublishPost($input: PublishPostInput!) {
-      publishPost(input: $input) {
-        post { id url }
-      }
-    }
-  `;
-
-  const variables = {
-    input: {
-      title: fm.title,
-      subtitle: fm.description,
-      publicationId,
-      contentMarkdown: markdown,
-      originalArticleURL: `https://woitzik.dev/blog/${slug}/`,
-      tags,
-      settings: { isTableOfContentEnabled: true },
-    },
-  };
-
-  if (dryRun) {
-    console.log("\n[DRY RUN] Hashnode payload:");
-    console.log(JSON.stringify(variables, null, 2).slice(0, 600) + "...");
-    return;
-  }
-
-  const res = await fetch("https://gql.hashnode.com/", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: token,
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const data = await res.json();
-  if (data.data?.publishPost?.post?.url) {
-    console.log(`✅  Hashnode: ${data.data.publishPost.post.url}`);
-  } else {
-    console.error("❌  Hashnode error:", JSON.stringify(data.errors ?? data));
+    process.exit(1);
   }
 }
 
@@ -257,7 +160,7 @@ async function postToHashnode(slug, fm, markdown, dryRun) {
 const [, , slug, ...flags] = process.argv;
 
 if (!slug) {
-  console.error("Usage: node scripts/crosspost.mjs <slug> [--devto] [--hashnode] [--dry-run]");
+  console.error("Usage: node scripts/crosspost.mjs <slug> [--dry-run]");
   console.error("\nAvailable slugs:");
   const { readdirSync } = await import("fs");
   readdirSync(resolve(ROOT, "src/content/blog"))
@@ -267,9 +170,6 @@ if (!slug) {
 }
 
 const dryRun = flags.includes("--dry-run");
-const onlyDevTo = flags.includes("--devto");
-const onlyHashnode = flags.includes("--hashnode");
-const postBoth = !onlyDevTo && !onlyHashnode;
 
 const mdxPath = resolve(ROOT, `src/content/blog/${slug}.mdx`);
 if (!existsSync(mdxPath)) {
@@ -285,5 +185,4 @@ console.log(`\n📝  Crossposting: ${fm.title}`);
 console.log(`🔗  Canonical: https://woitzik.dev/blog/${slug}/`);
 console.log(`🏷️   Tags: ${(fm.tags || []).join(", ")}\n`);
 
-if (onlyDevTo || postBoth) await postToDevTo(slug, fm, markdown, dryRun);
-if (onlyHashnode || postBoth) await postToHashnode(slug, fm, markdown, dryRun);
+await postToDevTo(slug, fm, markdown, dryRun);

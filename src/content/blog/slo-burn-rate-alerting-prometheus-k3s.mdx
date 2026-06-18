@@ -1,0 +1,193 @@
+---
+title: "SLO Burn-Rate Alerting with Prometheus: Beyond Threshold Alerts"
+description: "Most teams alert when availability drops below a threshold. Burn-rate alerting tells you how fast you're spending your error budget — so you page on trajectory, not just current state. Here's how to implement the Google SRE Workbook approach on a bare-metal k3s cluster."
+date: "2026-06-18"
+tags: ["Kubernetes", "Monitoring", "Homelab"]
+---
+
+Most uptime alerts look like this:
+
+```yaml
+- alert: ServiceDown
+  expr: probe_success == 0
+  for: 2m
+```
+
+That fires when a service is completely down for two minutes. It won't fire when a service is responding to 95% of requests for 48 hours straight — even though that's silently consuming your entire monthly error budget.
+
+Burn-rate alerting is a different model. Instead of alerting on current state, it alerts on **how fast you're spending your error budget**. A 30x burn rate means you'll exhaust your entire month of tolerance in about 50 minutes. A 6x burn rate means you have a few hours. Both warrant action — just different kinds of action.
+
+This is the implementation running on my bare-metal k3s cluster, based directly on the multi-window multi-burn-rate approach from the [Google SRE Workbook](https://sre.google/workbook/alerting-on-slos/).
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Error Budgets, Briefly
+
+If your SLO is 99.9% availability, your monthly error budget is the allowed downtime: 43.8 minutes per month (0.1% of 43,800 minutes).
+
+The core insight: **not all errors are the same urgency**. A service that's been returning errors at 30x the normal rate for the past two hours will exhaust that 43.8-minute budget in ~50 minutes — that's a page. A service burning at 6x for the past six hours has 4 hours left — that's a ticket, handled during the shift.
+
+Threshold alerting conflates these. Burn-rate alerting separates them.
+
+## The SLI: HTTP Probe Success Rate
+
+Everything is built on a single Service Level Indicator: the fraction of successful HTTP probes from the Prometheus [blackbox exporter](https://github.com/prometheus/blackbox_exporter).
+
+The blackbox exporter probes each public service endpoint on a fixed interval. `probe_success` is 1 for a successful probe and 0 for a failure. The SLI is the average over a time window:
+
+```yaml
+# kubernetes/system/monitoring/slo-rules.yml
+
+- record: job_instance:probe_success:rate5m
+  expr: avg_over_time(probe_success[5m])
+
+- record: job_instance:probe_error:rate5m
+  expr: 1 - avg_over_time(probe_success[5m])
+```
+
+`1 - success_rate = error_rate`. At 99.9% SLO, the allowed steady-state error rate is 0.001 (0.1%).
+
+## Recording Rules: Pre-Computing the Windows
+
+Multi-window alerting needs error rates computed over multiple time windows. Prometheus can do this inline in alert expressions, but pre-computing them as recording rules keeps the alert expressions readable and reduces query load.
+
+```yaml
+- name: slo.availability.windows
+  interval: 1m
+  rules:
+    # Short windows (fast-burn detection)
+    - record: job_instance:probe_success:rate1h
+      expr: avg_over_time(probe_success[1h])
+    - record: job_instance:probe_success:rate2h
+      expr: avg_over_time(probe_success[2h])
+
+    # Medium windows
+    - record: job_instance:probe_success:rate6h
+      expr: avg_over_time(probe_success[6h])
+    - record: job_instance:probe_success:rate30m
+      expr: avg_over_time(probe_success[30m])
+
+    # Long windows (slow-burn detection)
+    - record: job_instance:probe_success:rate24h
+      expr: avg_over_time(probe_success[24h])
+```
+
+These evaluate every minute. The result is a set of pre-computed availability metrics across six time windows — from 30 minutes (most sensitive) to 24 hours (catches slow bleeds).
+
+## The Alert Rules
+
+### Fast Burn: Page Immediately
+
+```yaml
+- alert: SLOAvailabilityFastBurn
+  expr: |
+    (1 - job_instance:probe_success:rate2h) > (30 * (1 - 0.999))
+    and
+    (1 - job_instance:probe_success:rate1h) > (30 * (1 - 0.999))
+  for: 2m
+  labels:
+    severity: critical
+    slo: availability
+  annotations:
+    summary: "SLO fast burn: {{ $labels.instance }}"
+    description: >
+      {{ $labels.instance }} error rate is burning through the monthly error budget
+      at ≥30x the allowed rate. At this pace the 99.9% budget is exhausted in ~50min.
+      Current 2h error rate: {{ printf "%.2f" $value }}%
+```
+
+**The math:** A 99.9% SLO means 0.1% of requests can fail. The threshold for 30x burn is `30 × 0.001 = 0.03` — a 3% error rate. If both the 2-hour window and the 1-hour window exceed 3%, this fires.
+
+**Why two windows?** The short window (1h) catches fast-developing incidents. The long window (2h) provides confirmation — it prevents a single spike from paging. Both must exceed the threshold simultaneously. This dual-window check is the key difference from naive threshold alerting: a two-minute blip won't page you, but a sustained fast burn will.
+
+**Burn-rate math at 30x:**
+- Monthly budget: 43.8 minutes
+- At 30x burn: 43.8 ÷ 30 = 1.46 minutes consumed per minute
+- Budget exhausted in: 43.8 ÷ (30 - 1) ≈ 51 minutes
+
+51 minutes to act. Page.
+
+### Slow Burn: Create a Ticket
+
+```yaml
+- alert: SLOAvailabilitySlowBurn
+  expr: |
+    (1 - job_instance:probe_success:rate6h) > (6 * (1 - 0.999))
+    and
+    (1 - job_instance:probe_success:rate30m) > (6 * (1 - 0.999))
+  for: 15m
+  labels:
+    severity: warning
+    slo: availability
+  annotations:
+    summary: "SLO slow burn: {{ $labels.instance }}"
+    description: >
+      {{ $labels.instance }} error rate is burning through the monthly error budget
+      at ≥6x the allowed rate. At this pace the 99.9% budget is exhausted in ~4h.
+      Current 6h error rate: {{ printf "%.2f" $value }}%
+```
+
+**The math:** `6 × 0.001 = 0.006` — a 0.6% error rate. Budget exhaustion at 6x burn: 43.8 ÷ (6 - 1) ≈ 8.8 hours. The `for: 15m` means it must sustain this rate for 15 minutes before firing, which filters transient dips.
+
+6h (long) + 30m (short) windows. A slow degradation is visible over 6 hours; the 30m short window prevents false positives from stale data.
+
+Severity: `warning`. This goes to a Slack channel, not a pager. Fix it during the shift.
+
+## Comparing Against Threshold Alerting
+
+| Scenario | Threshold alert (`< 99%`) | Burn-rate alert |
+|---|---|---|
+| Service down for 2 minutes | ✅ Fires | ✅ Fires (fast burn) |
+| Service at 95% for 48h | ❌ Fires then resolves | ✅ Fires slow burn, escalates |
+| 3% error rate for 1h | ❌ May not fire | ✅ Fast burn fires |
+| 0.5% error rate for 6h | ❌ Never fires | ✅ Slow burn fires |
+| Single 10-second blip | ✅ Fires (false positive) | ❌ Below `for` threshold |
+
+The pattern: burn-rate alerting catches slow degradations that threshold alerting misses, and it filters the transient blips that threshold alerting over-alerts on.
+
+## Deploying as a PrometheusRule
+
+The rules deploy as a `PrometheusRule` CRD, picked up automatically by the Prometheus Operator:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: homelab-slo-alerts
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: slo.burn-rate.page
+      rules:
+        - alert: SLOAvailabilityFastBurn
+          # ... (see above)
+```
+
+The `prometheus: kube-prometheus` label tells the Prometheus Operator to load this rule. `kubectl get prometheusrule -n monitoring` should show it; `kubectl get --raw /api/v1/namespaces/monitoring/pods/prometheus-kube-prometheus-prometheus-0/proxy/api/v1/rules` lets you query the loaded rules directly.
+
+## What the Error Budget Dashboard Shows
+
+The complementary Grafana dashboard (`slo-dashboard.yml`) renders three panels:
+
+1. **Availability over time** — `job_instance:probe_success:rate5m` across all probed services
+2. **Error budget remaining** — `1 - (sum(rate(probe_success[30d])) / count(probe_success))` relative to the 0.1% budget
+3. **Burn rate** — current consumption rate, coloured by severity tier
+
+The budget panel is the most useful. When it's dropping steeply, something is consuming more than the flat weekly allocation. That's a signal even before an alert fires.
+
+## Limitations
+
+This implementation measures **external availability** only — HTTP probes from inside the cluster. It won't catch:
+
+- Increased latency that doesn't fail probes (need histogram SLIs for that)
+- Internal service-to-service degradation (need distributed tracing or internal probes)
+- Correctness issues — a 200 OK with wrong data doesn't fail a probe
+
+For most homelab services — Nextcloud, Authelia, Jellyfin, Gitea — availability is the right SLI. For a production API, you'd want to add latency SLOs (P99 < 500ms) using histogram recording rules.
+
+---
+
+The same pattern applies directly to enterprise environments. If you're running Azure Load Balancer health probes or Application Gateway, the SLI is the same: probe success rate. The recording rules and alert thresholds are identical. The only difference is where the metrics come from.
