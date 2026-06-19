@@ -92,8 +92,7 @@ import Container from "@components/Container.astro";
         el.querySelector("input") && el.querySelector("input").focus();
       })
       .catch(function () {
-        el.innerHTML =
-          '<p class="text-sm text-neutral-500">Search is not available in this environment.</p>';
+        el.innerHTML = `<p class="text-sm text-neutral-500">Search is not available in this environment.</p>`;
       });
   }
 
