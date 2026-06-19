@@ -74,5 +74,24 @@
       "ISO 27001 & NIS2 compliant architecture on day one"
     ],
     "available": true
+  },
+  {
+    "slug": "azure-zero-trust-starter-pack",
+    "badge": "Bundle — Save €48",
+    "title": "Azure Zero-Trust Starter Pack",
+    "description": "Everything to pass your first Azure compliance audit: Acmebot certificate automation, the Hub & Spoke zero-trust foundation, and Forced Tunneling — bundled, plus a bonus ISO 27001 Auditor Checklist mapping every module to Annex A controls.",
+    "price": "€99",
+    "priceNote": "one-time · instant download · 3 modules + bonus PDF",
+    "href": "PENDING_LEMONSQUEEZY_BUNDLE_URL",
+    "articleHref": "/templates",
+    "tags": ["Bundle", "Azure", "Terraform", "ISO 27001", "Zero-Trust"],
+    "bullets": [
+      "Includes: Acmebot Enterprise VNet, Hub & Spoke Zero-Trust, Azure Firewall Forced Tunneling",
+      "Save €48 vs. buying the three modules separately",
+      "Bonus: ISO 27001 Auditor Checklist (PDF) — Annex A control map for all 3 modules",
+      "Everything to pass your first Azure compliance audit",
+      "Full source code for all 3 modules — no lock-in, no black box"
+    ],
+    "available": false
   }
 ]

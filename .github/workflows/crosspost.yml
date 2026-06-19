@@ -5,42 +5,32 @@ on:
     branches: ["main"]
     paths:
       - "src/content/blog/*.mdx"
+  schedule:
+    - cron: "0 6 * * 1" # weekly safety net — catches anything that slipped through
+  workflow_dispatch: {}
 
 jobs:
   crosspost:
-    name: "Crosspost new articles"
+    name: "Crosspost articles"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Find new blog posts
-        id: new-posts
-        run: |
-          NEW=$(git diff --diff-filter=A --name-only HEAD~1 HEAD -- 'src/content/blog/*.mdx' 2>/dev/null || true)
-          echo "Found new posts: $NEW"
-          echo "posts<<EOF" >> $GITHUB_OUTPUT
-          echo "$NEW" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Check required secrets
         id: check-secrets
-        if: steps.new-posts.outputs.posts != ''
         run: |
           if [ -z "${{ secrets.DEVTO_API_KEY }}" ]; then
             echo "⚠️  DEVTO_API_KEY secret is not set — skipping crosspost"
             echo "skip=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Crosspost to dev.to
-        if: steps.new-posts.outputs.posts != '' && steps.check-secrets.outputs.skip != 'true'
+      - name: Crosspost all articles (dedup via dev.to canonical_url)
+        if: steps.check-secrets.outputs.skip != 'true'
         env:
           DEVTO_API_KEY: ${{ secrets.DEVTO_API_KEY }}
         run: |
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
+          for file in src/content/blog/*.mdx; do
             slug=$(basename "$file" .mdx)
-            echo "Crossposting: $slug"
+            echo "Checking: $slug"
             node scripts/crosspost.mjs "$slug"
-          done <<< "${{ steps.new-posts.outputs.posts }}"
+          done

@@ -5,6 +5,7 @@ import EmailCapture from "@components/EmailCapture.astro";
 import { products } from "@data/products";
 
 const foundationSlug = "hub-spoke-enterprise-vnet";
+const bundleSlug = "azure-zero-trust-starter-pack";
 ---
 
 <PageLayout
@@ -43,6 +44,11 @@ const foundationSlug = "hub-spoke-enterprise-vnet";
                     {product.slug === foundationSlug && (
                       <span class="text-xs font-bold px-2 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
                         Start here
+                      </span>
+                    )}
+                    {product.slug === bundleSlug && (
+                      <span class="text-xs font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                        Most Popular
                       </span>
                     )}
                     {product.tags.map((tag) => (
@@ -138,7 +144,8 @@ const foundationSlug = "hub-spoke-enterprise-vnet";
             Questions? <a
               href="mailto:david@woitzik.dev"
               class="underline underline-offset-2 hover:opacity-80 transition-opacity"
-              >david@woitzik.dev</a>
+              >david@woitzik.dev</a
+            >
           </li>
         </ul>
       </div>

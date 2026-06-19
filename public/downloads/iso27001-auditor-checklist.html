@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ISO 27001 Auditor Checklist — Azure Zero-Trust Starter Pack — woitzik.dev</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --black: #0a0a0a;
+      --white: #ffffff;
+      --gray-100: #f5f5f5;
+      --gray-200: #e5e5e5;
+      --gray-400: #a3a3a3;
+      --gray-600: #525252;
+      --sky: #0ea5e9;
+      --sky-dark: #0284c7;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 11pt;
+      color: var(--black);
+      background: var(--white);
+      line-height: 1.5;
+    }
+
+    .page { max-width: 900px; margin: 0 auto; padding: 0 24px 40px; }
+
+    header {
+      background: var(--black);
+      color: var(--white);
+      padding: 28px 32px 24px;
+      margin: 0 -24px 28px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    header .headline { flex: 1; }
+    header .badge {
+      font-size: 9pt;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--sky);
+      margin-bottom: 6px;
+    }
+    header h1 {
+      font-size: 20pt;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+    }
+    header p {
+      font-size: 10pt;
+      color: #a3a3a3;
+      margin-top: 6px;
+    }
+    .brand {
+      text-align: right;
+      font-size: 10pt;
+      color: #737373;
+      white-space: nowrap;
+    }
+    .brand strong { color: var(--white); font-weight: 700; display: block; font-size: 13pt; }
+
+    h2 {
+      font-size: 8pt;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--gray-400);
+      border-bottom: 1px solid var(--gray-200);
+      padding-bottom: 5px;
+      margin: 22px 0 10px;
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+    th {
+      background: var(--black);
+      color: var(--white);
+      text-align: left;
+      padding: 6px 9px;
+      font-size: 7.5pt;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    td { padding: 6px 9px; border-bottom: 1px solid var(--gray-200); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: var(--gray-100); }
+
+    .check {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 1.5px solid var(--gray-400);
+      border-radius: 2px;
+      vertical-align: middle;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 7pt;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: #dcfce7;
+      color: #166534;
+      white-space: nowrap;
+    }
+
+    .module-label {
+      font-size: 7.5pt;
+      font-weight: 700;
+      color: var(--sky-dark);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .note {
+      border-left: 3px solid var(--sky);
+      background: #f0f9ff;
+      padding: 8px 12px;
+      font-size: 9pt;
+      color: var(--gray-600);
+      border-radius: 0 6px 6px 0;
+      margin-top: 14px;
+    }
+    .note strong { color: var(--sky-dark); }
+
+    footer {
+      margin-top: 24px;
+      padding-top: 14px;
+      border-top: 1px solid var(--gray-200);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 8.5pt;
+      color: var(--gray-400);
+    }
+    footer a { color: var(--sky-dark); text-decoration: none; }
+
+    @media print {
+      @page { size: A4; margin: 14mm 14mm 14mm 14mm; }
+      body { font-size: 9pt; }
+      header { margin: 0 0 20px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .no-break { page-break-inside: avoid; }
+      .print-hide { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="headline">
+      <div class="badge">Bundle Exclusive — Starter Pack</div>
+      <h1>ISO 27001 Auditor Checklist</h1>
+      <p>Annex A control mapping for the Azure Zero-Trust Starter Pack (Acmebot, Hub &amp; Spoke, Firewall)</p>
+    </div>
+    <div class="brand">
+      <strong>woitzik.dev</strong>
+      cloud infrastructure engineering
+    </div>
+  </header>
+
+  <h2>How to Use This Sheet</h2>
+  <p style="font-size: 9.5pt; color: var(--gray-600); margin-bottom: 4px;">
+    Hand this to your auditor or compliance lead alongside the deployed Terraform state. Each row maps a deployed
+    resource to the Annex A control it satisfies — check it off once you've confirmed the resource is live and
+    configured as documented in the module README.
+  </p>
+
+  <h2>Module: Azure Acmebot — Enterprise VNet Edition</h2>
+  <div class="no-break">
+  <table>
+    <thead><tr><th style="width:28px"></th><th>Control</th><th>Annex A</th><th>Terraform Resource</th></tr></thead>
+    <tbody>
+      <tr><td><span class="check"></span></td><td>Private network isolation for cert issuance</td><td><span class="tag">A.8.22</span></td><td><code>azurerm_private_endpoint</code> + VNet Integration</td></tr>
+      <tr><td><span class="check"></span></td><td>Automatic DNS resolution, no manual records</td><td><span class="tag">A.8.20</span></td><td><code>azurerm_private_dns_zone</code></td></tr>
+      <tr><td><span class="check"></span></td><td>Least-privilege identity for cert renewal</td><td><span class="tag">A.8.2</span></td><td><code>azurerm_user_assigned_identity</code> + RBAC</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>Module: Enterprise Hub & Spoke — Zero-Trust Edition</h2>
+  <div class="no-break">
+  <table>
+    <thead><tr><th style="width:28px"></th><th>Control</th><th>Annex A</th><th>Terraform Resource</th></tr></thead>
+    <tbody>
+      <tr><td><span class="check"></span></td><td>Network segmentation, Hub/Spoke isolation</td><td><span class="tag">A.8.22</span></td><td><code>azurerm_virtual_network</code> peering + NSG</td></tr>
+      <tr><td><span class="check"></span></td><td>Default-deny baseline on all Spoke subnets</td><td><span class="tag">A.8.20</span></td><td><code>azurerm_network_security_rule</code> priority 4096</td></tr>
+      <tr><td><span class="check"></span></td><td>Centralized Private DNS (Blob, SQL, KV, ACR)</td><td><span class="tag">A.8.20</span></td><td><code>azurerm_private_dns_zone_virtual_network_link</code></td></tr>
+      <tr><td><span class="check"></span></td><td>Policy-managed resources don't drift on apply</td><td><span class="tag">A.5.36</span></td><td><code>lifecycle { ignore_changes }</code> (DINE bypass)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>Module: Azure Firewall — Enterprise Forced Tunneling Edition</h2>
+  <div class="no-break">
+  <table>
+    <thead><tr><th style="width:28px"></th><th>Control</th><th>Annex A</th><th>Terraform Resource</th></tr></thead>
+    <tbody>
+      <tr><td><span class="check"></span></td><td>All egress traffic routed through inspection</td><td><span class="tag">A.8.22</span></td><td><code>azurerm_route</code> default 0.0.0.0/0 → Firewall</td></tr>
+      <tr><td><span class="check"></span></td><td>FQDN allow-list for outbound traffic</td><td><span class="tag">A.8.22</span></td><td><code>azurerm_firewall_policy_rule_collection_group</code></td></tr>
+      <tr><td><span class="check"></span></td><td>Platform services (KMS, Azure AD) not silently dropped</td><td><span class="tag">A.5.30</span></td><td><code>azurerm_route</code> KMS/AAD bypass</td></tr>
+      <tr><td><span class="check"></span></td><td>Firewall rule changes tracked in version control</td><td><span class="tag">A.8.32</span></td><td>Terraform state + Git history (no manual Portal edits)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>Auditor note:</strong> This checklist covers the technical network infrastructure controls these three
+    modules implement. Full ISO 27001 certification requires organizational measures (risk assessment, ISMS
+    documentation, incident response procedures) beyond what infrastructure code alone provides. This sheet is
+    evidence for Annex A technical controls — not a substitute for a full Statement of Applicability.
+  </div>
+
+  <footer>
+    <span>woitzik.dev &mdash; Cloud Infrastructure Engineering &mdash; david@woitzik.dev</span>
+    <span>Bundle: <a href="https://woitzik.dev/templates">woitzik.dev/templates</a></span>
+  </footer>
+
+  <p class="print-hide" style="text-align:center; margin-top: 24px; font-size: 10pt; color: #737373;">
+    <strong>To save as PDF:</strong> Ctrl+P (or Cmd+P) → Destination: Save as PDF → Paper: A4 → Margins: None → Enable "Background graphics"
+  </p>
+
+</div>
+</body>
+</html>
