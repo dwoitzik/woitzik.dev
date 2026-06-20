@@ -33,8 +33,8 @@
     header {
       background: var(--black);
       color: var(--white);
-      padding: 28px 32px 24px;
-      margin: 0 -24px 28px;
+      padding: 22px 32px 18px;
+      margin: 0 -24px 20px;
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
@@ -75,21 +75,28 @@
       text-transform: uppercase;
       color: var(--gray-400);
       border-bottom: 1px solid var(--gray-200);
-      padding-bottom: 5px;
-      margin: 22px 0 10px;
+      padding-bottom: 4px;
+      margin: 14px 0 7px;
     }
 
-    table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+    table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 8.5pt; }
     th {
       background: var(--black);
       color: var(--white);
       text-align: left;
-      padding: 6px 9px;
-      font-size: 7.5pt;
+      padding: 5px 7px;
+      font-size: 7pt;
       font-weight: 700;
       letter-spacing: 0.05em;
     }
-    td { padding: 6px 9px; border-bottom: 1px solid var(--gray-200); vertical-align: top; }
+    td {
+      padding: 4px 7px;
+      border-bottom: 1px solid var(--gray-200);
+      vertical-align: top;
+      line-height: 1.3;
+      overflow-wrap: break-word;
+    }
+    td code { font-size: 7.5pt; overflow-wrap: break-word; }
     tr:last-child td { border-bottom: none; }
     tr:nth-child(even) td { background: var(--gray-100); }
 
@@ -150,6 +157,7 @@
       header { margin: 0 0 20px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .no-break { page-break-inside: avoid; }
+      tr { page-break-inside: avoid; }
       .print-hide { display: none; }
     }
   </style>
@@ -176,40 +184,96 @@
     configured as documented in the module README.
   </p>
 
-  <h2>Module: Azure Acmebot — Enterprise VNet Edition</h2>
   <div class="no-break">
   <table>
-    <thead><tr><th style="width:28px"></th><th>Control</th><th>Annex A</th><th>Terraform Resource</th></tr></thead>
+    <colgroup>
+      <col style="width:20px">
+      <col style="width:80px">
+      <col style="width:33%">
+      <col style="width:48px">
+      <col>
+    </colgroup>
+    <thead>
+      <tr><th></th><th>Module</th><th>Control</th><th>Annex A</th><th>Terraform Resource</th></tr>
+    </thead>
     <tbody>
-      <tr><td><span class="check"></span></td><td>Private network isolation for cert issuance</td><td><span class="tag">A.8.22</span></td><td><code>azurerm_private_endpoint</code> + VNet Integration</td></tr>
-      <tr><td><span class="check"></span></td><td>Automatic DNS resolution, no manual records</td><td><span class="tag">A.8.20</span></td><td><code>azurerm_private_dns_zone</code></td></tr>
-      <tr><td><span class="check"></span></td><td>Least-privilege identity for cert renewal</td><td><span class="tag">A.8.2</span></td><td><code>azurerm_user_assigned_identity</code> + RBAC</td></tr>
-    </tbody>
-  </table>
-  </div>
-
-  <h2>Module: Enterprise Hub & Spoke — Zero-Trust Edition</h2>
-  <div class="no-break">
-  <table>
-    <thead><tr><th style="width:28px"></th><th>Control</th><th>Annex A</th><th>Terraform Resource</th></tr></thead>
-    <tbody>
-      <tr><td><span class="check"></span></td><td>Network segmentation, Hub/Spoke isolation</td><td><span class="tag">A.8.22</span></td><td><code>azurerm_virtual_network</code> peering + NSG</td></tr>
-      <tr><td><span class="check"></span></td><td>Default-deny baseline on all Spoke subnets</td><td><span class="tag">A.8.20</span></td><td><code>azurerm_network_security_rule</code> priority 4096</td></tr>
-      <tr><td><span class="check"></span></td><td>Centralized Private DNS (Blob, SQL, KV, ACR)</td><td><span class="tag">A.8.20</span></td><td><code>azurerm_private_dns_zone_virtual_network_link</code></td></tr>
-      <tr><td><span class="check"></span></td><td>Policy-managed resources don't drift on apply</td><td><span class="tag">A.5.36</span></td><td><code>lifecycle { ignore_changes }</code> (DINE bypass)</td></tr>
-    </tbody>
-  </table>
-  </div>
-
-  <h2>Module: Azure Firewall — Enterprise Forced Tunneling Edition</h2>
-  <div class="no-break">
-  <table>
-    <thead><tr><th style="width:28px"></th><th>Control</th><th>Annex A</th><th>Terraform Resource</th></tr></thead>
-    <tbody>
-      <tr><td><span class="check"></span></td><td>All egress traffic routed through inspection</td><td><span class="tag">A.8.22</span></td><td><code>azurerm_route</code> default 0.0.0.0/0 → Firewall</td></tr>
-      <tr><td><span class="check"></span></td><td>FQDN allow-list for outbound traffic</td><td><span class="tag">A.8.22</span></td><td><code>azurerm_firewall_policy_rule_collection_group</code></td></tr>
-      <tr><td><span class="check"></span></td><td>Platform services (KMS, Azure AD) not silently dropped</td><td><span class="tag">A.5.30</span></td><td><code>azurerm_route</code> KMS/AAD bypass</td></tr>
-      <tr><td><span class="check"></span></td><td>Firewall rule changes tracked in version control</td><td><span class="tag">A.8.32</span></td><td>Terraform state + Git history (no manual Portal edits)</td></tr>
+      <tr>
+        <td><span class="check"></span></td>
+        <td><span class="module-label">Acmebot</span></td>
+        <td>Private network isolation for cert issuance</td>
+        <td><span class="tag">A.8.22</span></td>
+        <td><code>azurerm_private_endpoint</code> + VNet Integration</td>
+      </tr>
+      <tr>
+        <td><span class="check"></span></td>
+        <td><span class="module-label">Acmebot</span></td>
+        <td>Automatic DNS resolution, no manual records</td>
+        <td><span class="tag">A.8.20</span></td>
+        <td><code>azurerm_private_dns_zone</code></td>
+      </tr>
+      <tr>
+        <td><span class="check"></span></td>
+        <td><span class="module-label">Acmebot</span></td>
+        <td>Least-privilege identity for cert renewal</td>
+        <td><span class="tag">A.8.2</span></td>
+        <td><code>azurerm_user_assigned_identity</code> + RBAC</td>
+      </tr>
+      <tr>
+        <td><span class="check"></span></td>
+        <td><span class="module-label">Hub & Spoke</span></td>
+        <td>Network segmentation, Hub/Spoke isolation</td>
+        <td><span class="tag">A.8.22</span></td>
+        <td><code>azurerm_virtual_network</code> peering + NSG</td>
+      </tr>
+      <tr>
+        <td><span class="check"></span></td>
+        <td><span class="module-label">Hub & Spoke</span></td>
+        <td>Default-deny baseline on all Spoke subnets</td>
+        <td><span class="tag">A.8.20</span></td>
+        <td><code>azurerm_network_security_rule</code> priority 4096</td>
+      </tr>
+      <tr>
+        <td><span class="check"></span></td>
+        <td><span class="module-label">Hub & Spoke</span></td>
+        <td>Centralized Private DNS (Blob, SQL, KV, ACR)</td>
+        <td><span class="tag">A.8.20</span></td>
+        <td><code>azurerm_private_dns_zone_virtual_network_link</code></td>
+      </tr>
+      <tr>
+        <td><span class="check"></span></td>
+        <td><span class="module-label">Hub & Spoke</span></td>
+        <td>Policy-managed resources don't drift on apply</td>
+        <td><span class="tag">A.5.36</span></td>
+        <td><code>lifecycle { ignore_changes }</code> (DINE bypass)</td>
+      </tr>
+      <tr>
+        <td><span class="check"></span></td>
+        <td><span class="module-label">Firewall</span></td>
+        <td>All egress traffic routed through inspection</td>
+        <td><span class="tag">A.8.22</span></td>
+        <td><code>azurerm_route</code> default 0.0.0.0/0 → Firewall</td>
+      </tr>
+      <tr>
+        <td><span class="check"></span></td>
+        <td><span class="module-label">Firewall</span></td>
+        <td>FQDN allow-list for outbound traffic</td>
+        <td><span class="tag">A.8.22</span></td>
+        <td><code>azurerm_firewall_policy_rule_collection_group</code></td>
+      </tr>
+      <tr>
+        <td><span class="check"></span></td>
+        <td><span class="module-label">Firewall</span></td>
+        <td>Platform services (KMS, Azure AD) not silently dropped</td>
+        <td><span class="tag">A.5.30</span></td>
+        <td><code>azurerm_route</code> KMS/AAD bypass</td>
+      </tr>
+      <tr>
+        <td><span class="check"></span></td>
+        <td><span class="module-label">Firewall</span></td>
+        <td>Firewall rule changes tracked in version control</td>
+        <td><span class="tag">A.8.32</span></td>
+        <td>Terraform state + Git history (no manual Portal edits)</td>
+      </tr>
     </tbody>
   </table>
   </div>
