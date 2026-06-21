@@ -11,15 +11,27 @@ export async function getStaticPaths() {
     .filter((p) => !p.data.draft)
     .map((post) => ({
       params: { slug: post.slug },
-      props: { title: post.data.title, description: post.data.description },
+      props: {
+        title: post.data.title,
+        description: post.data.description,
+        tags: post.data.tags ?? [],
+      },
     }));
 }
 
 export const GET: APIRoute = async ({ props }) => {
-  const { title, description } = props as { title: string; description: string };
+  const { title, description, tags } = props as {
+    title: string;
+    description: string;
+    tags: string[];
+  };
+  const tagLine =
+    tags.length > 0 ? tags.join(" · ").toUpperCase() : "WOITZIK.DEV";
 
   const fontBold = readFileSync(resolve("public/fonts/atkinson-bold.woff"));
-  const fontRegular = readFileSync(resolve("public/fonts/atkinson-regular.woff"));
+  const fontRegular = readFileSync(
+    resolve("public/fonts/atkinson-regular.woff"),
+  );
 
   const svg = await satori(
     {
@@ -103,7 +115,7 @@ export const GET: APIRoute = async ({ props }) => {
                       fontWeight: 400,
                       letterSpacing: "0.08em",
                     },
-                    children: "TERRAFORM · AZURE · ZERO-TRUST",
+                    children: tagLine,
                   },
                 },
                 {
@@ -130,7 +142,7 @@ export const GET: APIRoute = async ({ props }) => {
         { name: "Atkinson", data: fontBold, weight: 700, style: "normal" },
         { name: "Atkinson", data: fontRegular, weight: 400, style: "normal" },
       ],
-    }
+    },
   );
 
   const png = await sharp(Buffer.from(svg)).png().toBuffer();
