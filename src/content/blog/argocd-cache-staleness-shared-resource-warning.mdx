@@ -1,0 +1,108 @@
+---
+title: "ArgoCD Gotchas: Cache Staleness and the SharedResourceWarning Nobody Explains"
+description: "kubectl apply succeeds, the field reverts within seconds, and there's no error anywhere. Two ArgoCD debugging patterns that hit the same homelab three times in one day: repo-server cache staleness reverting live edits, and two Applications silently fighting over the same resource."
+date: "2026-06-22"
+tags: ["Kubernetes", "GitOps", "Homelab"]
+---
+
+`kubectl apply` reports success. You check the resource — the field you just changed is back to its old value. No error. No event. `kubectl get` shows the change applied, then a few seconds later shows it gone, like it never happened.
+
+This isn't a typo or a YAML indentation bug. It's ArgoCD's `selfHeal` doing exactly what it's designed to do — re-applying from its own cached understanding of what the resource *should* be, which can lag behind a change you just made by hand, or even behind a fresh `git push`.
+
+This hit the same homelab three times in one day, across three unrelated resources. Here's the pattern, the fix, and a second, related gotcha that produces a different symptom from a similar root cause.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Symptom
+
+Three separate incidents, same shape:
+
+- A Tempo `PersistentVolumeClaim`'s `storageClassName` kept reverting after being changed.
+- Traefik's `tlsStore` and dashboard configuration reverted after a Helm values update.
+- A `paperless-gpt` deployment's `volumeMounts` reverted after a direct edit.
+
+Each time, the sequence was: edit the live resource or push a change to Git → confirm the change is live → come back later → the old value is back, with no error logged anywhere obvious.
+
+## Why This Happens: `selfHeal` Plus a Stale Cache
+
+ArgoCD's `selfHeal: true` continuously reconciles the live cluster state against ArgoCD's *rendered* understanding of what the Application's manifests/Helm chart should produce. That's the entire point of GitOps — drift gets corrected automatically, so a manual `kubectl edit` doesn't silently become the new permanent state.
+
+The bug isn't that selfHeal exists. It's that the **rendered understanding** ArgoCD reconciles against comes from the `argocd-repo-server`'s manifest/Helm chart cache, and that cache doesn't always get invalidated promptly after a fresh `git push` or a fresh `kubectl apply` made outside ArgoCD. For a window of time — usually short, but long enough to be confusing — ArgoCD's source of truth for "what should this look like" is stale, and `selfHeal` faithfully reverts your change back to match it.
+
+This is functionally indistinguishable, from the outside, from "ArgoCD is ignoring my change" — but the actual mechanism is "ArgoCD is enforcing an outdated cached version of what it thinks I want."
+
+## The Fix: Force a Hard Refresh
+
+```bash
+kubectl patch application <name> -n argocd --type merge \
+  -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
+```
+
+The `hard` refresh value (as opposed to `normal`) tells ArgoCD to bypass the repo-server's manifest cache entirely and re-render from source. Wait roughly 15 seconds, then re-check.
+
+If that alone doesn't resolve it, the cache itself may need restarting, not just invalidating for one Application:
+
+```bash
+kubectl rollout restart deployment argocd-repo-server -n argocd
+```
+
+This is a bigger hammer — it affects every Application's next reconciliation, not just the one you're debugging — so try the targeted `hard` refresh annotation first.
+
+## The StatefulSet Exception
+
+For the Tempo PVC specifically, neither of the above fully resolved it on the first try, because `volumeClaimTemplates` on a `StatefulSet` are **immutable** — Kubernetes rejects any attempt to change them on an existing object. Clearing ArgoCD's stale cache fixes ArgoCD's *intent* going forward, but it can't retroactively fix a field that was never mutable on the live object in the first place.
+
+The fix there is to delete and recreate the StatefulSet itself (the underlying PVC and its data survive deleting the StatefulSet, as long as you don't also delete the PVC):
+
+```bash
+kubectl delete statefulset <name> -n <namespace> --cascade=orphan
+# re-sync from ArgoCD to recreate the StatefulSet with the new template
+```
+
+`--cascade=orphan` deletes the StatefulSet object without deleting the Pods or PVCs it owns — letting ArgoCD's next sync recreate the StatefulSet (now with the corrected, non-stale template) and re-adopt the existing PVC.
+
+## A Second, Different-Looking Bug With a Related Cause: SharedResourceWarning
+
+A related but distinct symptom: a resource flickers between two different specs, or gets pruned entirely, and `.status.conditions` on one of the Applications shows a `SharedResourceWarning`.
+
+This isn't a cache problem — it's an **ownership conflict**. Two different ArgoCD Applications are both trying to manage a resource with the same name and namespace. In this case: a Helm chart's own `ingressRoute.dashboard.enabled` flag was creating a Traefik dashboard `IngressRoute`, while a separately, manually-defined `IngressRoute` with the same name existed in a different Application's manifest set — both claiming ownership of the same object.
+
+ArgoCD has no way to know which one is "correct" — it just observes that the live object doesn't match what *either* Application individually expects, and flags the conflict rather than guessing.
+
+The fix is to pick exactly one owner and have the other stop claiming the resource:
+
+```yaml
+# kubernetes/system/traefik/application.yml — Helm chart's own dashboard route, disabled
+helm:
+  values: |
+    ingressRoute:
+      dashboard:
+        enabled: false  # the manual, Authelia-protected route below is canonical
+```
+
+```yaml
+# kubernetes/system/other-ingressroute.yml — the manually-defined route, kept
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: traefik
+spec:
+  # ... Authelia-protected route — this is the one that stays
+```
+
+Once only one Application's manifest set defines the object, recreate it (delete the now-orphaned duplicate definition's effect, let the remaining owner's next sync take over cleanly) and the warning clears.
+
+## Telling the Two Apart
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| A field reverts within seconds of a manual or git-pushed change; no error anywhere | Repo-server cache staleness | `hard` refresh annotation; restart `argocd-repo-server` if that's not enough |
+| A field reverts but `volumeClaimTemplates` is involved on a StatefulSet | Cache staleness *plus* an immutable field that can't be patched in place | Same cache fix, plus delete-and-recreate the StatefulSet with `--cascade=orphan` |
+| A resource flickers between two different specs, or gets pruned; `SharedResourceWarning` in `.status.conditions` | Two Applications both claim ownership of the same resource | Disable one owner's claim (Helm flag or manifest removal), keep the other |
+
+The diagnostic tell: cache staleness is *temporal* — the same Application reverts a change made moments ago, and a refresh fixes it. Ownership conflict is *structural* — check `.status.conditions` for `SharedResourceWarning` first; if it's there, refreshing the cache won't help, because there's nothing stale about either Application's understanding — they're both correctly rendering their own manifests, and the manifests themselves conflict.
+
+---
+
+The cache-staleness pattern is specific to ArgoCD's repo-server architecture, but the ownership-conflict pattern is universal to any GitOps tool managing Kubernetes resources — Flux has the same failure mode if two Kustomizations or HelmReleases both define a resource with the same identity. Checking `.status.conditions` before assuming a sync or cache problem saves a lot of time chasing the wrong fix.

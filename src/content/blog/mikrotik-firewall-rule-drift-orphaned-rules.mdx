@@ -1,0 +1,104 @@
+---
+title: "My Firewall Had 77 Rules. Terraform Knew About 22 of Them."
+description: "Multiple rounds of 'reconstruct the firewall' work each added a fresh generation of rules without removing the old one. Because RouterOS evaluates rules in order and stops at the first match, the oldest, broadest generation was silently winning over the newest, narrower one — undoing a security tightening that looked complete in Terraform."
+date: "2026-06-22"
+tags: ["MikroTik", "Terraform", "Security", "Networking"]
+---
+
+I wrote an [article about building a zero-trust MikroTik firewall with Terraform](/blog/mikrotik-zero-trust-firewall-terraform) — default-deny chains, explicit allow rules, `place_before` for deterministic ordering. The Terraform code was correct. I'd run `terraform plan` regularly and it showed no drift.
+
+The live router had 77 firewall filter rules. The Terraform configuration tracked 22.
+
+This is the story of how that happened, why `terraform plan` showing clean didn't catch it, and how a security tightening I'd made — and verified, and considered done — had been silently undone for weeks.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## How You End Up With Four Generations of the Same Firewall
+
+The pattern, in hindsight, is obvious: every time I did a significant firewall rework, I wrote a fresh, complete set of rules in `firewall_deterministic.tf` and ran `terraform apply`. Terraform created the new rules. It did not — because nothing told it to — remove the old generation, because the old generation's rules weren't *Terraform resources Terraform knew about*. They'd been created by a previous `terraform apply` of an *earlier version* of the same file, then the resource definitions were edited or replaced rather than removed cleanly, or in a couple of cases, created directly via the RouterOS API during a debugging session and never imported.
+
+Terraform only manages what's in its state. A rule that exists on the router but isn't a resource in the current configuration is invisible to `terraform plan` — there's no diff to show, because there's nothing in the config to compare it against. `terraform plan` reporting "no changes" means *the resources Terraform knows about match reality*. It says nothing about resources Terraform was never told to track.
+
+## The Bug This Actually Caused
+
+This wasn't just clutter. It actively undid a real security fix.
+
+At some point I'd tightened a monitoring rule from "Prometheus can reach all internal VLANs" to "Prometheus can reach only port 9100 on the management VLAN":
+
+```hcl
+# The narrow, intentional version — added to fix an overly broad rule
+resource "routeros_ip_firewall_filter" "fwd_04a_srv_monitoring" {
+  action       = "accept"
+  chain        = "forward"
+  src_address  = "10.0.20.0/24"
+  dst_address  = "10.0.10.0/24"
+  dst_port     = "9100"
+  protocol     = "tcp"
+  place_before = routeros_ip_firewall_filter.fwd_08_allow_dns.id
+  comment      = "04a: SRV - Prometheus scrape to MGMT node_exporter (port 9100)"
+}
+```
+
+This rule existed in Terraform. `terraform plan` showed it as applied, no drift. I had every reason to believe the network was scoped exactly this way.
+
+But RouterOS evaluates firewall rules **in order** and stops at the **first match**. Buried earlier in the live ruleset — a leftover from a previous generation — was the old, broad version:
+
+```
+"04a: SRV - Allow monitoring to all internal VLANs"
+src=10.0.20.0/24 dst=10.0.10.0/24 action=accept
+```
+
+No port restriction. No protocol restriction. And because RouterOS hit this rule first, traffic matching it was accepted *before the router ever evaluated the narrower, newer rule*. The port-9100-only restriction I'd written, tested, and confirmed in Terraform had never actually been enforced on the live device — the older, broader rule was silently winning every time.
+
+This is the sharpest version of the general problem with ordered rule lists: a rule that looks dead (superseded by a newer one) isn't dead unless it's actually removed. It's just sitting there, waiting for the day its broader match happens to fire first.
+
+## Finding the Actual Scope of the Problem
+
+```bash
+# Pull live rules via the RouterOS REST API
+curl -s -k -u admin:$PASS https://10.0.10.1/rest/ip/firewall/filter | jq length
+# → 77
+
+# Count Terraform-managed resources
+grep -c 'resource "routeros_ip_firewall_filter"' terraform/stacks/network/firewall_deterministic.tf
+# → 22
+```
+
+55 rules existed on the router with no corresponding Terraform resource. Diffing live rules against the 22 known-good ones by exact field match (action, chain, src/dst address, port, protocol — not just comment text, since comments had also drifted across generations) split that 55 into two groups:
+
+- **36 rules** were exact or near-exact duplicates of a currently-tracked rule — leftover generations of the same intent, just stale.
+- **19 rules** were legitimate, distinct, and still in active use — VPN access tiers, Atlantis/MikroDash API access, WireGuard, a Minecraft server port-forward, OIDC redirect routes. These had been created manually at some point and simply never added to Terraform in the first place. Not drift in the dangerous sense — just infrastructure that was never brought under IaC.
+
+## Deleting Firewall Rules Without Locking Yourself Out
+
+This is the highest-blast-radius device in the network. A mistake deleting the wrong rule doesn't get fixed by SSHing back in — if the rule that breaks is the one allowing SSH, there's no way back in remotely. Before deleting anything, I staged a full per-rule restore as a one-shot RouterOS scheduler entry — a dead man's switch:
+
+```
+/system scheduler add name="restore-firewall-failsafe" \
+  start-time=startup interval=5m \
+  on-event="/system script run restore-firewall-rules"
+```
+
+The restore script re-creates every rule about to be deleted, scheduled to fire automatically in five minutes *unless cancelled*. The procedure:
+
+1. Stage the restore script and the scheduler entry (not yet running — `disabled=yes`).
+2. Enable the scheduler.
+3. Delete the 36 orphaned rules via direct REST API calls.
+4. Immediately verify DNS, SSH, and WAN connectivity from a separate, already-open session.
+5. Only if everything checks out: disable and remove the scheduler entry.
+
+If step 4 had failed — if deleting a rule had broken something — the scheduler would have restored the deleted rules automatically within five minutes, without requiring any further access to the router. This pattern generalizes to any change where the failure mode is "I can no longer reach the device to fix my mistake": stage the rollback to fire automatically on a timer, and only cancel the timer after confirming success through a separate channel.
+
+## What's Left
+
+41 rules remain: the 22 Terraform-managed ones, plus the 19 legitimate manual rules — now tracked as a known gap (`docs/OPERATIONS.md`) rather than invisible clutter. Bringing those 19 under Terraform via `import` blocks is the obvious next step, but it's explicitly *not* urgent — they're working, intentional, and visible in documentation now. The 36 that mattered (because they were actively undermining a security control) are gone.
+
+## The General Lesson
+
+`terraform plan` showing no drift is not the same claim as "the live device matches my intent." It only means *the resources Terraform is tracking* match their last-applied state. Anything created outside that tracked set — via a prior version of the config that got edited rather than cleanly replaced, or via direct API/CLI access during a debugging session — is invisible to the diff, indefinitely, until someone goes and looks at the live device directly.
+
+For an ordered rule list specifically (firewalls, but also things like Azure Firewall Policy rule collections, NSG priority-ordered rules, or any first-match system), an orphaned broad rule isn't neutral clutter — it can silently take precedence over a narrower rule you believe supersedes it. Periodically diffing live state against Terraform state by direct query — not just trusting `plan` — is the only way to catch this class of bug.
+
+---
+
+The same risk exists in Azure NSGs and Azure Firewall Policy: priority-ordered rules where an old, broad rule with a lower priority number can silently win over a newer, narrower one if it was never cleaned up after a security tightening. If you're managing NSG rule sets at scale, periodically pulling live rule state via `az network nsg rule list` and diffing it against your Terraform state catches exactly this class of drift before it becomes a finding in someone else's audit.

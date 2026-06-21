@@ -1,0 +1,211 @@
+---
+title: "Hardening Unattended Raspberry Pi Edge Nodes: Watchdog, fail2ban, nftables, and the Mistakes That Take Down DNS"
+description: "Two Raspberry Pis run DNS for an entire network with no one watching them most of the time. A hardware watchdog, fail2ban, an additive nftables host firewall that doesn't conflict with Docker, log size caps, and an alerting path that works even when the rest of the monitoring stack is down."
+date: "2026-06-22"
+tags: ["Homelab", "Security", "Networking"]
+---
+
+Two Raspberry Pi 4Bs run AdGuard Home and Unbound for an entire home network, in an active/passive pair via Keepalived. They're physical hardware sitting on a shelf, not VMs or LXCs — no Proxmox snapshot, no PBS backup, no `terraform destroy && apply` to recover from a bad state. If one hangs hard at 2am, nobody notices until someone's phone can't resolve a hostname.
+
+This is the hardening pass that closed every gap I found in that setup: a hardware watchdog for total-system-freeze recovery, fail2ban for the one SSH-exposed surface, an nftables host firewall that's careful not to fight with Docker's own iptables rules, log size caps to stop slow SD-card death, and a DNS health check that works even on the day the rest of the monitoring stack is offline — which, as it turned out, was exactly the day it mattered.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Why "It's Just DNS" Needs More Hardening, Not Less
+
+The instinct with a small, single-purpose device is to leave it alone — fewer moving parts, fewer ways to break it. That's backwards for a device with no operator watching it and no automated recovery path. A k3s pod that crashes gets rescheduled in seconds. A Raspberry Pi that hard-hangs stays hung until a human walks over and pulls the power.
+
+Everything below is about closing that gap: detecting failure independently, recovering from total freezes without intervention, and not introducing a new failure mode in the process of doing any of this.
+
+## Hardware Watchdog: Recovering From a Hang Software Can't See
+
+A crashed container gets restarted by Docker. A kernel deadlock — the whole system stops responding, nothing crashes, nothing logs anything — doesn't. Nothing is left running to notice the problem or act on it.
+
+The Broadcom SoC in a Raspberry Pi has a hardware watchdog timer: a circuit that resets the board if it isn't periodically "petted." As long as something pets it, the system is presumed alive. If petting stops — because the kernel is deadlocked and nothing can run — the watchdog fires and power-cycles the board.
+
+```ini
+# /boot/firmware/config.txt
+dtparam=watchdog=on
+```
+
+```ini
+# /etc/systemd/system.conf
+RuntimeWatchdogSec=15s
+RebootWatchdogSec=10min
+```
+
+`RuntimeWatchdogSec=15s` means systemd pets the hardware watchdog every 15 seconds while the system is healthy. If systemd itself stops running (the actual deadlock case this exists for), the pets stop, and the watchdog circuit force-resets the board. `RebootWatchdogSec=10min` is a second, independent safety net — if a *reboot* itself hangs (stuck somewhere in shutdown), the watchdog fires again after 10 minutes rather than leaving the board hung mid-reboot indefinitely.
+
+This requires a reboot to take effect — the `config.txt` change only applies at boot. I gated the actual reboot behind an explicit flag (`rpi_optimize_reboot`, default `false`) rather than auto-rebooting a DNS server as a side effect of an Ansible run.
+
+## fail2ban: The One Exposed Surface
+
+These Pis are reachable from the entire server VLAN, and via the Keepalived VIP, present a single consistent address that's an obvious target for anything scanning the network. The only network-facing attack surface that matters here is SSH.
+
+```ini
+# /etc/fail2ban/jail.d/sshd.local
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+maxretry = 5
+findtime = 10m
+bantime = 1h
+```
+
+Five failed attempts within ten minutes bans the source IP for an hour. fail2ban only watches `sshd` auth logs — it has zero interaction with the DNS path (AdGuard, Unbound, Docker). That isolation matters: a misconfigured fail2ban jail watching the wrong log file, or banning based on the wrong filter, is a self-inflicted outage risk on a box where outages are expensive. Scoping it to exactly one well-understood log source keeps the blast radius of a fail2ban misconfiguration limited to "SSH access," never to DNS itself.
+
+## The nftables Trap: Don't Touch /etc/nftables.conf
+
+This is the part that could have caused the exact outage the rest of this hardening pass exists to prevent.
+
+The obvious way to add a host firewall on Debian is to edit `/etc/nftables.conf` and enable `nftables.service`. The problem: that file conventionally starts with `flush ruleset` — and Docker manages its own NAT and FORWARD chains via `iptables-nft` (the nftables-backed iptables compatibility layer). Enabling the stock `nftables.service` would flush ruleset on every boot, wiping out Docker's NAT rules along with it, and silently break every published container port. On a box running AdGuard with `network_mode: host` specifically so it can bind port 53 directly — but also running other containers in bridge mode with published ports — that's not a hypothetical, it's the actual topology.
+
+The fix: don't touch `/etc/nftables.conf` or the stock service at all. Use a separate ruleset file and a separate, custom systemd service:
+
+```nft
+# /etc/nftables-hostfw.conf
+table inet hostfw {
+  chain input {
+    type filter hook input priority filter; policy drop;
+    iif "lo" accept
+    ct state established,related accept
+    ip protocol icmp accept
+    meta l4proto ipv6-icmp accept
+    tcp dport 22 accept
+    tcp dport 53 accept
+    udp dport 53 accept
+    tcp dport 3001 accept
+    tcp dport { 80, 443 } accept
+    udp dport 41641 accept
+    ip protocol vrrp accept
+  }
+}
+```
+
+```ini
+# /etc/systemd/system/hostfw.service
+[Unit]
+Description=Host firewall (inet hostfw table, additive — does not touch Docker's tables)
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+ExecStart=/usr/sbin/nft -f /etc/nftables-hostfw.conf
+ExecStop=/usr/sbin/nft delete table inet hostfw
+
+[Install]
+WantedBy=multi-user.target
+```
+
+A named table (`inet hostfw`) in its own namespace, with `policy drop` only on *that* table's input chain — it's additive to whatever else nftables is doing, not a replacement of the ruleset. `After=docker.service` and `Wants=docker.service` ensure ordering: this table gets applied after Docker has already set up its own rules, so there's no race where this firewall's `policy drop` briefly applies before Docker's accept rules for its own traffic exist.
+
+What this firewall **covers**: SSH (22), DNS (53 — AdGuard runs `network_mode: host`, so this is genuinely host-stack traffic, not Docker-NAT'd), AdGuard's web UI (3001), the HAProxy VIP (80/443), Tailscale (41641/udp), Keepalived VRRP.
+
+What it **deliberately doesn't cover**: bridge-mode containers like Unbound (5335) and node_exporter (9100). Docker DNATs traffic to these *before* it ever reaches the host's INPUT chain — this firewall's table never sees that traffic, confirmed by live testing, not just by reading documentation about how Docker's iptables integration works. Restricting bridge-mode container ports would require rules in Docker's own `DOCKER-USER` chain, with careful IPv4/IPv6 handling to avoid breaking container egress. I deferred this: MikroTik already segments these Pis from the wider internet at the network layer, and the mistake-risk of getting `DOCKER-USER` chain rules wrong on a live DNS server outweighed the marginal security benefit of restricting traffic that's already internal-only.
+
+**Validation that actually validates the deployment path**, not just the live change: live-tested on the replica Pi first, with a `systemd-run` safety-rollback timer staged before every individual change (the same dead-man's-switch pattern as the MikroTik cleanup). Then re-tested via the actual Ansible run — a separate code path from the manual live test, since a playbook can have a templating bug that a manual `nft -f` test wouldn't catch. Then validated with an actual reboot, to confirm the systemd service correctly *reapplies* the ruleset on boot, rather than only working because it happened to still be live-applied from the manual test. Only after the replica was fully green did the same sequence run against the primary DNS node.
+
+## Stopping Slow SD-Card Death
+
+Docker's default `json-file` log driver has no size limit. On a box with a real disk, that's eventually a problem; on a Pi with an SD card as its only storage, it's a slow-motion outage that looks like nothing is wrong until the card is full and everything stops:
+
+```json
+// /etc/docker/daemon.json
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+```
+
+Existing container logs were already at 17MB and 2.7MB by the time I checked — not catastrophic yet, but on a trajectory toward "disk full" with zero warning beforehand, months out. This setting only caps logs for containers *created or recreated after* the daemon restart — it doesn't retroactively truncate what's already there. Existing oversized logs needed a manual one-time cleanup; the daemon-wide default just stops the problem from recurring.
+
+## Memory Limits: Catching a Leak Before It Takes the Whole Pi Down
+
+```yaml
+# docker-compose, per service
+adguardhome:
+  mem_limit: 512m
+unbound:
+  mem_limit: 256m
+promtail:
+  mem_limit: 256m
+node_exporter:
+  mem_limit: 128m
+autoheal:
+  mem_limit: 64m
+```
+
+These are generous numbers, chosen from actual observed usage with real headroom — the goal isn't to constrain normal operation, it's to make sure a genuine memory leak or runaway process in one container gets killed by Docker's OOM handling for *that container* before it starves every other process on the Pi, including the DNS resolver everything depends on. Tested incrementally on the replica first, verified via `docker inspect` that limits were actually enforced, confirmed all containers came back `Up` after restart, with DNS unaffected throughout — the kind of change where "looks fine" isn't sufficient confirmation on a box this important.
+
+## Local Config Backup: The Gap Nobody Noticed
+
+These Pis are physical hardware — Proxmox Backup Server and Velero only cover VMs and LXCs, so neither one was ever backing these up. The gap had existed since the Pis were first deployed, just never surfaced, because nothing had ever required restoring from a backup yet.
+
+```bash
+#!/bin/bash
+# /usr/local/bin/backup-rpi-configs.sh
+set -euo pipefail
+DEST=/opt/backups
+STAMP=$(date +%Y%m%d-%H%M%S)
+tar czf "${DEST}/configs-${STAMP}.tar.gz" \
+  -C / opt/adguardhome/conf opt/unbound 2>/dev/null || true
+ls -t "${DEST}"/configs-*.tar.gz 2>/dev/null | tail -n +15 | xargs -r rm --
+```
+
+Daily, via a systemd timer with randomized delay (to avoid both Pis hitting disk I/O at the exact same instant), keeping the 14 most recent snapshots. Deliberately **local-only**, with no NFS or git dependency — the NFS server runs as an LXC on the Proxmox host, and depending on the thing you're backing up *away from* failing defeats the purpose. AdGuard's config also contains a bcrypt password hash; pushing that into git history, even encrypted-at-rest on a private remote, is an unnecessary exposure for a snapshot whose only job is "let me recover the last known-good config after an accidental change."
+
+## Alerting That Survives the Main Alerting Stack Being Down
+
+This is the piece that mattered in practice, not just in theory. The homelab's primary alerting path (Prometheus → Alertmanager → Discord) runs on the k3s cluster, which runs on the Proxmox host. On the day I built this, the Proxmox host itself was down for hardware repair — which meant the entire alerting pipeline was also down, on exactly the day DNS health mattered most, since DNS was now also the only thing left running unsupervised.
+
+```bash
+#!/bin/bash
+# Independent DNS health check — ZERO dependency on k3s/Prometheus/Alertmanager
+WEBHOOK_URL="..."
+STATE_FILE="/var/lib/dns-healthcheck.state"
+HOSTNAME=$(hostname)
+
+check_dns() {
+  dig +short +timeout=3 google.com @127.0.0.1 -p 53 > /dev/null 2>&1 && \
+  dig +short +timeout=3 google.com @127.0.0.1 -p 5335 > /dev/null 2>&1
+}
+
+PREV_STATE="unknown"
+[ -f "$STATE_FILE" ] && PREV_STATE=$(cat "$STATE_FILE")
+
+if check_dns; then CURRENT_STATE="healthy"; else CURRENT_STATE="unhealthy"; fi
+
+if [ "$CURRENT_STATE" != "$PREV_STATE" ]; then
+  if [ "$CURRENT_STATE" = "unhealthy" ]; then
+    MESSAGE="🔴 **${HOSTNAME}**: DNS resolution failing. This alert is independent of the main monitoring stack."
+  else
+    MESSAGE="🟢 **${HOSTNAME}**: DNS resolution recovered."
+  fi
+  curl -s -X POST -H "Content-Type: application/json" \
+    -d "{\"content\": \"${MESSAGE}\"}" "${WEBHOOK_URL}" > /dev/null 2>&1 || true
+fi
+
+echo "$CURRENT_STATE" > "$STATE_FILE"
+```
+
+Run every two minutes via a systemd timer. Two design choices that matter more than the script's mechanics:
+
+**It tests both layers independently** — AdGuard on port 53 *and* Unbound directly on port 5335. AdGuard forwards to Unbound; testing only the front door (53) wouldn't distinguish "AdGuard is fine but its upstream resolver died" from "everything's fine." `&&` between the two `dig` calls means both have to succeed for the overall state to be healthy.
+
+**It only posts on a state change**, not on every run. A naive healthcheck that posts every two minutes regardless of state either spams a channel into being muted (defeating the purpose) or gets its messages ignored after the first few identical ones. Tracking previous state in a file and diffing against it means the alert fires exactly twice per incident: once when it breaks, once when it recovers — and nothing in between.
+
+The webhook URL reuses the same Discord webhook Alertmanager already posts to — found, while wiring this up, to have been committed in plaintext in the cluster's own monitoring config. Worth its own fix, but explicitly out of scope for this change; noted rather than silently expanded into a second unrelated remediation in the same commit.
+
+## What Actually Got Tested, Not Just Written
+
+Every change here got the same validation discipline, because the box matters too much to skip it: replica first, primary only after the replica was fully green; a manual live test *and* a separate Ansible-driven test, since they're different code paths; and for anything that should survive a reboot, an actual reboot — not just trusting that a systemd unit file is correct.
+
+---
+
+The pattern generalizes past Raspberry Pis: any unattended edge device — a branch-office router, an IoT gateway, a remote sensor node — has the same shape of problem. No operator watching it, no automated platform-level recovery, and a failure mode (hard hang) that ordinary application-level monitoring can't see because the monitoring agent itself is also hung. A hardware watchdog plus an alerting path with zero dependency on the thing being monitored is the minimum bar for "I'll find out if this breaks," regardless of what the device actually does.
