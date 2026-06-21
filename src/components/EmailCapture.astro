@@ -42,46 +42,62 @@ const {
 </div>
 
 <script>
-  const form = document.getElementById("email-capture-form") as HTMLFormElement;
-  const message = document.getElementById(
-    "email-capture-message",
-  ) as HTMLParagraphElement;
+  // Module scripts execute exactly once per browser session per the JS spec.
+  // With Astro's ClientRouter (view transitions) enabled, navigating between
+  // pages doesn't reload the page — so a plain top-level script only wires up
+  // the FIRST EmailCapture instance the user happens to land on; any later
+  // page in the same session with its own EmailCapture gets no submit handler
+  // and silently falls back to a native form submit (looks like a refresh).
+  // astro:page-load fires on every navigation, including the initial one —
+  // re-running setup here keeps the handler attached every time.
+  function setup() {
+    const form = document.getElementById(
+      "email-capture-form",
+    ) as HTMLFormElement | null;
+    const message = document.getElementById(
+      "email-capture-message",
+    ) as HTMLParagraphElement | null;
+    if (!form || !message) return;
 
-  form?.addEventListener("submit", async (e) => {
-    e.preventDefault();
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
 
-    const email = (form.elements.namedItem("email") as HTMLInputElement).value;
-    const button = form.querySelector("button") as HTMLButtonElement;
+      const email = (form.elements.namedItem("email") as HTMLInputElement)
+        .value;
+      const button = form.querySelector("button") as HTMLButtonElement;
 
-    button.disabled = true;
-    button.textContent = "Subscribing…";
+      button.disabled = true;
+      button.textContent = "Subscribing…";
 
-    try {
-      const res = await fetch("/api/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
+      try {
+        const res = await fetch("/api/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
 
-      const data = await res.json();
+        const data = await res.json();
 
-      if (res.ok && data.success) {
-        form.classList.add("hidden");
-        message.textContent =
-          "Check your inbox — the cheat sheet is on its way.";
-        message.className = "text-sm mt-3 text-green-600 dark:text-green-400";
-      } else {
-        message.textContent =
-          data.error ?? "Something went wrong. Please try again.";
+        if (res.ok && data.success) {
+          form.classList.add("hidden");
+          message.textContent =
+            "Check your inbox — the cheat sheet is on its way.";
+          message.className = "text-sm mt-3 text-green-600 dark:text-green-400";
+        } else {
+          message.textContent =
+            data.error ?? "Something went wrong. Please try again.";
+          message.className = "text-sm mt-3 text-red-500 dark:text-red-400";
+          button.disabled = false;
+          button.textContent = "Subscribe";
+        }
+      } catch {
+        message.textContent = "Network error. Please try again.";
         message.className = "text-sm mt-3 text-red-500 dark:text-red-400";
         button.disabled = false;
         button.textContent = "Subscribe";
       }
-    } catch {
-      message.textContent = "Network error. Please try again.";
-      message.className = "text-sm mt-3 text-red-500 dark:text-red-400";
-      button.disabled = false;
-      button.textContent = "Subscribe";
-    }
-  });
+    });
+  }
+
+  document.addEventListener("astro:page-load", setup);
 </script>
