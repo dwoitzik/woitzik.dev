@@ -77,7 +77,8 @@
   },
   {
     "slug": "azure-zero-trust-starter-pack",
-    "badge": "Bundle — Save €48",
+    "badge": "Bundle",
+    "compareAtPrice": "€147",
     "title": "Azure Zero-Trust Starter Pack",
     "description": "Everything to pass your first Azure compliance audit: Acmebot certificate automation, the Hub & Spoke zero-trust foundation, and Forced Tunneling — bundled, plus a bonus ISO 27001 Auditor Checklist mapping every module to Annex A controls.",
     "price": "€99",

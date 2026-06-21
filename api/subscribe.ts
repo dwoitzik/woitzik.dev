@@ -189,22 +189,36 @@ export default async function handler(
     }
   };
 
-  try {
-    await Promise.all([
-      scheduleEmail(DAY0_SUBJECT, DAY0_BODY),
-      scheduleEmail(DAY3_SUBJECT, DAY3_BODY, daysFromNow(3)),
-      scheduleEmail(DAY7_SUBJECT, DAY7_BODY, daysFromNow(7)),
-    ]);
-  } catch (err) {
-    console.error("Brevo email sequence error:", err);
-    res.writeHead(500);
+  // allSettled, not all: a Day 3/7 scheduling failure shouldn't block the
+  // Day 0 cheat-sheet email the user is actively waiting for right now.
+  const results = await Promise.allSettled([
+    scheduleEmail(DAY0_SUBJECT, DAY0_BODY),
+    scheduleEmail(DAY3_SUBJECT, DAY3_BODY, daysFromNow(3)),
+    scheduleEmail(DAY7_SUBJECT, DAY7_BODY, daysFromNow(7)),
+  ]);
+
+  const [day0, day3, day7] = results;
+  for (const r of results) {
+    if (r.status === "rejected") console.error("Brevo email error:", r.reason);
+  }
+
+  if (day0.status === "rejected") {
+    // The contact is already saved in Brevo, so retrying won't duplicate it.
+    res.writeHead(502);
     res.end(
       JSON.stringify({
         error:
-          "Subscribed, but failed to send confirmation email. Please try again.",
+          "Subscribed, but the welcome email couldn't be sent right now. Please try again in a moment.",
       }),
     );
     return;
+  }
+
+  if (day3.status === "rejected" || day7.status === "rejected") {
+    console.error(
+      "Day 0 sent but a follow-up email failed to schedule — sequence incomplete for",
+      email,
+    );
   }
 
   res.writeHead(200);

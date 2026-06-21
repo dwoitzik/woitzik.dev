@@ -3,7 +3,7 @@ import { getCollection } from "astro:content";
 import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
 import { dateRange } from "@lib/utils";
-import { CERTS } from "@consts"; // Geändert von WORK zu CERTS
+import { CERTS } from "@consts";
 import { Image } from "astro:assets";
 
 const collection = (await getCollection("certs")).sort(
