@@ -5,6 +5,8 @@ date: "2026-06-27"
 tags: ["Homelab", "Networking", "DNS"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 DNS is the most critical service in any network. If it goes down, nothing works — browsers can't resolve hostnames, services can't reach each other, and the error messages are uniformly unhelpful. In a homelab, a single DNS server is a single point of failure.
 
 This is the DNS architecture running on two Raspberry Pi 4B edge nodes in my homelab: Unbound as a recursive resolver, AdGuard Home for filtering, and Keepalived for automatic failover. The whole stack is managed with Ansible.
@@ -306,4 +308,6 @@ The entire stack is idempotent Ansible — running the playbook again changes no
 
 ---
 
-DNS control is the foundation of any Zero-Trust network — on-premises or in the cloud. In Azure, the equivalent of this setup is Azure Private DNS Zones with Private Link resolvers. The [Enterprise Terraform Blueprints](/templates) include pre-configured Private DNS Zones for all major Azure PaaS services.
+DNS control is the foundation of any Zero-Trust network — on-premises or in the cloud. In Azure, the equivalent of this setup is Azure Private DNS Zones with Private Link resolvers.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

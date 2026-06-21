@@ -5,6 +5,8 @@ date: "2026-06-20"
 tags: ["Kubernetes", "Homelab"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 Every Kubernetes cluster needs a backup strategy. For a homelab running on bare metal, the options are limited: `etcd` snapshots cover cluster state but not persistent volumes, and MinIO is the standard S3 target for Velero — but MinIO is large, opinionated, and overkill for a single-node homelab.
 
 [Garage](https://garagehq.deuxfleurs.fr/) is a lightweight, open-source S3-compatible object store written in Rust. The binary is ~50MB, the configuration is a single TOML file, and it works with any S3-compatible client including the Velero AWS plugin. It's a much better fit for a homelab than MinIO.
@@ -379,4 +381,6 @@ With this setup, a complete cluster rebuild from scratch — fresh k3s installat
 
 ---
 
-The same backup-first mindset applies in enterprise Azure environments — where the equivalent is Azure Backup, geo-redundant storage, and immutable blob policies. If you're building the network foundation that those services sit on, the [Enterprise Terraform Blueprints](/templates) cover the Private Link and storage isolation layer.
+The same backup-first mindset applies in enterprise Azure environments — where the equivalent is Azure Backup, geo-redundant storage, and immutable blob policies.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

@@ -5,6 +5,8 @@ date: "2026-05-22"
 tags: ["Kubernetes", "Homelab", "Security"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 Getting TLS certificates for public-facing services is straightforward — Let's Encrypt's HTTP-01 challenge just works. But for a homelab where services run on internal IPs behind a firewall, HTTP-01 is impossible. Let's Encrypt can't reach your cluster to verify ownership.
 
 The solution is DNS-01 challenge validation: instead of proving you control a domain by serving a file over HTTP, you prove it by creating a DNS TXT record. This works entirely offline — your cluster never needs to be publicly reachable.
@@ -191,4 +193,6 @@ The entire certificate lifecycle — issuance, storage, renewal — is automated
 
 ---
 
-The same pattern applies in enterprise Azure environments — cert-manager with Azure DNS instead of Cloudflare, Private CA for internal services, or Azure Key Vault certificates managed via the Acmebot pattern. If you are building automated certificate management for a regulated Azure environment, the [Acmebot Enterprise Module](/templates) covers the private endpoint and Key Vault integration layer.
+The same pattern applies in enterprise Azure environments — cert-manager with Azure DNS instead of Cloudflare, Private CA for internal services, or Azure Key Vault certificates managed via the Acmebot pattern.
+
+<ProductCTA variant="end" slug="acmebot-enterprise-vnet" />

@@ -29,8 +29,12 @@ jobs:
         env:
           DEVTO_API_KEY: ${{ secrets.DEVTO_API_KEY }}
         run: |
+          set +e
+          failed=0
           for file in src/content/blog/*.mdx; do
             slug=$(basename "$file" .mdx)
             echo "Checking: $slug"
-            node scripts/crosspost.mjs "$slug"
+            node scripts/crosspost.mjs "$slug" || failed=1
+            sleep 2
           done
+          exit $failed

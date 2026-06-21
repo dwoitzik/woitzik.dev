@@ -5,6 +5,8 @@ date: "2026-06-22"
 tags: ["MikroTik", "Terraform", "Security", "Networking"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 I wrote an [article about building a zero-trust MikroTik firewall with Terraform](/blog/mikrotik-zero-trust-firewall-terraform) — default-deny chains, explicit allow rules, `place_before` for deterministic ordering. The Terraform code was correct. I'd run `terraform plan` regularly and it showed no drift.
 
 The live router had 77 firewall filter rules. The Terraform configuration tracked 22.
@@ -102,3 +104,5 @@ For an ordered rule list specifically (firewalls, but also things like Azure Fir
 ---
 
 The same risk exists in Azure NSGs and Azure Firewall Policy: priority-ordered rules where an old, broad rule with a lower priority number can silently win over a newer, narrower one if it was never cleaned up after a security tightening. If you're managing NSG rule sets at scale, periodically pulling live rule state via `az network nsg rule list` and diffing it against your Terraform state catches exactly this class of drift before it becomes a finding in someone else's audit.
+
+<ProductCTA variant="end" slug="azure-firewall-enterprise" />

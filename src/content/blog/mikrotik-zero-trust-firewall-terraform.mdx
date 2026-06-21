@@ -5,6 +5,8 @@ date: "2026-05-03"
 tags: ["MikroTik", "Terraform", "Security", "Networking"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 MikroTik routers are incredibly powerful, but configuring them manually via WinBox or the CLI often leads to configuration drift and security loopholes. If you are building a segmented edge network or a home lab with multiple VLANs, you need an architecture that is version-controlled, reproducible, and strictly "Default-Deny".
 
 In this post, I will break down how to build a robust, Zero-Trust firewall for RouterOS using the `terraform-routeros` provider.
@@ -138,4 +140,6 @@ resource "routeros_ip_firewall_filter" "fwd_13_wan_to_dmz_minecraft" {
 
 Automating your edge router is just the first step in building a resilient, code-driven infrastructure. When you transition from homelabs to enterprise cloud environments, these same Zero-Trust principles apply, but the complexity scales exponentially.
 
-The same default-deny logic that drives the MikroTik firewall here applies at enterprise scale in Azure — just implemented through NSGs, Azure Firewall, and Private Link instead of RouterOS rules. The [Enterprise Terraform Blueprints](/templates) package that Zero-Trust network layer for Azure environments.
+The same default-deny logic that drives the MikroTik firewall here applies at enterprise scale in Azure — just implemented through NSGs, Azure Firewall, and Private Link instead of RouterOS rules.
+
+<ProductCTA variant="end" slug="azure-firewall-enterprise" />

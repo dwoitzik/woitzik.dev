@@ -5,6 +5,8 @@ date: "2026-06-18"
 tags: ["Kubernetes", "Monitoring", "Homelab"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 Most uptime alerts look like this:
 
 ```yaml
@@ -191,3 +193,5 @@ For most homelab services — Nextcloud, Authelia, Jellyfin, Gitea — availabil
 ---
 
 The same pattern applies directly to enterprise environments. If you're running Azure Load Balancer health probes or Application Gateway, the SLI is the same: probe success rate. The recording rules and alert thresholds are identical. The only difference is where the metrics come from.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

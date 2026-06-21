@@ -5,6 +5,8 @@ date: "2026-06-13"
 tags: ["Kubernetes", "Homelab", "Security", "Networking"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 Tailscale solves the "access everything from anywhere" problem better than any VPN I've used. The client experience is excellent. The problem is the control plane: your device list, user identities, and ACL policies all live on Tailscale's servers.
 
 [Headscale](https://github.com/juanfont/headscale) is a self-hosted, open-source implementation of the Tailscale control plane. Same WireGuard mesh, same clients — but your data stays on your infrastructure. If you're already running k3s with ArgoCD, adding Headscale is straightforward.
@@ -288,4 +290,6 @@ Running a self-hosted control plane is one more service to operate, but the trad
 
 ---
 
-Zero-Trust network access is the same problem in Azure — just solved with Private Link and Managed Identity instead of WireGuard. If you're building that layer for a regulated Azure environment, the [Enterprise Terraform Blueprints](/templates) cover it.
+Zero-Trust network access is the same problem in Azure — just solved with Private Link and Managed Identity instead of WireGuard.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

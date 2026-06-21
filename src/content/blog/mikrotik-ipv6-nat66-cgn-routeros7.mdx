@@ -5,6 +5,8 @@ date: "2026-06-18"
 tags: ["MikroTik", "Networking", "Homelab"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 Most homelab IPv6 guides assume you have native IPv6 from your ISP: a delegated /56 prefix, clean RA on the WAN, no NAT. That describes maybe 30% of actual deployments in Germany.
 
 The other 70% sits behind a FritzBox with DS-Lite or CGN, gets a GUA on the WAN interface via SLAAC, and has no delegated prefix to distribute internally. If you want IPv6 inside your network, you build it yourself.
@@ -233,3 +235,9 @@ ip -6 route show
 ```
 
 If WiFi clients still route through MikroTik after setting `advertise=no`, run `ip6/nd print` on the RouterOS terminal to verify the change persisted. RouterOS can be slow to propagate ND configuration changes.
+
+---
+
+The same ULA-vs-GUA stability trade-off shows up in Azure networking — except there it's RFC1918 address space behind NAT Gateway or Azure Firewall instead of a CGN ISP. If you're designing the equivalent zero-trust network layer for Azure, the same default-deny-plus-explicit-allow philosophy applies.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

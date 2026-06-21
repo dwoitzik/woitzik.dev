@@ -5,6 +5,8 @@ date: "2026-07-04"
 tags: ["Kubernetes", "Homelab", "Monitoring"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 A Kubernetes cluster without observability is a black box. You deploy services, they run — until they don't. When something breaks at 2am, you need metrics, logs, and alerts that actually tell you what happened.
 
 This is the full observability stack running on my bare-metal k3s cluster: `kube-prometheus-stack` for metrics and alerting, Loki with Garage S3 for log persistence, Promtail collecting logs from non-Kubernetes nodes via Ansible, SNMP metrics from the MikroTik router, and Grafana with Authelia OIDC — so there's one login for everything.
@@ -446,4 +448,6 @@ After deploying all components:
 
 ---
 
-The same three-layer observability model — metrics, logs, traces — applies in enterprise Azure environments with Azure Monitor, Log Analytics, and Application Insights. If you're building the network foundation that those services sit on, the [Enterprise Terraform Blueprints](/templates) cover the Private Link isolation layer for Azure monitoring endpoints.
+The same three-layer observability model — metrics, logs, traces — applies in enterprise Azure environments with Azure Monitor, Log Analytics, and Application Insights.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

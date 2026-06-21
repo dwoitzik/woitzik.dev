@@ -5,6 +5,8 @@ date: "2026-05-05"
 tags: ["MikroTik", "Terraform", "Networking"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 WireGuard has become the absolute standard for remote access VPNs due to its speed, simplicity, and cryptographic security. However, simplicity in setup often leads to sloppy security practices—like granting every connected device full access to the entire internal network.
 
 In a secure environment (whether an enterprise network or a well-architected homelab), a mobile phone checking a dashboard should not have the same network access as an admin laptop performing infrastructure deployments.
@@ -140,4 +142,6 @@ resource "routeros_ip_firewall_filter" "in_02_wg" {
 
 WireGuard's static cryptokey routing makes it incredibly easy to map specific users to specific IP addresses. By managing this mapping through Terraform, we can seamlessly tie identity to infrastructure, ensuring our Zero-Trust policies remain strict, readable, and perfectly documented.
 
-Tying cryptographic identity to network access is the same principle that drives Azure Private Link and Managed Identity — just at a different layer. The [Enterprise Terraform Blueprints](/templates) apply the same Zero-Trust model to Azure Hub & Spoke environments.
+Tying cryptographic identity to network access is the same principle that drives Azure Private Link and Managed Identity — just at a different layer.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

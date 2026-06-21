@@ -5,6 +5,8 @@ date: "2026-06-22"
 tags: ["Kubernetes", "GitOps", "Homelab"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 `kubectl apply` reports success. You check the resource — the field you just changed is back to its old value. No error. No event. `kubectl get` shows the change applied, then a few seconds later shows it gone, like it never happened.
 
 This isn't a typo or a YAML indentation bug. It's ArgoCD's `selfHeal` doing exactly what it's designed to do — re-applying from its own cached understanding of what the resource *should* be, which can lag behind a change you just made by hand, or even behind a fresh `git push`.
@@ -106,3 +108,5 @@ The diagnostic tell: cache staleness is *temporal* — the same Application reve
 ---
 
 The cache-staleness pattern is specific to ArgoCD's repo-server architecture, but the ownership-conflict pattern is universal to any GitOps tool managing Kubernetes resources — Flux has the same failure mode if two Kustomizations or HelmReleases both define a resource with the same identity. Checking `.status.conditions` before assuming a sync or cache problem saves a lot of time chasing the wrong fix.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

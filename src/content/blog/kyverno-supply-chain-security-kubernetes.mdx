@@ -5,6 +5,8 @@ date: "2026-06-18"
 tags: ["Kubernetes", "Security", "Homelab"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 Kubernetes has no opinion about what you run. You can deploy a container with no resource limits, no security context, root access to the host filesystem, and an image tagged `:latest` that changes every week — and the scheduler will place it without complaint.
 
 In a homelab that's annoying. In a production cluster, it's a compliance failure.
@@ -245,3 +247,5 @@ The `require-resource-limits` violation count is a useful metric: as you fix dep
 These three policies map directly to supply chain security requirements under ISO 27001 (A.12.6 — Technical Vulnerability Management) and NIS2 Article 21 (4.b — handling of incidents, 4.e — supply chain security).
 
 In Azure environments, the equivalent layer is Azure Policy + Defender for Containers — the same concept, different implementation. For teams deploying Kubernetes workloads in regulated environments, Kyverno policies committed to Git provide the audit trail that compliance frameworks require: every policy change is a pull request, every violation is logged.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

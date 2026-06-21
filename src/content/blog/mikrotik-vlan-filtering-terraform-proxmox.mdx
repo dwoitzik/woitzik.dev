@@ -5,6 +5,8 @@ date: "2026-05-04"
 tags: ["MikroTik", "Terraform", "Networking"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 If you have ever tried to configure VLANs on a MikroTik router, you know the pain. Transitioning from the legacy switch-chip VLAN methods to the modern **Bridge VLAN Filtering** often results in completely locking yourself out of the router. 
 
 When you add a virtualization host like Proxmox into the mix—which requires a trunk port passing multiple tagged VLANs—the complexity multiplies. Doing this via the WinBox GUI is a recipe for configuration drift and late-night network outages.
@@ -161,4 +163,6 @@ You simply change the `20` to `30` in the `local.rpi_port_mapping` at the top of
 
 By treating network infrastructure as code, we transform a fragile, click-heavy configuration into a robust, auditable state. Proxmox gets its tagged trunks, hardware edge devices get their native access ports, and the router maintains secure L2 isolation.
 
-The same declarative approach — define the desired state, let the provider calculate the diff — scales directly to enterprise Azure environments. If you're building compliance-ready cloud infrastructure, the [Enterprise Terraform Blueprints](/templates) apply these same patterns to Azure networking.
+The same declarative approach — define the desired state, let the provider calculate the diff — scales directly to enterprise Azure environments.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

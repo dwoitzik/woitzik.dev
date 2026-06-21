@@ -5,6 +5,8 @@ date: "2026-06-22"
 tags: ["Homelab", "Security", "Networking"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 Two Raspberry Pi 4Bs run AdGuard Home and Unbound for an entire home network, in an active/passive pair via Keepalived. They're physical hardware sitting on a shelf, not VMs or LXCs — no Proxmox snapshot, no PBS backup, no `terraform destroy && apply` to recover from a bad state. If one hangs hard at 2am, nobody notices until someone's phone can't resolve a hostname.
 
 This is the hardening pass that closed every gap I found in that setup: a hardware watchdog for total-system-freeze recovery, fail2ban for the one SSH-exposed surface, an nftables host firewall that's careful not to fight with Docker's own iptables rules, log size caps to stop slow SD-card death, and a DNS health check that works even on the day the rest of the monitoring stack is offline — which, as it turned out, was exactly the day it mattered.
@@ -209,3 +211,5 @@ Every change here got the same validation discipline, because the box matters to
 ---
 
 The pattern generalizes past Raspberry Pis: any unattended edge device — a branch-office router, an IoT gateway, a remote sensor node — has the same shape of problem. No operator watching it, no automated platform-level recovery, and a failure mode (hard hang) that ordinary application-level monitoring can't see because the monitoring agent itself is also hung. A hardware watchdog plus an alerting path with zero dependency on the thing being monitored is the minimum bar for "I'll find out if this breaks," regardless of what the device actually does.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

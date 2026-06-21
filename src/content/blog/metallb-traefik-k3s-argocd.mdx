@@ -5,6 +5,8 @@ date: "2026-05-18"
 tags: ["Kubernetes", "Homelab", "Networking"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 Cloud Kubernetes clusters get LoadBalancers for free. You create a Service of type `LoadBalancer`, and within seconds your cloud provider hands you a public IP. On a bare-metal K3s cluster running on Proxmox VMs, that request hangs in `<pending>` forever.
 
 This is the first thing that breaks every homelab Kubernetes setup. MetalLB fixes it — but wiring it up correctly with Traefik and ArgoCD has a few non-obvious steps.
@@ -198,4 +200,6 @@ Point your DNS wildcard (`*.yourdomain.com`) at `10.0.20.200` and every Ingress 
 
 ---
 
-The same principles — centralized ingress, TLS termination at the edge, declarative configuration — apply directly to enterprise Azure environments. In Azure, the equivalent is an Application Gateway or Azure Firewall in front of a private AKS cluster. If you are building that for a regulated environment, the [Enterprise Terraform Blueprints](/templates) cover the network isolation layer.
+The same principles — centralized ingress, TLS termination at the edge, declarative configuration — apply directly to enterprise Azure environments. In Azure, the equivalent is an Application Gateway or Azure Firewall in front of a private AKS cluster.
+
+<ProductCTA variant="end" slug="azure-firewall-enterprise" />

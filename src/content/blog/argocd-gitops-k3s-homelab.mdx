@@ -5,6 +5,8 @@ date: "2026-05-20"
 tags: ["Kubernetes", "GitOps", "Homelab"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 Most Kubernetes tutorials end with `kubectl apply -f`. You deploy something, it works, and you move on. Three weeks later you have no idea what's running in your cluster, why it's configured that way, or how to recreate it if something breaks.
 
 GitOps solves this. With ArgoCD, your Git repository is the single source of truth for everything in the cluster. No manual `kubectl apply`, no Helm commands in your shell history, no configuration drift. If it's not in Git, it doesn't exist.
@@ -193,4 +195,6 @@ The entire homelab — from bare metal to running Authelia and Vaultwarden — i
 
 ---
 
-The same GitOps principles apply in enterprise Azure environments — with Terraform as the infrastructure layer and ArgoCD or Flux managing the application layer on top of AKS. If you are building the Azure network foundation for a regulated environment, the [Enterprise Terraform Blueprints](/templates) cover the Zero-Trust networking layer that sits underneath.
+The same GitOps principles apply in enterprise Azure environments — with Terraform as the infrastructure layer and ArgoCD or Flux managing the application layer on top of AKS.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

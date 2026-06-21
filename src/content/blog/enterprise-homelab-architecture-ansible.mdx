@@ -5,6 +5,8 @@ date: "2026-05-06"
 tags: ["Homelab", "Ansible"]
 ---
 
+import ProductCTA from "@components/ProductCTA.astro";
+
 Many homelabs start as a single Docker host or a messy Proxmox node where services are spun up manually. But as your infrastructure grows to include reverse proxies, DNS blocklists, network storage, and AI models, manual management becomes a nightmare. 
 
 To maintain sanity, I treat my home network exactly like an enterprise production environment. Everything is defined in code, strictly segmented by function, and deployed automatically. 
@@ -110,4 +112,6 @@ Finally, resource-intensive workloads like Local LLMs get their own dedicated pr
 
 Building a setup like this at home is the best possible playground for modern DevOps. If you can confidently explain how you orchestrated a split-DNS, high-availability, Zero-Trust environment using Ansible and Terraform, you have the skills required to manage enterprise cloud environments.
 
-The same role-based Ansible patterns that manage this homelab apply directly to enterprise environments — just at larger scale. If you're building for regulated cloud environments, the [Enterprise Terraform Blueprints](/templates) package the Azure Zero-Trust layer on top of these same IaC principles.
+The same role-based Ansible patterns that manage this homelab apply directly to enterprise environments — just at larger scale.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
