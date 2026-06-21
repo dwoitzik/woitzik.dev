@@ -1,4 +1,4 @@
-name: Crosspost to dev.to
+name: Crosspost to dev.to, Medium, and Mastodon
 
 on:
   push:
@@ -8,6 +8,9 @@ on:
   schedule:
     - cron: "0 6 * * 1" # weekly safety net — catches anything that slipped through
   workflow_dispatch: {}
+
+permissions:
+  contents: write # needed to commit scripts/.medium-posted.json back
 
 jobs:
   crosspost:
@@ -24,10 +27,13 @@ jobs:
             echo "skip=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Crosspost all articles (dedup via dev.to canonical_url)
+      - name: Crosspost all articles (dedup via dev.to canonical_url / Medium tracking file)
         if: steps.check-secrets.outputs.skip != 'true'
         env:
           DEVTO_API_KEY: ${{ secrets.DEVTO_API_KEY }}
+          MASTODON_INSTANCE_URL: ${{ secrets.MASTODON_INSTANCE_URL }}
+          MASTODON_ACCESS_TOKEN: ${{ secrets.MASTODON_ACCESS_TOKEN }}
+          MEDIUM_INTEGRATION_TOKEN: ${{ secrets.MEDIUM_INTEGRATION_TOKEN }}
         run: |
           set +e
           failed=0
@@ -38,3 +44,14 @@ jobs:
             sleep 2
           done
           exit $failed
+
+      - name: Commit Medium crosspost tracking file if changed
+        if: steps.check-secrets.outputs.skip != 'true'
+        run: |
+          if ! git diff --quiet -- scripts/.medium-posted.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add scripts/.medium-posted.json
+            git commit -m "chore: update Medium crosspost tracking [skip ci]"
+            git push
+          fi

@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 /**
- * Crosspost a blog article to dev.to.
+ * Crosspost a blog article to dev.to, Medium, and announce it on Mastodon.
  *
  * Usage:
- *   node scripts/crosspost.mjs <slug>           # post to dev.to
+ *   node scripts/crosspost.mjs <slug>           # post everywhere configured
  *   node scripts/crosspost.mjs <slug> --dry-run # preview without posting
  *
  * Required env vars (set in .env.crosspost or export before running):
  *   DEVTO_API_KEY
+ *   MASTODON_INSTANCE_URL       e.g. https://hachyderm.io  (optional — skipped if unset)
+ *   MASTODON_ACCESS_TOKEN                                   (optional — skipped if unset)
+ *   MEDIUM_INTEGRATION_TOKEN                                (optional — skipped if unset)
  */
 
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -156,6 +159,148 @@ async function postToDevTo(slug, fm, markdown, dryRun) {
   }
 }
 
+// ─── Mastodon ─────────────────────────────────────────────────────────────
+// Mastodon is microblogging, not a blog host — post a short teaser + canonical
+// link instead of the full article. Optional: skipped entirely if the instance
+// URL or token aren't configured, so this never blocks the dev.to crosspost.
+async function alreadyOnMastodon(instanceUrl, accessToken, canonicalUrl) {
+  const res = await fetch(
+    `${instanceUrl}/api/v1/accounts/verify_credentials`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) return false;
+  const account = await res.json();
+  const statusesRes = await fetch(
+    `${instanceUrl}/api/v1/accounts/${account.id}/statuses?limit=40`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!statusesRes.ok) return false;
+  const statuses = await statusesRes.json();
+  return statuses.some((s) => s.content?.includes(canonicalUrl));
+}
+
+async function postToMastodon(slug, fm, dryRun) {
+  const instanceUrl = process.env.MASTODON_INSTANCE_URL;
+  const accessToken = process.env.MASTODON_ACCESS_TOKEN;
+  if (!instanceUrl || !accessToken) {
+    console.log("⏭️   Mastodon: not configured — skipping");
+    return;
+  }
+
+  const canonicalUrl = `https://woitzik.dev/blog/${slug}/`;
+
+  if (await alreadyOnMastodon(instanceUrl, accessToken, canonicalUrl)) {
+    console.log(`⏭️   Mastodon: already posted (${slug}) — skipping`);
+    return;
+  }
+
+  // Mastodon hashtags: no spaces, no punctuation, CamelCase for readability.
+  const hashtags = (fm.tags || [])
+    .slice(0, 3)
+    .map((t) => `#${t.replace(/[^a-zA-Z0-9]/g, "")}`)
+    .join(" ");
+
+  const status = `${fm.title}\n\n${fm.description}\n\n${canonicalUrl}\n\n${hashtags}`;
+
+  if (dryRun) {
+    console.log("\n[DRY RUN] Mastodon status:");
+    console.log(status);
+    return;
+  }
+
+  const res = await fetch(`${instanceUrl}/api/v1/statuses`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ status, visibility: "public" }),
+  });
+
+  const data = await res.json();
+  if (res.ok) {
+    console.log(`✅  Mastodon: ${data.url}`);
+  } else {
+    console.error("❌  Mastodon error:", data);
+  }
+}
+
+// ─── Medium ───────────────────────────────────────────────────────────────
+// Medium's API has no endpoint to list a user's own posts, so the dev.to/
+// Mastodon "ask the API if it's already there" dedup trick doesn't work here.
+// Instead we track posted slugs in a small JSON file that the CI workflow
+// commits back to the repo after a successful run.
+const mediumPostedFile = resolve(ROOT, "scripts/.medium-posted.json");
+
+function loadMediumPosted() {
+  if (!existsSync(mediumPostedFile)) return [];
+  return JSON.parse(readFileSync(mediumPostedFile, "utf8"));
+}
+
+function saveMediumPosted(slugs) {
+  writeFileSync(mediumPostedFile, JSON.stringify(slugs, null, 2) + "\n");
+}
+
+async function postToMedium(slug, fm, markdown, dryRun) {
+  const token = process.env.MEDIUM_INTEGRATION_TOKEN;
+  if (!token) {
+    console.log("⏭️   Medium: not configured — skipping");
+    return;
+  }
+
+  const posted = loadMediumPosted();
+  if (posted.includes(slug)) {
+    console.log(`⏭️   Medium: already posted (${slug}) — skipping`);
+    return;
+  }
+
+  // Medium tags: max 3, no special formatting required.
+  const tags = (fm.tags || []).slice(0, 3);
+
+  const payload = {
+    title: fm.title,
+    contentFormat: "markdown",
+    content: markdown,
+    canonicalUrl: `https://woitzik.dev/blog/${slug}/`,
+    tags,
+    publishStatus: "public",
+  };
+
+  if (dryRun) {
+    console.log("\n[DRY RUN] Medium payload:");
+    console.log(JSON.stringify(payload, null, 2).slice(0, 600) + "...");
+    return;
+  }
+
+  const meRes = await fetch("https://api.medium.com/v1/me", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!meRes.ok) {
+    console.error("❌  Medium error: failed to resolve author id", await meRes.json().catch(() => ({})));
+    return;
+  }
+  const me = await meRes.json();
+  const authorId = me.data.id;
+
+  const res = await fetch(`https://api.medium.com/v1/users/${authorId}/posts`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json();
+  if (res.ok) {
+    console.log(`✅  Medium: ${data.data.url}`);
+    posted.push(slug);
+    saveMediumPosted(posted);
+  } else {
+    console.error("❌  Medium error:", data);
+  }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────
 const [, , slug, ...flags] = process.argv;
 
@@ -186,3 +331,5 @@ console.log(`🔗  Canonical: https://woitzik.dev/blog/${slug}/`);
 console.log(`🏷️   Tags: ${(fm.tags || []).join(", ")}\n`);
 
 await postToDevTo(slug, fm, markdown, dryRun);
+await postToMastodon(slug, fm, dryRun);
+await postToMedium(slug, fm, markdown, dryRun);
