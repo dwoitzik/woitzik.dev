@@ -1,0 +1,124 @@
+---
+title: "kubectl Said Everything Was Correct. Traefik 404'd Anyway."
+description: "Migrating Jellyfin off k3s onto a GPU-passthrough LXC meant pointing a Service at an external IP. The EndpointSlice looked completely correct via kubectl — Service existed, endpoint listed right — but Traefik 404'd every request. A second, unrelated gotcha surfaced in the same migration: a PVC silently shared by reference across two unrelated files."
+date: "2026-06-25"
+tags: ["Kubernetes", "Networking", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+Jellyfin's k3s Deployment had no GPU passthrough — pure software transcoding on a cluster with no GPU access. Moving it to a dedicated LXC with VAAPI hardware transcode access to the host's APU is straightforward in principle: stand up the LXC, run Jellyfin there via Ansible, and point the existing Traefik `IngressRoute` at the new location instead of a cluster pod.
+
+That last part — pointing a Kubernetes Service at an external IP without changing anything downstream — should be one of the more boring parts of a migration like this. It produced the more interesting bug of the two covered here.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Routing a Service to an IP Outside the Cluster
+
+Traefik's `IngressRoute` for Jellyfin references a Service by name — `services: [{name: jellyfin, port: 8096}]`. To avoid touching that IngressRoute (and its Authelia middleware) at all, the plan was to keep the Service object, but back it with the LXC's IP instead of a pod selector. Kubernetes has a mechanism for exactly this: skip the Service's `selector` field, and manually create an object that lists the actual backend addresses.
+
+The modern way to do this is `EndpointSlice`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin
+  namespace: apps
+spec:
+  ports:
+    - port: 8096
+      targetPort: 8096
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: jellyfin
+  namespace: apps
+  labels:
+    kubernetes.io/service-name: jellyfin
+addressType: IPv4
+ports:
+  - name: ""
+    port: 8096
+endpoints:
+  - addresses:
+      - 10.0.20.254
+```
+
+Every check via `kubectl` confirmed this was correct: the Service existed, the EndpointSlice existed with the right label linking it to the Service, the endpoint address listed correctly. By every signal `kubectl` could give, this was done.
+
+Every request to `media.woitzik.dev` 404'd.
+
+## Reading the Actual Error Instead of Re-Checking kubectl
+
+The instinct when `kubectl` says everything is fine is to re-check `kubectl` — verify the label matches exactly, check for typos, look for a missing field. None of that was the problem. The actual answer was sitting in Traefik's own logs the entire time:
+
+```
+subset not found for apps/jellyfin
+```
+
+Traefik's Kubernetes CRD provider resolves a Service's backend addresses through the **legacy `v1/Endpoints` API** — the object with `subsets`, not the newer `EndpointSlice`. This is true regardless of the fact that `EndpointSlice` is the object Kubernetes itself prefers and recommends for new code, and regardless of the fact that `kubectl` has no opinion about which one any particular consumer actually reads. Kubernetes ships both APIs side by side specifically for this kind of provider-compatibility gap — and Traefik's ingress controller, as of the version in use here, is one of the consumers that hasn't moved to the newer one.
+
+The fix is a straightforward swap to the older object:
+
+```yaml
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: jellyfin
+  namespace: apps
+subsets:
+  - addresses:
+      - ip: 10.0.20.254
+    ports:
+      - port: 8096
+```
+
+Confirmed immediately via `curl` against the public hostname, and via Traefik's own logs going quiet for that route. Same conceptual object, different API, and only one of the two is the one this specific consumer actually reads.
+
+**The general lesson:** "kubectl shows it's configured correctly" answers *whether the Kubernetes API server accepted and stored the object* — it says nothing about *whether the specific consumer reading that object supports the API version you used*. For anything involving a controller or ingress provider reading Kubernetes objects indirectly (CRD-based routing being the clearest example), check that controller's own logs and documented compatibility before assuming a `kubectl`-clean object is a working one.
+
+## The Second Gotcha: A PVC Shared by Reference Across Unrelated Files
+
+While removing Jellyfin's old in-cluster Deployment and its associated PVC, a second issue surfaced — this one with real data-loss potential, caught only because Kubernetes' own safety mechanism bought time.
+
+The `media` PVC had been defined in `jellyfin.yml`. It looked, from that file alone, like it belonged to Jellyfin and only Jellyfin. It didn't: four other Deployments in a completely different file — `usenet.yml`'s Sonarr, Radarr, Bazarr, and SABnzbd — referenced the exact same PVC by name:
+
+```yaml
+# usenet.yml — nothing in this file defines "media", it just claims it
+volumes:
+  - name: media
+    persistentVolumeClaim:
+      claimName: media
+```
+
+Deleting the PVC's defining resource from `jellyfin.yml` put it into `Terminating` state. It did not actually disappear, because of `pvc-protection` — a built-in Kubernetes finalizer that blocks PVC deletion while any pod still references it. The four usenet pods kept running, the PVC stayed `Bound` from their perspective, and nothing broke *in that moment*. But that's a temporary window, not a safe state: the moment any of those four pods restarted — a node drain, an OOM kill, a routine rollout — the PVC's finalizer would have cleared and the volume would have gone with it, taking the actual media library out from under four still-running applications.
+
+```bash
+# What would have caught this before deleting anything:
+grep -rn "claimName: media" kubernetes/
+# → jellyfin.yml (the file being edited)
+# → usenet.yml (NOT obvious from looking at jellyfin.yml alone)
+```
+
+The fix: recreate the same NFS-backed volume under new names, owned by `usenet.yml` — the file whose Deployments actually still needed it — and repoint all four `claimName` references to the new names. The old PVC finished terminating cleanly once nothing referenced it anymore.
+
+**The general lesson:** before deleting any `PersistentVolumeClaim` (or any named Kubernetes object that other resources reference indirectly — Secrets, ConfigMaps, Services), grep the entire manifest tree for that name, not just the file that appears to define it. `claimName`, `secretName`, and similar cross-references are invisible from the defining file alone, and Kubernetes' own protective finalizers — while genuinely useful — can create a false sense of safety: "nothing broke yet" is not the same claim as "this was safe."
+
+## Both Gotchas, Side by Side
+
+| | EndpointSlice/Endpoints | Shared PVC |
+|---|---|---|
+| What `kubectl` showed | Completely correct | Completely correct (until deletion) |
+| What actually mattered | Whether the *consuming controller* (Traefik) supports the object's API version | Whether *other files* reference the same object by name |
+| Where the real signal was | The controller's own logs, not the API server | A repo-wide grep, not the file being edited |
+| Safety net that bought time | None — direct outage | `pvc-protection` finalizer — temporary, not a fix |
+
+Both failures share the same shape: `kubectl` (or any direct API inspection) confirms an object exists and is well-formed, but the actual question — does *this specific consumer* read it correctly, does *this specific name* have other dependents — lives somewhere `kubectl` doesn't look. The fix in both cases was checking a different source of truth: the consuming controller's logs in one case, a full-tree text search in the other.
+
+---
+
+The Traefik EndpointSlice/Endpoints gap specifically is worth checking against your own ingress controller version before relying on it — provider compatibility for newer Kubernetes APIs varies and changes between releases. For Azure environments running AKS with an external service (an on-prem system, a VM outside the cluster), the same external-IP-backed-Service pattern applies, and the same "check what your specific ingress controller actually supports" caveat applies just as directly.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
