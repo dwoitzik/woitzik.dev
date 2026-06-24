@@ -195,6 +195,18 @@ export default async function handler(
     return;
   }
 
+  // Brevo returns 201 for a brand-new contact, 204 when the email already
+  // existed (updateEnabled just refreshed it). Only a brand-new signup should
+  // trigger the welcome sequence — without this check, re-submitting the form
+  // (double-click, or someone signing up a second time) re-sends Day 0
+  // immediately and schedules a second, overlapping Day 3 + Day 7 on top of
+  // whatever's already pending from the first signup.
+  if (contactRes.status === 204) {
+    res.writeHead(200);
+    res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
   const scheduleEmail = async (
     subject: string,
     htmlContent: string,

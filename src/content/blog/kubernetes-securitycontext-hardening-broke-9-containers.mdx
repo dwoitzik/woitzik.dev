@@ -1,0 +1,128 @@
+---
+title: "I Hardened Pod securityContext and Broke 9 Containers in Production"
+description: "capabilities.drop: [ALL] and runAsNonRoot: true passed schema validation cleanly. Within minutes of merge, nine containers — including both Postgres instances backing Paperless and Nextcloud — were down. Here's the failure analysis, why a manual kubectl fix got silently undone, and the lesson for any blanket securityContext change."
+date: "2026-06-25"
+tags: ["Kubernetes", "Security", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+`kubeconform` passed. `kubectl --dry-run` passed. The PR looked exactly like what every Kubernetes security checklist tells you to do: `capabilities.drop: [ALL]`, `runAsNonRoot: true`, `allowPrivilegeEscalation: false` across every container that was missing a `securityContext`. Schema-valid, reviewed, merged.
+
+Within minutes — because this cluster runs ArgoCD with `selfHeal: true`, where merge is deploy — nine containers were down. Two of them were Postgres, backing Paperless and Nextcloud. That's not a degraded non-critical service; that's an outage.
+
+This is the failure analysis, the two wrong assumptions that caused it, the trap that bit during recovery, and the lesson for the next time anyone — including future me — is tempted to do a blanket `securityContext` pass across a manifest tree.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Two Wrong Assumptions
+
+**Assumption 1: `capabilities.drop: [ALL]` is always safe if the container doesn't need special privileges at runtime.**
+
+Wrong. It's not about what the *final running process* needs — it's about what the *entrypoint script* needs before it execs into that process. A huge number of container images follow the same pattern: start as root, `chown`/`chmod` the data directory so it's owned by an unprivileged user, then drop privileges via `su-exec` or `setpriv` before launching the actual application. That privilege-drop step itself requires `CAP_CHOWN`, `CAP_SETUID`, and `CAP_SETGID` — capabilities that `drop: [ALL]` removes before the entrypoint ever runs.
+
+```yaml
+# What looked like the safe, recommended hardening:
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+```
+
+This broke gitea, authelia, headscale, mealie, and both Postgres instances (paperless and nextcloud) — every one of them runs this exact root-then-drop-privileges pattern in its entrypoint. It also broke the Paperless and Nextcloud Redis instances — but, tellingly, **not** the Authelia Redis instance, because that one has an explicit `command: redis-server ...` override that bypasses the image's normal entrypoint script entirely. Same image, same `securityContext`, different outcome — because the actual code path that runs is different.
+
+**Assumption 2: `runAsNonRoot: true` is safe to set on any container, since "obviously" you want it not running as root.**
+
+Wrong in the opposite direction. `runAsNonRoot: true` doesn't change anything about how the container runs — it's an **admission-time check** that fails outright if the image's actual default user is root and nothing in the pod spec overrides it. `vault-unseal` (hashicorp/vault), the Nextcloud and Paperless Redis instances, and `cloudflare-ddns` (curlimages/curl) all default to root. These containers didn't crash-loop — they never started at all:
+
+```
+Error: container has runAsNonRoot and image will run as root
+```
+
+That's a `CreateContainerConfigError`, a clean failure with a clear message — which made it one of the easier categories to diagnose. The crash-looping containers from Assumption 1 were the harder half.
+
+## Catching It: Why "Application: Synced/Healthy" Lied
+
+The first instinct when something looks wrong is to check ArgoCD. `kubectl get application -n argocd` showed `Synced` and `Healthy`. That was stale — ArgoCD's poll interval meant the Application object hadn't refreshed its view of the cluster yet, even though the new pods were already failing underneath it.
+
+```bash
+# Don't trust Application status alone during an active incident
+argocd app get <name> --hard-refresh
+# or:
+kubectl annotate application <name> -n argocd \
+  argocd.argoproj.io/refresh=hard --overwrite
+```
+
+The only thing that actually told the truth was looking directly at pod status and the pod's own `creationTimestamp`:
+
+```bash
+kubectl get pods -n apps -o wide
+kubectl get pod <name> -n apps -o jsonpath='{.metadata.creationTimestamp}{"\n"}{.status.containerStatuses[0].restartCount}'
+kubectl logs <name> -n apps --previous
+```
+
+**A pod with N restarts and a recent restart count "looking survivable" is not proof of health.** Two failures in this incident — paperless-ngx and uptime-kuma — surfaced only on a slower ReplicaSet rollout and weren't caught in the first sweep immediately after merge. They were found ~30 minutes later during an extended verification pass, specifically because someone went back and checked for a *clean* `creationTimestamp` with *zero* restarts since — not just "fewer restarts than expected." The bar for "this is actually fixed" has to be zero restarts on the current generation, not a restart count that happens to look low.
+
+## The Logs Told the Real Story Every Time
+
+Once you're looking at the right pod, `kubectl logs` on the crashing container is unambiguous:
+
+```
+chown: /config: Operation not permitted
+su-exec: setgroups(0): Operation not permitted
+setpriv: setresuid failed: Operation not permitted
+```
+
+Three different error message formats, same root cause: the entrypoint tried to drop privileges and couldn't, because the capability that does that had been dropped first. This is the single most useful debugging fact from the whole incident — if you see *any* of these three error patterns after a `securityContext` change, the fix is "give the capability back," not "investigate the application."
+
+## The Recovery Trap: selfHeal Undoes Manual Fixes
+
+To restore service faster than waiting on a PR review cycle, the instinct during an active outage is to patch the live cluster directly:
+
+```bash
+kubectl patch deployment authelia -n apps --type=json \
+  -p '[{"op": "remove", "path": "/spec/template/spec/containers/0/securityContext/capabilities"}]'
+```
+
+This works — for about as long as it takes ArgoCD's next reconciliation loop to notice the drift. With `selfHeal: true`, ArgoCD's entire job is to make the live cluster match Git. A manual `kubectl patch` that diverges from the committed manifest *is* drift, by definition, and gets silently reverted back to the still-broken state.
+
+**With selfHeal enabled, Git is the only place a fix can actually stick.** During this incident, the real fix had to land as a committed, merged change before it survived — the manual patch bought a few minutes at best, and gave a false sense of "it's fixed" that evaporated on the next sync cycle. For an incident under selfHeal, the fastest real path to recovery is a fast-tracked PR, not a live patch.
+
+## The Fix, Applied Selectively
+
+Five follow-up PRs, each fixing a specific verified failure mode as it was confirmed live — not a blanket re-revert of everything:
+
+```yaml
+# Reverted only what was proven to break — capabilities stay dropped
+# wherever the image's entrypoint doesn't need them:
+securityContext:
+  allowPrivilegeEscalation: false
+  # capabilities.drop: ["ALL"]  ← removed for this specific image,
+  # see inline comment for the verified failure mode
+```
+
+```yaml
+# kubernetes/apps/authelia/authelia.yml
+securityContext:
+  allowPrivilegeEscalation: false
+  # SEC-012: image entrypoint runs as root and needs CAP_CHOWN/CAP_SETGID/
+  # CAP_SETUID to chown /config and su-exec into its runtime user —
+  # confirmed live, dropping all capabilities crash-loops it
+  # ("su-exec: setgroups(0): Operation not permitted").
+```
+
+Each reverted file got an inline comment recording the *specific verified failure mode* — not a vague "this broke things." The next person (or future me) who's tempted to re-attempt a blanket capability drop across this manifest tree has the actual evidence sitting right there, rather than rediscovering it the same way.
+
+Final state: `allowPrivilegeEscalation: false` everywhere — that one's genuinely always safe, it has no entrypoint-behavior dependency. `capabilities.drop: [ALL]` kept only where verified safe (cloudflared, gitea after its own fix, and several others). `runAsNonRoot: true` kept only where the image's actual default user is verifiably non-root. Net result: Trivy's configuration-misconfiguration finding count went from 215 to 171 — real progress, just not the full sweep the first PR claimed.
+
+## The Lesson
+
+`kubeconform` and `kubectl --dry-run` validate that a manifest is **schema-valid**. They say nothing about whether the container's actual entrypoint will survive the constraints you just imposed on it. Those are two completely different questions, and passing the first one tells you nothing about the second.
+
+For any image you don't control, the actual behavior of its entrypoint — does it run as root and drop privileges, does it default to a non-root user, does anything in its startup sequence need a specific capability — has to be verified **live**, one image at a time, before a blanket security hardening change goes anywhere near a cluster with auto-sync enabled. The pattern to specifically watch for: anything that does `chown`/`chmod` on a data directory before launching the real process almost certainly needs `CAP_CHOWN` and friends, regardless of how harmless the final running process looks.
+
+---
+
+The same blast-radius problem exists in Azure — a blanket Pod Security Standard or Azure Policy applied across an AKS cluster's namespaces can break exactly this class of container for exactly this reason, just with `kubectl apply` replaced by a policy assignment that enforces on the next pod restart instead of immediately. Verify per-workload before enforcing cluster-wide, not after.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
