@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, renameSync, appendFileSync } from "fs";
 import { resolve } from "path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const QUEUE_DIR = resolve(ROOT, "src/content/blog-queue");
+const QUEUE_DIR = resolve(ROOT, "content-queue/blog");
 const BLOG_DIR = resolve(ROOT, "src/content/blog");
 
 function frontmatterDate(content) {
