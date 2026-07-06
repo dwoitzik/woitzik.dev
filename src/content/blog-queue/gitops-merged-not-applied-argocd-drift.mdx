@@ -1,0 +1,154 @@
+---
+title: "Three Fixes Were Merged. None of Them Had Taken Effect."
+description: "A drift audit found that Traefik's allowCrossNamespace fix, Velero's maintenance frequency fix, and several other changes had been merged to git but never synced live. ArgoCD was healthy. The cluster was wrong. Here's how the gap opens, how to find it, and the specific Velero bug that would have been inert even if it had synced."
+date: "2026-07-18"
+tags: ["Kubernetes", "GitOps", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+GitOps makes a specific promise: the cluster matches git. When a change is merged, it deploys. When a resource is deleted from git, it's deleted from the cluster. Merge = deploy is the core guarantee the entire workflow rests on.
+
+It's not always true. This is a story about finding three cases where it wasn't — two discovered during a drift audit, one that would have been inert even if ArgoCD had synced it correctly.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## How the Gap Opens: ArgoCD's App-of-Apps Bootstrap Problem
+
+The cluster uses ArgoCD's app-of-apps pattern: a root Application watches a directory, creates child Applications for each manifest it finds, and those child Applications sync the actual workloads. The root Application uses a `directory.include` glob to decide which files to track.
+
+The problem: that glob is set once, at bootstrap time, and files added to the directory later are only tracked if they match the existing glob. A file that doesn't match is invisible to ArgoCD — it won't create an Application for it, won't sync it, and won't alert about it. From ArgoCD's perspective, the file doesn't exist.
+
+The monitoring stack had this problem. Two files — `application.yml` and `manifests-application.yml` — had been added to the `kubernetes/system/monitoring/` directory but were missing from the parent Application's `directory.include` glob:
+
+```yaml
+# monitoring-bootstrap/application.yml (the root)
+spec:
+  source:
+    directory:
+      include: "alertmanager-config.yml"  # ← only this file tracked
+      # application.yml and manifests-application.yml: invisible
+```
+
+A fix for a broken `configSecret` reference had been merged to `application.yml`. It was valid YAML, it would have worked — but ArgoCD never picked it up. The live cluster was still running the broken version from initial bootstrap, indefinitely.
+
+## Finding the Gap: What the Drift Audit Actually Checks
+
+The standard ArgoCD health check (`kubectl get applications -n argocd`) doesn't catch this. All Applications show `Synced/Healthy`. The bootstrapped-but-untracked files don't generate an Application at all, so there's nothing to show as out-of-sync.
+
+The audit that found it was manual: compare the contents of each `kubernetes/system/*/` directory against the tracked files in the corresponding bootstrap Application, and flag any file not in the glob:
+
+```bash
+# For each subdirectory, list tracked files vs actual files
+for dir in kubernetes/system/*/; do
+  echo "=== $dir ==="
+  # What ArgoCD tracks (from the bootstrap Application's directory.include)
+  # vs what's actually in the directory
+  ls "$dir"*.yml 2>/dev/null
+done
+```
+
+The audit found approximately 14 directories with the same untracked-after-bootstrap gap — no current drift in most of them, but nothing preventing drift from accumulating silently if files were added there in the future.
+
+## The First Live Finding: Traefik allowCrossNamespace
+
+Traefik's `allowCrossNamespace` fix had been merged to git on 2026-07-04. The change allowed IngressRoutes in one namespace to reference Services in another — without it, `argo.woitzik.dev`, `monitoring.woitzik.dev`, and `status.woitzik.dev` returned bare 404s.
+
+The fix was in git. ArgoCD showed the Traefik Application as `Synced`. But the endpoints were still 404ing.
+
+The cause: the Traefik Application's last successful sync was before the fix merged. ArgoCD's sync status reflects the last successful reconciliation, not a continuous comparison. If the sync was clean before the change and nothing triggered a re-sync after (no new commit to the watched path, no manual refresh), the Application can show `Synced` while being hours or days behind.
+
+```bash
+# Force ArgoCD to re-compare against current git HEAD
+argocd app sync traefik --force
+# or via annotation:
+kubectl annotate application traefik -n argocd \
+  argocd.argoproj.io/refresh=hard --overwrite
+```
+
+After manual sync, all three endpoints came back to 302 within seconds of the rollout completing.
+
+## The Second Finding: Velero's Fix That Couldn't Have Worked
+
+Velero had a merged fix for repository maintenance frequency — too-frequent Kopia maintenance jobs were running during backup windows and causing timeouts. The fix set a custom maintenance frequency via Helm values.
+
+The fix was synced correctly. It also did nothing, for two independent reasons:
+
+**Reason 1: Wrong Helm values structure.**
+
+The `extraArgs` key was placed at the top level of the Helm values instead of nested under `configuration`:
+
+```yaml
+# What was merged (broken)
+velero:
+  extraArgs:
+    - "--default-repo-maintain-frequency=168h"
+
+# What Helm actually needs
+velero:
+  configuration:
+    extraArgs:
+      - "--default-repo-maintain-frequency=168h"
+```
+
+Helm silently drops unknown top-level keys. No error, no warning — the extra args simply weren't passed to the binary. Velero started with its defaults.
+
+**Reason 2: Wrong flag name.**
+
+The flag `--default-repo-maintenance-frequency` doesn't exist in Velero. The real flag is `--default-repo-maintain-frequency` (no "ance"). Even if the values structure had been correct, the binary would have printed an unknown flag error and ignored it.
+
+Two independently-wrong things, each of which would have prevented the fix from taking effect on its own. Caught during the drift audit by checking the running Velero container's actual args:
+
+```bash
+kubectl get pod -n velero -l app.kubernetes.io/name=velero -o jsonpath=\
+  '{.items[0].spec.containers[0].args}' | tr ',' '\n'
+# → no --default-repo-maintain-frequency flag present
+```
+
+The correct fix, both issues resolved:
+
+```yaml
+velero:
+  configuration:
+    extraArgs:
+      - "--default-repo-maintain-frequency=168h"
+```
+
+## The Three-Part Pattern
+
+All three failures share the same shape:
+
+| | Traefik allowCrossNamespace | Velero maintenance frequency | Monitoring bootstrap files |
+|---|---|---|---|
+| Git state | Correct | Correct | Correct |
+| Live state | Unsynced | Synced but inert | Never tracked |
+| ArgoCD showed | `Synced/Healthy` | `Synced/Healthy` | No Application (invisible) |
+| Found by | Manual sync + endpoint check | Checking running container args | Directory vs. glob comparison |
+
+In each case, the developer closed the PR with the reasonable belief that the fix was live. In each case, it wasn't. The merge was the easy part; the verification that the change actually took effect in the running cluster is the part that was skipped.
+
+## The Verification Step That Prevents It
+
+For any change where "merged" isn't sufficient proof of "deployed," there's one check that works:
+
+```bash
+# For a Helm values change: verify the flag is in the running container
+kubectl get pod -n <namespace> -l <label-selector> \
+  -o jsonpath='{.items[0].spec.containers[0].args}'
+
+# For a Kubernetes manifest change: verify the field is live
+kubectl get <resource> -n <namespace> <name> \
+  -o jsonpath='{.spec.<changed-field>}'
+
+# For an ArgoCD Application bootstrap: verify the file is tracked
+argocd app get <bootstrap-app> --output json | \
+  jq '.spec.source.directory.include'
+```
+
+None of these are expensive. They're all one-liners. The cost of skipping them — in this case, Traefik returning 404 for three production subdomains, Velero running backup maintenance at the wrong frequency indefinitely, and monitoring fixes sitting inert — was substantially higher.
+
+---
+
+The same GitOps verification gap exists in Azure DevOps pipelines and GitHub Actions that deploy Terraform or Helm. A pipeline that reports "succeeded" proves that the deployment command ran without error — it doesn't prove that the cluster's running state matches the manifest. Checking the running state directly, after deployment, is the only check that closes the gap.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

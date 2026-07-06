@@ -1,0 +1,33 @@
+name: Publish queued articles on schedule
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # daily 07:00 UTC — publishes any queued article whose date has arrived
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: "Promote due articles from queue"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Promote due articles
+        id: publish
+        run: node scripts/publish-queued-articles.mjs
+
+      - name: Commit and push if anything was published
+        if: steps.publish.outputs.published_count != '0'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/content/blog-queue src/content/blog
+          git commit -m "chore: publish queued article(s) [scheduled]"
+          git push
