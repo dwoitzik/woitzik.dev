@@ -1,17 +1,17 @@
 ---
 title: "Kyverno: Supply Chain Security as Admission Control on Kubernetes"
-description: "Most Kubernetes clusters accept any container image, any privilege level, and any resource configuration by default. Kyverno lets you enforce policies at admission time — before anything runs. Here's how to build a supply chain security baseline with Audit-first rollout."
+description: "Most Kubernetes clusters accept any container image, any privilege level, and any resource configuration by default. Kyverno lets you enforce policies at admission time - before anything runs. Here's how to build a supply chain security baseline with Audit-first rollout."
 date: "2026-06-18"
 tags: ["Kubernetes", "Security", "Homelab"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-Kubernetes has no opinion about what you run. You can deploy a container with no resource limits, no security context, root access to the host filesystem, and an image tagged `:latest` that changes every week — and the scheduler will place it without complaint.
+Kubernetes has no opinion about what you run. You can deploy a container with no resource limits, no security context, root access to the host filesystem, and an image tagged `:latest` that changes every week - and the scheduler will place it without complaint.
 
 In a homelab that's annoying. In a production cluster, it's a compliance failure.
 
-[Kyverno](https://kyverno.io/) is a Kubernetes-native policy engine. It runs as an admission webhook — every `kubectl apply`, every ArgoCD sync, every Helm install is evaluated against your policies before it reaches the scheduler. Violations are either blocked (Enforce) or logged (Audit).
+[Kyverno](https://kyverno.io/) is a Kubernetes-native policy engine. It runs as an admission webhook - every `kubectl apply`, every ArgoCD sync, every Helm install is evaluated against your policies before it reaches the scheduler. Violations are either blocked (Enforce) or logged (Audit).
 
 This post covers the three policies running on my k3s cluster and the Audit-first rollout strategy that lets you enforce gradually without breaking existing workloads.
 
@@ -23,7 +23,7 @@ The alternative to admission control is runtime enforcement: scan running contai
 
 Admission control is preventive. The webhook intercepts the API request before the object is created. A rejected request never touches the scheduler.
 
-For supply chain security specifically — controlling what can run, not just what is running — admission control is the right layer.
+For supply chain security specifically - controlling what can run, not just what is running - admission control is the right layer.
 
 ## Installing Kyverno via ArgoCD
 
@@ -59,7 +59,7 @@ spec:
       - CreateNamespace=true
 ```
 
-The `backgroundController` is the component that evaluates existing resources against policies (background scan) and populates `PolicyReport` objects. Without it, you only catch violations at admission time — existing non-compliant resources stay invisible.
+The `backgroundController` is the component that evaluates existing resources against policies (background scan) and populates `PolicyReport` objects. Without it, you only catch violations at admission time - existing non-compliant resources stay invisible.
 
 ## Policy 1: Require Resource Limits (Audit)
 
@@ -97,7 +97,7 @@ spec:
                     value: 0
 ```
 
-This is in `Audit` mode — violations are logged to `PolicyReport` but not blocked. That's intentional. Before enforcing, you need to know what would break.
+This is in `Audit` mode - violations are logged to `PolicyReport` but not blocked. That's intentional. Before enforcing, you need to know what would break.
 
 Check current violations:
 
@@ -110,7 +110,7 @@ The report shows every pod in `apps`, `monitoring`, and `database` namespaces th
 
 ## Policy 2: Disallow Privileged Containers (Enforce)
 
-This one is in `Enforce` mode from day one. No homelab service needs privileged mode — if something requires `privileged: true`, that's a flag to investigate, not accommodate.
+This one is in `Enforce` mode from day one. No homelab service needs privileged mode - if something requires `privileged: true`, that's a flag to investigate, not accommodate.
 
 ```yaml
 apiVersion: kyverno.io/v1
@@ -139,7 +139,7 @@ spec:
                     value: true
 ```
 
-`|| false` handles the case where `securityContext` is not set — the expression evaluates to false, which correctly passes validation (no security context means non-privileged).
+`|| false` handles the case where `securityContext` is not set - the expression evaluates to false, which correctly passes validation (no security context means non-privileged).
 
 This blocks:
 - Containers with `securityContext.privileged: true`
@@ -147,7 +147,7 @@ This blocks:
 
 ## Policy 3: Disallow `:latest` Image Tag (Audit)
 
-Images tagged `:latest` are non-deterministic. What `nginx:latest` points to today is different from what it pointed to last week. Rollbacks are impossible because you can't pin to the previous image. Reproducible deployments require pinned tags — either semver (`4.39.20`) or digest (`sha256:abc123`).
+Images tagged `:latest` are non-deterministic. What `nginx:latest` points to today is different from what it pointed to last week. Rollbacks are impossible because you can't pin to the previous image. Reproducible deployments require pinned tags - either semver (`4.39.20`) or digest (`sha256:abc123`).
 
 ```yaml
 apiVersion: kyverno.io/v1
@@ -179,7 +179,7 @@ spec:
                     value: false
 ```
 
-The second condition catches images with no tag at all — `nginx` without `:latest` still resolves to `latest` under the hood.
+The second condition catches images with no tag at all - `nginx` without `:latest` still resolves to `latest` under the hood.
 
 ## Real-World Example: The Authelia `:latest` Violation
 
@@ -216,13 +216,13 @@ The pattern that makes Kyverno safe to adopt on a running cluster:
 6. Verify no new violations in PolicyReport
 ```
 
-Going directly to Enforce on a running cluster breaks things. ArgoCD sync jobs, Helm hooks, system daemonsets — they all create pods and will hit the policy. Audit first gives you visibility without the blast radius.
+Going directly to Enforce on a running cluster breaks things. ArgoCD sync jobs, Helm hooks, system daemonsets - they all create pods and will hit the policy. Audit first gives you visibility without the blast radius.
 
 ## Scoping Policies to Specific Namespaces
 
 Notice all three policies match only `[apps, monitoring, database]`. System namespaces (`kube-system`, `kube-public`, `argocd`, `kyverno`) are excluded deliberately.
 
-System components often need exception behaviour — hostPath volumes for kubelet, privileged containers for CNI plugins, no resource limits on critical infrastructure. Scoping your policies to user workload namespaces avoids blocking cluster internals while still enforcing what matters.
+System components often need exception behaviour - hostPath volumes for kubelet, privileged containers for CNI plugins, no resource limits on critical infrastructure. Scoping your policies to user workload namespaces avoids blocking cluster internals while still enforcing what matters.
 
 ## PolicyReport: The Visibility Layer
 
@@ -244,8 +244,8 @@ The `require-resource-limits` violation count is a useful metric: as you fix dep
 
 ## Enterprise Bridge
 
-These three policies map directly to supply chain security requirements under ISO 27001 (A.12.6 — Technical Vulnerability Management) and NIS2 Article 21 (4.b — handling of incidents, 4.e — supply chain security).
+These three policies map directly to supply chain security requirements under ISO 27001 (A.12.6 - Technical Vulnerability Management) and NIS2 Article 21 (4.b - handling of incidents, 4.e - supply chain security).
 
-In Azure environments, the equivalent layer is Azure Policy + Defender for Containers — the same concept, different implementation. For teams deploying Kubernetes workloads in regulated environments, Kyverno policies committed to Git provide the audit trail that compliance frameworks require: every policy change is a pull request, every violation is logged.
+In Azure environments, the equivalent layer is Azure Policy + Defender for Containers - the same concept, different implementation. For teams deploying Kubernetes workloads in regulated environments, Kyverno policies committed to Git provide the audit trail that compliance frameworks require: every policy change is a pull request, every violation is logged.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

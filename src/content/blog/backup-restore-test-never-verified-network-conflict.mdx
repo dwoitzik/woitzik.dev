@@ -1,6 +1,6 @@
 ---
 title: "The Disaster Recovery Runbook Nobody Had Actually Run"
-description: "DISASTER-RECOVERY.md documented the Proxmox Backup Server restore procedure in detail. It had never been executed end-to-end. Running it for the first time — against a scratch VM, alongside the still-running original — found a network conflict the documentation never mentioned."
+description: "DISASTER-RECOVERY.md documented the Proxmox Backup Server restore procedure in detail. It had never been executed end-to-end. Running it for the first time - against a scratch VM, alongside the still-running original - found a network conflict the documentation never mentioned."
 date: "2026-07-11"
 tags: ["Backup", "Proxmox", "Homelab"]
 ---
@@ -15,7 +15,7 @@ This is what running it for the first time found.
 
 ## The Test, Designed to Be Safe
 
-The container chosen was `ct-srv-atlantis-01` — not because it was low-stakes exactly, but because its data (Terraform plan history, lock state) is reconstructible if something went wrong, unlike, say, Nextcloud's actual file storage.
+The container chosen was `ct-srv-atlantis-01` - not because it was low-stakes exactly, but because its data (Terraform plan history, lock state) is reconstructible if something went wrong, unlike, say, Nextcloud's actual file storage.
 
 The test design: restore the latest PBS snapshot to a scratch VMID, distinct from the running original, boot it there, verify it comes up with its Docker stack auto-starting and real data present, then destroy the scratch instance. The live original was never touched, never stopped, never at risk.
 
@@ -30,11 +30,11 @@ This is the correct way to test a restore procedure without creating the exact o
 
 ## The Gotcha the Documentation Never Mentioned
 
-The restored container came up. Its Docker stack auto-started correctly, per the systemd unit configuration already in place. Its data was intact — Terraform state, PR history, everything as expected.
+The restored container came up. Its Docker stack auto-started correctly, per the systemd unit configuration already in place. Its data was intact - Terraform state, PR history, everything as expected.
 
 Then it started fighting with the original over the network.
 
-PBS restores duplicate the source's configuration exactly, which includes its static IP and MAC address. The scratch container ct-9901 booted with the identical IP and MAC as the still-running `ct-srv-atlantis-01`. Two devices claiming the same IP and MAC on the same VLAN produces exactly the failure mode you'd expect — ARP conflicts, unpredictable routing of traffic to whichever host answered last, and depending on switch/router ARP table behavior, either host could silently lose connectivity for a period.
+PBS restores duplicate the source's configuration exactly, which includes its static IP and MAC address. The scratch container ct-9901 booted with the identical IP and MAC as the still-running `ct-srv-atlantis-01`. Two devices claiming the same IP and MAC on the same VLAN produces exactly the failure mode you'd expect - ARP conflicts, unpredictable routing of traffic to whichever host answered last, and depending on switch/router ARP table behavior, either host could silently lose connectivity for a period.
 
 ```bash
 # What actually needs to happen before booting a restored scratch instance:
@@ -45,13 +45,13 @@ pct set 9901 -net0 name=eth0,bridge=vmbr0,ip=<scratch-ip>/24,hwaddr=<new-mac>
 pct start 9901
 ```
 
-This wasn't caught by planning, only by actually running the test and watching the original container's connectivity briefly degrade. No amount of reading the PBS documentation surfaces this — it's not a PBS bug, it's an inherent property of what "restore" means: a byte-for-byte duplicate of the source, network identity included.
+This wasn't caught by planning, only by actually running the test and watching the original container's connectivity briefly degrade. No amount of reading the PBS documentation surfaces this - it's not a PBS bug, it's an inherent property of what "restore" means: a byte-for-byte duplicate of the source, network identity included.
 
 ## The Second Finding: A Runbook Step That Would Have Failed
 
-While writing up this test, a second problem surfaced — not from testing, but from cross-checking Tier 1's other listed recovery path against a separate finding from the same week: the Google Drive offsite sync had its own throttling and drift issues (REL-051), diagnosed the same week and covered in a separate write-up. The runbook's fallback for "total PBS storage loss" pointed at that same offsite sync as the recovery source.
+While writing up this test, a second problem surfaced - not from testing, but from cross-checking Tier 1's other listed recovery path against a separate finding from the same week: the Google Drive offsite sync had its own throttling and drift issues (REL-051), diagnosed the same week and covered in a separate write-up. The runbook's fallback for "total PBS storage loss" pointed at that same offsite sync as the recovery source.
 
-That offsite sync had been deliberately disabled months earlier — the destination Google Drive account didn't have enough free space for the datastore, so the sync was turned off rather than left to fail daily. The runbook still described it as an active recovery tier. Following it during a real total-loss event would have sent someone down a dead path while genuinely searching for a way to restore.
+That offsite sync had been deliberately disabled months earlier - the destination Google Drive account didn't have enough free space for the datastore, so the sync was turned off rather than left to fail daily. The runbook still described it as an active recovery tier. Following it during a real total-loss event would have sent someone down a dead path while genuinely searching for a way to restore.
 
 ```markdown
 <!-- DISASTER-RECOVERY.md, before -->
@@ -62,7 +62,7 @@ Restore from the Google Drive offsite backup: [procedure]
 ### Tier 1: Total PBS Storage Loss
 **No working recovery path currently exists for this scenario.**
 Google Drive offsite sync is deliberately disabled (insufficient storage
-quota for this datastore's chunk format — see docs/backup-strategy.md).
+quota for this datastore's chunk format - see docs/backup-strategy.md).
 This is a known, deferred gap, not an oversight.
 ```
 
@@ -70,14 +70,14 @@ Documenting "this doesn't work" is a strictly better outcome than documenting a 
 
 ## Why "Documented" and "Tested" Are Different Claims
 
-The instinct after writing a recovery procedure is to consider the job done — the steps are correct, they were reviewed, they match how the backup tool is supposed to work. But "the steps are theoretically correct" and "these steps, run against a real host, actually produce a working restore" are different claims, and only the second one matters during an actual incident.
+The instinct after writing a recovery procedure is to consider the job done - the steps are correct, they were reviewed, they match how the backup tool is supposed to work. But "the steps are theoretically correct" and "these steps, run against a real host, actually produce a working restore" are different claims, and only the second one matters during an actual incident.
 
-The IP/MAC conflict specifically would only ever be discovered by running the restore against infrastructure that has other live devices on the same network — which is exactly the situation a real disaster recovery event is in. A test performed in isolation (a lab VLAN with nothing else running) wouldn't have found it either.
+The IP/MAC conflict specifically would only ever be discovered by running the restore against infrastructure that has other live devices on the same network - which is exactly the situation a real disaster recovery event is in. A test performed in isolation (a lab VLAN with nothing else running) wouldn't have found it either.
 
-**The concrete practice this argues for:** any documented recovery procedure gets a scheduled dry run, on a cadence that matches how often the underlying infrastructure changes — new network segments, new backup targets, new container images. A runbook that hasn't been executed in the last few months should be treated as unverified, regardless of how carefully it reads.
+**The concrete practice this argues for:** any documented recovery procedure gets a scheduled dry run, on a cadence that matches how often the underlying infrastructure changes - new network segments, new backup targets, new container images. A runbook that hasn't been executed in the last few months should be treated as unverified, regardless of how carefully it reads.
 
 ---
 
-The same gap shows up in Azure disaster recovery plans built around ASR (Azure Site Recovery) or storage account geo-redundancy: the failover procedure is documented, the RTO/RPO numbers are in the compliance doc, and nobody has actually triggered a failover drill against a resource with the same network topology as production. The IP/MAC duplication issue here has a direct Azure analogue — a failed-over VM retaining its original NIC configuration can conflict with resources still running in the primary region during a partial failover test. Test the actual failover, not just the plan for one.
+The same gap shows up in Azure disaster recovery plans built around ASR (Azure Site Recovery) or storage account geo-redundancy: the failover procedure is documented, the RTO/RPO numbers are in the compliance doc, and nobody has actually triggered a failover drill against a resource with the same network topology as production. The IP/MAC duplication issue here has a direct Azure analogue - a failed-over VM retaining its original NIC configuration can conflict with resources still running in the primary region during a partial failover test. Test the actual failover, not just the plan for one.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

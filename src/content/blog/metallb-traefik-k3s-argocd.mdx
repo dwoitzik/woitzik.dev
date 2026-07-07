@@ -1,6 +1,6 @@
 ---
 title: "Bare-Metal LoadBalancer on K3s: MetalLB + Traefik with ArgoCD"
-description: "How to get a real external IP on a bare-metal Kubernetes cluster using MetalLB L2 mode, and wire it up with Traefik for automatic HTTPS — fully GitOps-managed with ArgoCD."
+description: "How to get a real external IP on a bare-metal Kubernetes cluster using MetalLB L2 mode, and wire it up with Traefik for automatic HTTPS - fully GitOps-managed with ArgoCD."
 date: "2026-05-18"
 tags: ["Kubernetes", "Homelab", "Networking"]
 ---
@@ -9,13 +9,13 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 Cloud Kubernetes clusters get LoadBalancers for free. You create a Service of type `LoadBalancer`, and within seconds your cloud provider hands you a public IP. On a bare-metal K3s cluster running on Proxmox VMs, that request hangs in `<pending>` forever.
 
-This is the first thing that breaks every homelab Kubernetes setup. MetalLB fixes it — but wiring it up correctly with Traefik and ArgoCD has a few non-obvious steps.
+This is the first thing that breaks every homelab Kubernetes setup. MetalLB fixes it - but wiring it up correctly with Traefik and ArgoCD has a few non-obvious steps.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Why `<pending>` Happens
 
-Kubernetes delegates `LoadBalancer` service provisioning to the underlying cloud provider. On bare metal, there is no cloud provider — so the controller just waits forever for an external IP that never comes.
+Kubernetes delegates `LoadBalancer` service provisioning to the underlying cloud provider. On bare metal, there is no cloud provider - so the controller just waits forever for an external IP that never comes.
 
 MetalLB fills this gap by implementing a software load balancer that integrates directly with the Kubernetes API. In L2 mode, it responds to ARP requests for the assigned IP on your local network, making the service reachable like any other device on the subnet.
 
@@ -25,7 +25,7 @@ MetalLB fills this gap by implementing a software load balancer that integrates 
 External Request (10.0.20.200)
         │
         ▼
-MetalLB (L2 ARP — announces IP on VLAN 20)
+MetalLB (L2 ARP - announces IP on VLAN 20)
         │
         ▼
 Traefik Service (LoadBalancer type)
@@ -64,7 +64,7 @@ spec:
       - CreateNamespace=true
 ```
 
-This deploys the MetalLB controller and speaker pods but does not configure any IP pools yet. The configuration lives in a separate ArgoCD Application pointing at your Git repository — this is the App-of-Apps pattern in action.
+This deploys the MetalLB controller and speaker pods but does not configure any IP pools yet. The configuration lives in a separate ArgoCD Application pointing at your Git repository - this is the App-of-Apps pattern in action.
 
 ## Step 2: Configure the IP Pool
 
@@ -91,7 +91,7 @@ spec:
   - first-pool
 ```
 
-The range `10.0.20.200-10.0.20.240` sits inside VLAN 20 (the server VLAN) but outside the DHCP range — so no address conflicts with dynamically assigned devices.
+The range `10.0.20.200-10.0.20.240` sits inside VLAN 20 (the server VLAN) but outside the DHCP range - so no address conflicts with dynamically assigned devices.
 
 The separate ArgoCD Application that applies this config:
 
@@ -116,7 +116,7 @@ spec:
       selfHeal: true
 ```
 
-Splitting the Helm chart deployment from the CRD configuration into two separate Applications is intentional. MetalLB CRDs must exist before the configuration resources can be applied — ArgoCD's sync waves handle this ordering, but keeping them separate makes the dependency explicit and avoids race conditions on fresh cluster installs.
+Splitting the Helm chart deployment from the CRD configuration into two separate Applications is intentional. MetalLB CRDs must exist before the configuration resources can be applied - ArgoCD's sync waves handle this ordering, but keeping them separate makes the dependency explicit and avoids race conditions on fresh cluster installs.
 
 ## Step 3: Traefik as the Ingress Controller
 
@@ -161,11 +161,11 @@ spec:
 
 Three deliberate decisions here:
 
-**`web.redirectTo: websecure`** — all HTTP traffic is immediately redirected to HTTPS at the ingress level. No application needs to handle this itself.
+**`web.redirectTo: websecure`** - all HTTP traffic is immediately redirected to HTTPS at the ingress level. No application needs to handle this itself.
 
-**`tlsStore.default.defaultCertificate`** — sets the wildcard certificate as the default TLS certificate for all Ingress resources that don't specify their own. Every service behind Traefik gets HTTPS automatically.
+**`tlsStore.default.defaultCertificate`** - sets the wildcard certificate as the default TLS certificate for all Ingress resources that don't specify their own. Every service behind Traefik gets HTTPS automatically.
 
-**`dashboard.enabled: false`** — the Traefik dashboard exposes routing configuration and middleware details. Disabled in production-adjacent setups; access it via `kubectl port-forward` when needed.
+**`dashboard.enabled: false`** - the Traefik dashboard exposes routing configuration and middleware details. Disabled in production-adjacent setups; access it via `kubectl port-forward` when needed.
 
 ## Step 4: Verify MetalLB Assignment
 
@@ -193,13 +193,13 @@ Once MetalLB and Traefik are running:
 
 - Any Service of type `LoadBalancer` in the cluster gets a real IP from the `10.0.20.200-10.0.20.240` pool
 - Any Ingress resource gets automatic HTTPS via the wildcard certificate
-- HTTP is redirected to HTTPS at the edge — no application configuration needed
-- Everything is GitOps-managed — a `git push` is the only deployment mechanism
+- HTTP is redirected to HTTPS at the edge - no application configuration needed
+- Everything is GitOps-managed - a `git push` is the only deployment mechanism
 
 Point your DNS wildcard (`*.yourdomain.com`) at `10.0.20.200` and every Ingress you create is immediately reachable with valid TLS.
 
 ---
 
-The same principles — centralized ingress, TLS termination at the edge, declarative configuration — apply directly to enterprise Azure environments. In Azure, the equivalent is an Application Gateway or Azure Firewall in front of a private AKS cluster.
+The same principles - centralized ingress, TLS termination at the edge, declarative configuration - apply directly to enterprise Azure environments. In Azure, the equivalent is an Application Gateway or Azure Firewall in front of a private AKS cluster.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

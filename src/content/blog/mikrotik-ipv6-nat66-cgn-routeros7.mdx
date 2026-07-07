@@ -1,6 +1,6 @@
 ---
 title: "IPv6 NAT66 Behind a FritzBox: The RouterOS 7 Bug That Broke WiFi Clients"
-description: "Setting up IPv6 on MikroTik behind a FritzBox with CGN should be straightforward — ULA prefix, NAT66 masquerade, done. Instead, RouterOS 7 started advertising router advertisements on the WAN interface, turning MikroTik into an uninvited IPv6 gateway for FritzBox WiFi clients. Here's the full setup and fix."
+description: "Setting up IPv6 on MikroTik behind a FritzBox with CGN should be straightforward - ULA prefix, NAT66 masquerade, done. Instead, RouterOS 7 started advertising router advertisements on the WAN interface, turning MikroTik into an uninvited IPv6 gateway for FritzBox WiFi clients. Here's the full setup and fix."
 date: "2026-06-18"
 tags: ["MikroTik", "Networking", "Homelab"]
 ---
@@ -11,7 +11,7 @@ Most homelab IPv6 guides assume you have native IPv6 from your ISP: a delegated 
 
 The other 70% sits behind a FritzBox with DS-Lite or CGN, gets a GUA on the WAN interface via SLAAC, and has no delegated prefix to distribute internally. If you want IPv6 inside your network, you build it yourself.
 
-This is the setup I run: ULA addressing internally, NAT66 masquerade for outbound, everything Terraform-managed. It worked until RouterOS 7's router advertisement defaults caused every FritzBox WiFi client to route IPv6 through MikroTik — and then get dropped.
+This is the setup I run: ULA addressing internally, NAT66 masquerade for outbound, everything Terraform-managed. It worked until RouterOS 7's router advertisement defaults caused every FritzBox WiFi client to route IPv6 through MikroTik - and then get dropped.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -21,7 +21,7 @@ This is the setup I run: ULA addressing internally, NAT66 masquerade for outboun
 Internet
     │
 FritzBox (CGN / DS-Lite)
-    │  ether1 (WAN) — gets GUA via SLAAC from FritzBox
+    │  ether1 (WAN) - gets GUA via SLAAC from FritzBox
 MikroTik RB5009
     ├── vlan10-mgmt   fd10::1/64
     ├── vlan20-srv    fd20::1/64
@@ -32,9 +32,9 @@ MikroTik RB5009
 
 The FritzBox provides:
 - IPv4 via CGN/DS-Lite (no public IPv4)
-- IPv6 GUA prefix via RA on its LAN port — MikroTik's ether1 picks this up via SLAAC
+- IPv6 GUA prefix via RA on its LAN port - MikroTik's ether1 picks this up via SLAAC
 
-Internally, I use ULA (`fd00::/8`, RFC 4193). ULA is the IPv6 equivalent of RFC1918 private addressing. It's stable — it doesn't change when the ISP rotates the GUA prefix — and it works for all internal communication. The NAT66 rule masquerades ULA sources to the GUA when leaving ether1.
+Internally, I use ULA (`fd00::/8`, RFC 4193). ULA is the IPv6 equivalent of RFC1918 private addressing. It's stable - it doesn't change when the ISP rotates the GUA prefix - and it works for all internal communication. The NAT66 rule masquerades ULA sources to the GUA when leaving ether1.
 
 ## Step 1: ULA Addresses Per VLAN
 
@@ -94,7 +94,7 @@ resource "routeros_ipv6_firewall_nat" "nat66_masquerade" {
 }
 ```
 
-The `src_address = "fd00::/8"` constraint is critical. Without it, the rule matches ALL IPv6 traffic leaving ether1 — including traffic from FritzBox WiFi clients that happens to transit MikroTik. This is one half of the bug that caused problems (more on that below).
+The `src_address = "fd00::/8"` constraint is critical. Without it, the rule matches ALL IPv6 traffic leaving ether1 - including traffic from FritzBox WiFi clients that happens to transit MikroTik. This is one half of the bug that caused problems (more on that below).
 
 ## Step 4: IPv6 Firewall
 
@@ -157,24 +157,24 @@ resource "routeros_ipv6_firewall_filter" "v6_forward_drop_all" {
 }
 ```
 
-The forward rule `v6_fwd_02_internal_out` only allows ULA sources (`fd00::/8`) to exit via ether1. That's intentional — and it's what exposed the RouterOS 7 bug.
+The forward rule `v6_fwd_02_internal_out` only allows ULA sources (`fd00::/8`) to exit via ether1. That's intentional - and it's what exposed the RouterOS 7 bug.
 
 ## The Bug: RouterOS 7 Sends RA on All Interfaces
 
 After deploying this configuration, FritzBox WiFi clients started losing IPv6 connectivity.
 
-The symptom: devices on the FritzBox WiFi (SSID, not the MikroTik VLANs) had IPv6 addresses but couldn't reach the internet via IPv6. `traceroute6` on an affected device showed the path going through MikroTik — not the FritzBox.
+The symptom: devices on the FritzBox WiFi (SSID, not the MikroTik VLANs) had IPv6 addresses but couldn't reach the internet via IPv6. `traceroute6` on an affected device showed the path going through MikroTik - not the FritzBox.
 
 The cause: **RouterOS 7 enables Router Advertisement on all interfaces by default**, including `ether1` (WAN).
 
 Here's the sequence:
 
 1. MikroTik receives a GUA prefix from FritzBox via RA on ether1
-2. RouterOS 7 then *re-advertises* a Router Advertisement on ether1 — back towards the FritzBox
+2. RouterOS 7 then *re-advertises* a Router Advertisement on ether1 - back towards the FritzBox
 3. The FritzBox sees MikroTik advertising itself as an IPv6 router on the LAN
 4. FritzBox WiFi clients pick up MikroTik's RA and install it as their default IPv6 gateway
 5. IPv6 traffic from WiFi clients routes through MikroTik's FORWARD chain
-6. FORWARD chain only accepts `fd00::/8` sources — GUA addresses from WiFi clients don't match
+6. FORWARD chain only accepts `fd00::/8` sources - GUA addresses from WiFi clients don't match
 7. Traffic dropped. IPv6 broken for all FritzBox WiFi clients.
 
 The fix is to disable RA on ether1. In RouterOS `/ip6/nd`, find the ether1 entry and set `advertise=no`.
@@ -188,7 +188,7 @@ The problem: as of `terraform-routeros` provider version 1.99.1 (latest at time 
 This is documented in the Terraform configuration as a comment so it doesn't get overwritten by a future `terraform apply`:
 
 ```hcl
-# RouterOS 7 enables RA advertisement on ALL interfaces by default — including
+# RouterOS 7 enables RA advertisement on ALL interfaces by default - including
 # ether1 (WAN). Once ether1 gets a GUA via SLAAC, MikroTik starts sending RAs
 # on the FritzBox LAN. FritzBox WiFi clients then use MikroTik as their IPv6
 # gateway, but the FORWARD chain only allows fd00::/8 sources → GUA clients
@@ -210,7 +210,7 @@ resource "routeros_ipv6_nd" "ether1_no_ra" {
 
 The obvious alternative: use the GUA prefix the FritzBox receives from the ISP, delegate a /64 to each VLAN, and skip NAT66 entirely. IPv6 was designed to eliminate NAT.
 
-The problem: German ISPs frequently rotate GUA prefixes. A prefix change means every device on every VLAN gets a new address — breaking DNS records, Ansible inventory, firewall rules, and anything else that references addresses directly.
+The problem: German ISPs frequently rotate GUA prefixes. A prefix change means every device on every VLAN gets a new address - breaking DNS records, Ansible inventory, firewall rules, and anything else that references addresses directly.
 
 ULA solves this. The `fd::/8` prefix is locally assigned and never changes. Internal addressing is stable forever. The NAT66 rule handles the GUA ↔ ULA translation at the WAN boundary transparently.
 
@@ -238,6 +238,6 @@ If WiFi clients still route through MikroTik after setting `advertise=no`, run `
 
 ---
 
-The same ULA-vs-GUA stability trade-off shows up in Azure networking — except there it's RFC1918 address space behind NAT Gateway or Azure Firewall instead of a CGN ISP. If you're designing the equivalent zero-trust network layer for Azure, the same default-deny-plus-explicit-allow philosophy applies.
+The same ULA-vs-GUA stability trade-off shows up in Azure networking - except there it's RFC1918 address space behind NAT Gateway or Azure Firewall instead of a CGN ISP. If you're designing the equivalent zero-trust network layer for Azure, the same default-deny-plus-explicit-allow philosophy applies.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

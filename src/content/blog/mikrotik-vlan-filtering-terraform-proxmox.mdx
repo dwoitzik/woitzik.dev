@@ -9,7 +9,7 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 If you have ever tried to configure VLANs on a MikroTik router, you know the pain. Transitioning from the legacy switch-chip VLAN methods to the modern **Bridge VLAN Filtering** often results in completely locking yourself out of the router. 
 
-When you add a virtualization host like Proxmox into the mix—which requires a trunk port passing multiple tagged VLANs—the complexity multiplies. Doing this via the WinBox GUI is a recipe for configuration drift and late-night network outages.
+When you add a virtualization host like Proxmox into the mix-which requires a trunk port passing multiple tagged VLANs-the complexity multiplies. Doing this via the WinBox GUI is a recipe for configuration drift and late-night network outages.
 
 In this deep dive, I will show you how to tame MikroTik VLANs using Infrastructure as Code (Terraform). We will build a dynamic, scalable L2 network architecture that includes a Proxmox trunk port, dedicated management access, and hardware-offloaded access ports for edge devices (like Raspberry Pis).
 
@@ -54,7 +54,7 @@ resource "routeros_interface_bridge" "core_bridge" {
 Next, we attach our physical ethernet ports to the bridge. This is where we define whether a port is an Access Port (untagged) or a Trunk Port (tagged).
 
 **The Proxmox Trunk:**
-Our Proxmox server (`ether5`) needs to receive tagged traffic so the virtual machines can reside in different VLANs. We leave it on the default `pvid = 1` — this port carries VLANs by explicit tag, so the pvid only matters for the rare untagged frame, and nothing on this trunk is meant to communicate over untagged VLAN 1 in the first place.
+Our Proxmox server (`ether5`) needs to receive tagged traffic so the virtual machines can reside in different VLANs. We leave it on the default `pvid = 1` - this port carries VLANs by explicit tag, so the pvid only matters for the rare untagged frame, and nothing on this trunk is meant to communicate over untagged VLAN 1 in the first place.
 
 ```hcl
 resource "routeros_interface_bridge_port" "proxmox_port" {
@@ -163,6 +163,6 @@ You simply change the `20` to `30` in the `local.rpi_port_mapping` at the top of
 
 By treating network infrastructure as code, we transform a fragile, click-heavy configuration into a robust, auditable state. Proxmox gets its tagged trunks, hardware edge devices get their native access ports, and the router maintains secure L2 isolation.
 
-The same declarative approach — define the desired state, let the provider calculate the diff — scales directly to enterprise Azure environments.
+The same declarative approach - define the desired state, let the provider calculate the diff - scales directly to enterprise Azure environments.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

@@ -1,6 +1,6 @@
 ---
 title: "SLO Burn-Rate Alerting with Prometheus: Beyond Threshold Alerts"
-description: "Most teams alert when availability drops below a threshold. Burn-rate alerting tells you how fast you're spending your error budget — so you page on trajectory, not just current state. Here's how to implement the Google SRE Workbook approach on a bare-metal k3s cluster."
+description: "Most teams alert when availability drops below a threshold. Burn-rate alerting tells you how fast you're spending your error budget - so you page on trajectory, not just current state. Here's how to implement the Google SRE Workbook approach on a bare-metal k3s cluster."
 date: "2026-06-18"
 tags: ["Kubernetes", "Monitoring", "Homelab"]
 ---
@@ -15,9 +15,9 @@ Most uptime alerts look like this:
   for: 2m
 ```
 
-That fires when a service is completely down for two minutes. It won't fire when a service is responding to 95% of requests for 48 hours straight — even though that's silently consuming your entire monthly error budget.
+That fires when a service is completely down for two minutes. It won't fire when a service is responding to 95% of requests for 48 hours straight - even though that's silently consuming your entire monthly error budget.
 
-Burn-rate alerting is a different model. Instead of alerting on current state, it alerts on **how fast you're spending your error budget**. A 30x burn rate means you'll exhaust your entire month of tolerance in about 50 minutes. A 6x burn rate means you have a few hours. Both warrant action — just different kinds of action.
+Burn-rate alerting is a different model. Instead of alerting on current state, it alerts on **how fast you're spending your error budget**. A 30x burn rate means you'll exhaust your entire month of tolerance in about 50 minutes. A 6x burn rate means you have a few hours. Both warrant action - just different kinds of action.
 
 This is the implementation running on my bare-metal k3s cluster, based directly on the multi-window multi-burn-rate approach from the [Google SRE Workbook](https://sre.google/workbook/alerting-on-slos/).
 
@@ -27,7 +27,7 @@ This is the implementation running on my bare-metal k3s cluster, based directly 
 
 If your SLO is 99.9% availability, your monthly error budget is the allowed downtime: 43.8 minutes per month (0.1% of 43,800 minutes).
 
-The core insight: **not all errors are the same urgency**. A service that's been returning errors at 30x the normal rate for the past two hours will exhaust that 43.8-minute budget in ~50 minutes — that's a page. A service burning at 6x for the past six hours has 4 hours left — that's a ticket, handled during the shift.
+The core insight: **not all errors are the same urgency**. A service that's been returning errors at 30x the normal rate for the past two hours will exhaust that 43.8-minute budget in ~50 minutes - that's a page. A service burning at 6x for the past six hours has 4 hours left - that's a ticket, handled during the shift.
 
 Threshold alerting conflates these. Burn-rate alerting separates them.
 
@@ -74,7 +74,7 @@ Multi-window alerting needs error rates computed over multiple time windows. Pro
       expr: avg_over_time(probe_success[24h])
 ```
 
-These evaluate every minute. The result is a set of pre-computed availability metrics across six time windows — from 30 minutes (most sensitive) to 24 hours (catches slow bleeds).
+These evaluate every minute. The result is a set of pre-computed availability metrics across six time windows - from 30 minutes (most sensitive) to 24 hours (catches slow bleeds).
 
 ## The Alert Rules
 
@@ -98,9 +98,9 @@ These evaluate every minute. The result is a set of pre-computed availability me
       Current 2h error rate: {{ printf "%.2f" $value }}%
 ```
 
-**The math:** A 99.9% SLO means 0.1% of requests can fail. The threshold for 30x burn is `30 × 0.001 = 0.03` — a 3% error rate. If both the 2-hour window and the 1-hour window exceed 3%, this fires.
+**The math:** A 99.9% SLO means 0.1% of requests can fail. The threshold for 30x burn is `30 × 0.001 = 0.03` - a 3% error rate. If both the 2-hour window and the 1-hour window exceed 3%, this fires.
 
-**Why two windows?** The short window (1h) catches fast-developing incidents. The long window (2h) provides confirmation — it prevents a single spike from paging. Both must exceed the threshold simultaneously. This dual-window check is the key difference from naive threshold alerting: a two-minute blip won't page you, but a sustained fast burn will.
+**Why two windows?** The short window (1h) catches fast-developing incidents. The long window (2h) provides confirmation - it prevents a single spike from paging. Both must exceed the threshold simultaneously. This dual-window check is the key difference from naive threshold alerting: a two-minute blip won't page you, but a sustained fast burn will.
 
 **Burn-rate math at 30x:**
 - Monthly budget: 43.8 minutes
@@ -129,7 +129,7 @@ These evaluate every minute. The result is a set of pre-computed availability me
       Current 6h error rate: {{ printf "%.2f" $value }}%
 ```
 
-**The math:** `6 × 0.001 = 0.006` — a 0.6% error rate. At a sustained 6x burn rate, the monthly budget is exhausted in about 4 hours — enough runway that a ticket during the shift is the right response, not a page. The `for: 15m` means it must sustain this rate for 15 minutes before firing, which filters transient dips.
+**The math:** `6 × 0.001 = 0.006` - a 0.6% error rate. At a sustained 6x burn rate, the monthly budget is exhausted in about 4 hours - enough runway that a ticket during the shift is the right response, not a page. The `for: 15m` means it must sustain this rate for 15 minutes before firing, which filters transient dips.
 
 6h (long) + 30m (short) windows. A slow degradation is visible over 6 hours; the 30m short window prevents false positives from stale data.
 
@@ -174,21 +174,21 @@ The `prometheus: kube-prometheus` label tells the Prometheus Operator to load th
 
 The complementary Grafana dashboard (`slo-dashboard.yml`) renders three panels:
 
-1. **Availability over time** — `job_instance:probe_success:rate5m` across all probed services
-2. **Error budget remaining** — `1 - (sum(rate(probe_success[30d])) / count(probe_success))` relative to the 0.1% budget
-3. **Burn rate** — current consumption rate, coloured by severity tier
+1. **Availability over time** - `job_instance:probe_success:rate5m` across all probed services
+2. **Error budget remaining** - `1 - (sum(rate(probe_success[30d])) / count(probe_success))` relative to the 0.1% budget
+3. **Burn rate** - current consumption rate, coloured by severity tier
 
 The budget panel is the most useful. When it's dropping steeply, something is consuming more than the flat weekly allocation. That's a signal even before an alert fires.
 
 ## Limitations
 
-This implementation measures **external availability** only — HTTP probes from inside the cluster. It won't catch:
+This implementation measures **external availability** only - HTTP probes from inside the cluster. It won't catch:
 
 - Increased latency that doesn't fail probes (need histogram SLIs for that)
 - Internal service-to-service degradation (need distributed tracing or internal probes)
-- Correctness issues — a 200 OK with wrong data doesn't fail a probe
+- Correctness issues - a 200 OK with wrong data doesn't fail a probe
 
-For most homelab services — Nextcloud, Authelia, Jellyfin, Gitea — availability is the right SLI. For a production API, you'd want to add latency SLOs (P99 < 500ms) using histogram recording rules.
+For most homelab services - Nextcloud, Authelia, Jellyfin, Gitea - availability is the right SLI. For a production API, you'd want to add latency SLOs (P99 < 500ms) using histogram recording rules.
 
 ---
 

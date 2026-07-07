@@ -7,7 +7,7 @@ tags: ["Security", "Kubernetes", "Homelab"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-SEC-008 was a finding from an earlier security audit: Atlantis was accessible without authentication. The fix was straightforward — put an Authelia `ForwardAuth` middleware in front of the Traefik `IngressRoute`, gating the UI and all endpoints except the GitHub webhook path (which uses its own HMAC-based authentication).
+SEC-008 was a finding from an earlier security audit: Atlantis was accessible without authentication. The fix was straightforward - put an Authelia `ForwardAuth` middleware in front of the Traefik `IngressRoute`, gating the UI and all endpoints except the GitHub webhook path (which uses its own HMAC-based authentication).
 
 That fix held for months. It was reopened by a completely unrelated infrastructure migration that nobody checked against the auth model.
 
@@ -15,9 +15,9 @@ That fix held for months. It was reopened by a completely unrelated infrastructu
 
 ## The Migration That Re-Opened the Exposure
 
-Atlantis moved from a Kubernetes deployment to a dedicated LXC container (ADR-012). The Kubernetes deployment had a `Service`, an `IngressRoute`, and Traefik middleware handling the routing — including the Authelia gate. The LXC had none of that; it was a bare server running the Atlantis binary directly.
+Atlantis moved from a Kubernetes deployment to a dedicated LXC container (ADR-012). The Kubernetes deployment had a `Service`, an `IngressRoute`, and Traefik middleware handling the routing - including the Authelia gate. The LXC had none of that; it was a bare server running the Atlantis binary directly.
 
-The Cloudflare Tunnel configuration for `atlantis.woitzik.dev` was updated to point at the LXC's IP and port instead of the old Kubernetes Service. This was the only change anyone thought about. It worked — `atlantis.woitzik.dev` resolved and served the Atlantis UI.
+The Cloudflare Tunnel configuration for `atlantis.woitzik.dev` was updated to point at the LXC's IP and port instead of the old Kubernetes Service. This was the only change anyone thought about. It worked - `atlantis.woitzik.dev` resolved and served the Atlantis UI.
 
 What it didn't have: Traefik. Which meant it didn't have the Authelia middleware. Which meant it didn't have authentication.
 
@@ -29,7 +29,7 @@ New path (broken):
 Cloudflare Tunnel → LXC:4141 (direct, no auth)
 ```
 
-Atlantis ships with no authentication mechanism of its own — it's designed to run behind a reverse proxy that handles auth. The project's own documentation says this explicitly. Without the proxy, the UI is fully open.
+Atlantis ships with no authentication mechanism of its own - it's designed to run behind a reverse proxy that handles auth. The project's own documentation says this explicitly. Without the proxy, the UI is fully open.
 
 ## What "Fully Open" Meant
 
@@ -40,7 +40,7 @@ The Atlantis UI at `atlantis.woitzik.dev` showed:
 - Apply status for every pending plan
 - Enough context to infer the entire infrastructure topology
 
-More critically: while the GitHub webhook endpoint (`/events`) uses HMAC verification that would block arbitrary forged webhook calls, the UI controls themselves — lock, unlock, approve — were unauthenticated. Anyone who found the URL during that window could have interfered with in-flight Terraform operations.
+More critically: while the GitHub webhook endpoint (`/events`) uses HMAC verification that would block arbitrary forged webhook calls, the UI controls themselves - lock, unlock, approve - were unauthenticated. Anyone who found the URL during that window could have interfered with in-flight Terraform operations.
 
 The exposure was confirmed by making an unauthenticated GET request to the live URL from an external network and receiving the full Atlantis UI with a 200 response. No credentials, no redirect to Authelia.
 
@@ -52,7 +52,7 @@ curl -s -o /dev/null -w "%{http_code}" https://atlantis.woitzik.dev/
 
 ## The Fix: Restore the Traefik/Authelia Pattern
 
-The same external-host routing pattern already used for Proxmox (`pve-final`) and PBS (`pbs-final`) — services that also run outside Kubernetes but still need to be gated — was the correct model. An `IngressRoute` with the Authelia middleware, backed by an `ExternalName` Service or direct-IP Endpoints pointing at the LXC:
+The same external-host routing pattern already used for Proxmox (`pve-final`) and PBS (`pbs-final`) - services that also run outside Kubernetes but still need to be gated - was the correct model. An `IngressRoute` with the Authelia middleware, backed by an `ExternalName` Service or direct-IP Endpoints pointing at the LXC:
 
 ```yaml
 # kubernetes/ingress/atlantis-ingress.yml
@@ -65,13 +65,13 @@ spec:
   entryPoints:
     - websecure
   routes:
-    # GitHub webhook — HMAC auth, no Authelia needed
+    # GitHub webhook - HMAC auth, no Authelia needed
     - match: Host(`atlantis.woitzik.dev`) && PathPrefix(`/events`)
       kind: Rule
       services:
         - name: atlantis-external
           port: 4141
-    # Everything else — Authelia gate required
+    # Everything else - Authelia gate required
     - match: Host(`atlantis.woitzik.dev`)
       kind: Rule
       middlewares:
@@ -88,14 +88,14 @@ The Cloudflare Tunnel was repointed from the LXC's direct IP back to Traefik's H
 
 ## The Migration Checklist Gap
 
-The thing that failed here wasn't the Kubernetes config or the LXC setup — it was the checklist for the migration itself. Moving a service between infrastructure layers (Kubernetes pod → LXC) involves implicit assumptions about what each layer provides. Traefik and Authelia aren't just routing — they're security controls. Any migration that removes a service from the Kubernetes stack needs an explicit step: "identify what security controls the Kubernetes layer was providing and verify they're replicated in the destination."
+The thing that failed here wasn't the Kubernetes config or the LXC setup - it was the checklist for the migration itself. Moving a service between infrastructure layers (Kubernetes pod → LXC) involves implicit assumptions about what each layer provides. Traefik and Authelia aren't just routing - they're security controls. Any migration that removes a service from the Kubernetes stack needs an explicit step: "identify what security controls the Kubernetes layer was providing and verify they're replicated in the destination."
 
 For this homelab, that means:
-1. TLS termination (handled by Cloudflare Tunnel in the LXC case — OK)
-2. Authentication / SSO gate (was Traefik/Authelia — **not replicated, missed**)
+1. TLS termination (handled by Cloudflare Tunnel in the LXC case - OK)
+2. Authentication / SSO gate (was Traefik/Authelia - **not replicated, missed**)
 3. Network policy (not applicable here, no Kubernetes NetworkPolicy in use for this service)
 
-The post-migration security audit found it. But "audit after the fact" is a worse control than "check during migration." The recurring pattern across several incidents in this homelab — SEC-008 original, the ArgoCD `selfHeal` trap, the gitleaks baseline suppression — is that the security control worked correctly until something unrelated changed, and nobody thought to re-verify the control after the change.
+The post-migration security audit found it. But "audit after the fact" is a worse control than "check during migration." The recurring pattern across several incidents in this homelab - SEC-008 original, the ArgoCD `selfHeal` trap, the gitleaks baseline suppression - is that the security control worked correctly until something unrelated changed, and nobody thought to re-verify the control after the change.
 
 That's the property worth building a habit around: after any infrastructure migration that touches routing, check whether the auth model survived.
 

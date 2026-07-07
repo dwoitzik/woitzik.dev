@@ -1,6 +1,6 @@
 ---
 title: "Surviving Azure Policies: Zero-Trust Hub & Spoke with Terraform"
-description: "How to build an enterprise-grade Azure network architecture that blocks internet traffic by default and survives aggressive DeployIfNotExists (DINE) policies — without breaking your CI/CD pipeline."
+description: "How to build an enterprise-grade Azure network architecture that blocks internet traffic by default and survives aggressive DeployIfNotExists (DINE) policies - without breaking your CI/CD pipeline."
 date: "2026-05-03"
 tags: ["Azure", "Terraform", "Networking", "Security"]
 ---
@@ -9,11 +9,11 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 Your Terraform pipeline is green. The deployment completes without errors. You grab a coffee.
 
-Ten minutes later, Azure Policy has silently rewritten three of your resources. You run `terraform plan` again. It detects drift. It tries to revert. Policy blocks the revert with a cryptic permission error. Your pipeline is now permanently broken — and nobody touched the code.
+Ten minutes later, Azure Policy has silently rewritten three of your resources. You run `terraform plan` again. It detects drift. It tries to revert. Policy blocks the revert with a cryptic permission error. Your pipeline is now permanently broken - and nobody touched the code.
 
 This is not a hypothetical. This is Tuesday in an enterprise Azure tenant.
 
-In this article, I'll walk through how to build a Hub & Spoke architecture that is actually hardened for this environment — one that enforces Zero-Trust at the network layer on day one and is immunized against the policy drift loop that kills most IaC pipelines.
+In this article, I'll walk through how to build a Hub & Spoke architecture that is actually hardened for this environment - one that enforces Zero-Trust at the network layer on day one and is immunized against the policy drift loop that kills most IaC pipelines.
 
 **[Get the base Hub & Spoke template free on GitHub 🐙](https://github.com/dwoitzik/azure-network-hub-spoke)**
 
@@ -26,10 +26,10 @@ What the whiteboard doesn't show: the enterprise Azure tenant fighting your IaC 
 There are two failure modes that will reliably destroy a standard Terraform deployment in a governed environment:
 
 **1. The DINE Death Loop**  
-`DeployIfNotExists` policies run continuously in the background. They tag resources, force DNS linkages, enable Defender — whatever your security team decided to enforce globally. Terraform knows nothing about this. It sees the mutation as drift, plans a revert, and immediately hits a policy deny. Your CI/CD pipeline grinds to a halt. Permanently.
+`DeployIfNotExists` policies run continuously in the background. They tag resources, force DNS linkages, enable Defender - whatever your security team decided to enforce globally. Terraform knows nothing about this. It sees the mutation as drift, plans a revert, and immediately hits a policy deny. Your CI/CD pipeline grinds to a halt. Permanently.
 
 **2. The Default-Allow Network**  
-A freshly deployed Azure VNet allows outbound internet access and unrestricted lateral movement between subnets. For any ISO 27001 or KRITIS audit, this is an immediate finding. You need Default-Deny at the network layer the moment the subnet exists — not as a follow-up ticket.
+A freshly deployed Azure VNet allows outbound internet access and unrestricted lateral movement between subnets. For any ISO 27001 or KRITIS audit, this is an immediate finding. You need Default-Deny at the network layer the moment the subnet exists - not as a follow-up ticket.
 
 The solution is to make the Terraform code itself defensive against both.
 
@@ -61,9 +61,9 @@ The solution is to make the Terraform code itself defensive against both.
 
 Three engineering decisions drive this:
 
-- **Zero-Trust NSGs** — bound to Spoke subnets at creation, not as an afterthought
-- **Centralized Private DNS** — four PaaS zones in the Hub, resolved by Spokes via peering
-- **Defensive lifecycle blocks** — a surgical peace treaty between Terraform and Azure Policy
+- **Zero-Trust NSGs** - bound to Spoke subnets at creation, not as an afterthought
+- **Centralized Private DNS** - four PaaS zones in the Hub, resolved by Spokes via peering
+- **Defensive lifecycle blocks** - a surgical peace treaty between Terraform and Azure Policy
 
 ## Step 1: The Zero-Trust NSG Baseline
 
@@ -104,7 +104,7 @@ resource "azurerm_network_security_group" "zero_trust" {
   }
 }
 
-# The critical binding — no association, no enforcement
+# The critical binding - no association, no enforcement
 resource "azurerm_subnet_network_security_group_association" "spoke1_nsg_bind" {
   subnet_id                 = azurerm_subnet.spoke1_default.id
   network_security_group_id = azurerm_network_security_group.zero_trust.id
@@ -154,11 +154,11 @@ That `lifecycle` block needs an explanation.
 
 <ProductCTA variant="inline" slug="hub-spoke-enterprise-vnet" />
 
-## Step 3: The DINE Bypass — The Block That Saves Your Pipeline
+## Step 3: The DINE Bypass - The Block That Saves Your Pipeline
 
 This is the detail that separates a Terraform template that works in a demo from one that survives production.
 
-`DeployIfNotExists` policies are Azure's enforcement mechanism. When a policy fires, it injects metadata into your resources — tags like `CreatedByPolicy=True` or `hidden-title` that identify the policy that created or modified the resource. These tags are meaningless to you, but Azure Policy requires them to track compliance state.
+`DeployIfNotExists` policies are Azure's enforcement mechanism. When a policy fires, it injects metadata into your resources - tags like `CreatedByPolicy=True` or `hidden-title` that identify the policy that created or modified the resource. These tags are meaningless to you, but Azure Policy requires them to track compliance state.
 
 Terraform sees these injected tags as drift. It plans to delete them. Azure Policy blocks the deletion with a permission deny. Your pipeline fails. This repeats on every run, forever.
 
@@ -191,17 +191,17 @@ resource "azurerm_private_dns_zone_virtual_network_link" "hub_links" {
 }
 ```
 
-The VNet Links get a broader `ignore_changes = [tags]` — DINE policies targeting link resources tend to inject multiple tags at once, and fighting them individually is not worth the maintenance overhead.
+The VNet Links get a broader `ignore_changes = [tags]` - DINE policies targeting link resources tend to inject multiple tags at once, and fighting them individually is not worth the maintenance overhead.
 
 ## The Result
 
 After `terraform apply`, you have a network topology that is built to last in a governed environment:
 
-- **Isolated by default** — no workload subnet ever boots without NSG protection
-- **DNS centralized** — Private Endpoint resolution works across all Spokes without fragmentation
-- **Pipeline-stable** — the DINE death loop is broken permanently
-- **Audit-ready** — ISO 27001 Annex A.8 and NIS2 Article 21 network controls satisfied on day one
+- **Isolated by default** - no workload subnet ever boots without NSG protection
+- **DNS centralized** - Private Endpoint resolution works across all Spokes without fragmentation
+- **Pipeline-stable** - the DINE death loop is broken permanently
+- **Audit-ready** - ISO 27001 Annex A.8 and NIS2 Article 21 network controls satisfied on day one
 
-The free base template on GitHub covers the foundational Hub & Spoke topology. The Enterprise Edition packages everything in this article — Zero-Trust NSGs, centralized DNS, DINE bypass logic — into a single, tested, ready-to-deploy module.
+The free base template on GitHub covers the foundational Hub & Spoke topology. The Enterprise Edition packages everything in this article - Zero-Trust NSGs, centralized DNS, DINE bypass logic - into a single, tested, ready-to-deploy module.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

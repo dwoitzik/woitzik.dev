@@ -1,6 +1,6 @@
 ---
 title: "Self-Hosted Tailscale Control Plane: Headscale on k3s with Authelia OIDC"
-description: "Deploy Headscale on a bare-metal k3s cluster with Longhorn persistence, Traefik ingress, and Authelia OIDC authentication — fully GitOps-managed via ArgoCD."
+description: "Deploy Headscale on a bare-metal k3s cluster with Longhorn persistence, Traefik ingress, and Authelia OIDC authentication - fully GitOps-managed via ArgoCD."
 date: "2026-06-13"
 tags: ["Kubernetes", "Homelab", "Security", "Networking"]
 ---
@@ -9,7 +9,7 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 Tailscale solves the "access everything from anywhere" problem better than any VPN I've used. The client experience is excellent. The problem is the control plane: your device list, user identities, and ACL policies all live on Tailscale's servers.
 
-[Headscale](https://github.com/juanfont/headscale) is a self-hosted, open-source implementation of the Tailscale control plane. Same WireGuard mesh, same clients — but your data stays on your infrastructure. If you're already running k3s with ArgoCD, adding Headscale is straightforward.
+[Headscale](https://github.com/juanfont/headscale) is a self-hosted, open-source implementation of the Tailscale control plane. Same WireGuard mesh, same clients - but your data stays on your infrastructure. If you're already running k3s with ArgoCD, adding Headscale is straightforward.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -29,11 +29,11 @@ Headscale Service (port 8080)
         └── DERP: Tailscale's relay servers (external)
 ```
 
-Headscale handles device registration and key exchange. All actual traffic flows peer-to-peer over WireGuard — the control plane is not in the data path.
+Headscale handles device registration and key exchange. All actual traffic flows peer-to-peer over WireGuard - the control plane is not in the data path.
 
 ## Step 1: Persistent Storage with Longhorn
 
-Headscale stores its private keys and SQLite database on disk. A pod restart must not lose these — they're the root of trust for your entire WireGuard mesh.
+Headscale stores its private keys and SQLite database on disk. A pod restart must not lose these - they're the root of trust for your entire WireGuard mesh.
 
 ```yaml
 # kubernetes/apps/headscale/pvc.yaml
@@ -51,7 +51,7 @@ spec:
       storage: 5Gi
 ```
 
-`ReadWriteOnce` is correct here — Headscale is a single-replica deployment.
+`ReadWriteOnce` is correct here - Headscale is a single-replica deployment.
 
 ## Step 2: Headscale Configuration
 
@@ -106,7 +106,7 @@ data:
 
 **DERP relay** is left to Tailscale's infrastructure (`controlplane.tailscale.com/derpmap/default`). Running your own DERP server adds operational overhead for minimal benefit in a homelab.
 
-**OIDC** delegates authentication to [Authelia](/blog/k3s-authelia-proxmox-homelab). When a new device registers, the user authenticates via the Authelia web UI — no separate Headscale user management needed.
+**OIDC** delegates authentication to [Authelia](/blog/k3s-authelia-proxmox-homelab). When a new device registers, the user authenticates via the Authelia web UI - no separate Headscale user management needed.
 
 **`ip_prefixes: 100.64.0.0/10`** is the standard Tailscale CGNAT range. Clients in your mesh will receive addresses from this space.
 
@@ -158,7 +158,7 @@ spec:
             claimName: headscale-data
 ```
 
-`strategy: Recreate` is critical. With SQLite, two pods writing simultaneously would corrupt the database. Recreate kills the old pod before starting the new one — no rolling update.
+`strategy: Recreate` is critical. With SQLite, two pods writing simultaneously would corrupt the database. Recreate kills the old pod before starting the new one - no rolling update.
 
 ## Step 4: Service and IngressRoute
 
@@ -195,7 +195,7 @@ spec:
     secretName: wildcard-yourdomain-tls
 ```
 
-Headscale does not need an Authelia middleware on the IngressRoute — authentication is handled internally by the OIDC flow. The dashboard endpoint should be protected separately if exposed.
+Headscale does not need an Authelia middleware on the IngressRoute - authentication is handled internally by the OIDC flow. The dashboard endpoint should be protected separately if exposed.
 
 ## Step 5: Authelia OIDC Client
 
@@ -275,21 +275,21 @@ Headscale supports HuJSON ACL policies at `policy_path`. A minimal policy allowi
 }
 ```
 
-For tighter control, you can restrict access by user or tag — the same policy syntax as Tailscale's ACLs.
+For tighter control, you can restrict access by user or tag - the same policy syntax as Tailscale's ACLs.
 
 ## The Result
 
 - Every device enrolled in Headscale can reach every other device over WireGuard, regardless of NAT or firewall
-- Authentication goes through Authelia — no separate Headscale user accounts
+- Authentication goes through Authelia - no separate Headscale user accounts
 - The database and keys are on Longhorn, [backed up daily by Velero](/blog/velero-garage-k3s-backup)
 - The entire deployment is a `git push` away from any machine
 
 ---
 
-Running a self-hosted control plane is one more service to operate, but the trade-off is worth it if data sovereignty matters to you. The WireGuard mesh gives you a flat private network across all your devices — useful for reaching homelab services from anywhere without exposing anything to the public internet.
+Running a self-hosted control plane is one more service to operate, but the trade-off is worth it if data sovereignty matters to you. The WireGuard mesh gives you a flat private network across all your devices - useful for reaching homelab services from anywhere without exposing anything to the public internet.
 
 ---
 
-Zero-Trust network access is the same problem in Azure — just solved with Private Link and Managed Identity instead of WireGuard.
+Zero-Trust network access is the same problem in Azure - just solved with Private Link and Managed Identity instead of WireGuard.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

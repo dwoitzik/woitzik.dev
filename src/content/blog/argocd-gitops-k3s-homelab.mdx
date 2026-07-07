@@ -1,6 +1,6 @@
 ---
 title: "GitOps on K3s: Managing a Complete Homelab with ArgoCD"
-description: "How to manage an entire Kubernetes homelab — MetalLB, Traefik, Longhorn, Authelia, and more — as a Git repository using ArgoCD's App-of-Apps pattern."
+description: "How to manage an entire Kubernetes homelab - MetalLB, Traefik, Longhorn, Authelia, and more - as a Git repository using ArgoCD's App-of-Apps pattern."
 date: "2026-05-20"
 tags: ["Kubernetes", "GitOps", "Homelab"]
 ---
@@ -11,7 +11,7 @@ Most Kubernetes tutorials end with `kubectl apply -f`. You deploy something, it 
 
 GitOps solves this. With ArgoCD, your Git repository is the single source of truth for everything in the cluster. No manual `kubectl apply`, no Helm commands in your shell history, no configuration drift. If it's not in Git, it doesn't exist.
 
-This article documents how a complete homelab stack — MetalLB, Traefik, Longhorn, cert-manager, Authelia, and Vaultwarden — is managed as a single Git repository using ArgoCD's App-of-Apps pattern.
+This article documents how a complete homelab stack - MetalLB, Traefik, Longhorn, cert-manager, Authelia, and Vaultwarden - is managed as a single Git repository using ArgoCD's App-of-Apps pattern.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -42,7 +42,7 @@ homelab-infrastructure/
         └── test-app/            # nginx for smoke testing
 ```
 
-The separation between `apps/` and `system/` is intentional. System components are cluster infrastructure — they need to exist before applications can run. Applications are workloads that depend on system components. ArgoCD sync waves enforce this ordering.
+The separation between `apps/` and `system/` is intentional. System components are cluster infrastructure - they need to exist before applications can run. Applications are workloads that depend on system components. ArgoCD sync waves enforce this ordering.
 
 ## The App-of-Apps Pattern
 
@@ -110,7 +110,7 @@ spec:
       - CreateNamespace=true
 ```
 
-The chart version is pinned (`v1.14.4`) — never use `latest` for system components. You want to control when upgrades happen, not have ArgoCD surprise you on a random sync.
+The chart version is pinned (`v1.14.4`) - never use `latest` for system components. You want to control when upgrades happen, not have ArgoCD surprise you on a random sync.
 
 **Pattern 2: Raw Manifests from Git**
 
@@ -137,7 +137,7 @@ spec:
       selfHeal: true
 ```
 
-This pattern — Helm chart Application + separate config Application — appears for MetalLB, cert-manager, and Longhorn. The split is necessary because CRDs installed by the Helm chart must exist before the configuration resources can be applied. Two Applications with an implicit ordering is cleaner than trying to manage this inside a single Application.
+This pattern - Helm chart Application + separate config Application - appears for MetalLB, cert-manager, and Longhorn. The split is necessary because CRDs installed by the Helm chart must exist before the configuration resources can be applied. Two Applications with an implicit ordering is cleaner than trying to manage this inside a single Application.
 
 ## The Deployment Workflow
 
@@ -178,7 +178,7 @@ All Applications in this setup use `automated` sync with `selfHeal: true`. This 
 - If someone manually changes something in the cluster (`kubectl edit`, Portal click, etc.), ArgoCD reverts it within minutes
 - `prune: true` means resources deleted from Git are deleted from the cluster
 
-This is intentionally strict. The cluster enforces Git as the source of truth — manual changes don't survive a sync cycle.
+This is intentionally strict. The cluster enforces Git as the source of truth - manual changes don't survive a sync cycle.
 
 For production workloads where you want to review changes before they apply, switch to manual sync and use ArgoCD's UI or CLI to approve deployments.
 
@@ -186,15 +186,15 @@ For production workloads where you want to review changes before they apply, swi
 
 With ArgoCD managing the full stack:
 
-- **Reproducibility** — a fresh cluster rebuilds itself from `git push` in under 10 minutes
-- **Auditability** — every change is a Git commit with author, timestamp, and diff
-- **Drift prevention** — `selfHeal: true` reverts any manual changes automatically
-- **Dependency management** — the App-of-Apps pattern enforces ordering between system and application components
+- **Reproducibility** - a fresh cluster rebuilds itself from `git push` in under 10 minutes
+- **Auditability** - every change is a Git commit with author, timestamp, and diff
+- **Drift prevention** - `selfHeal: true` reverts any manual changes automatically
+- **Dependency management** - the App-of-Apps pattern enforces ordering between system and application components
 
-The entire homelab — from bare metal to running Authelia and Vaultwarden — is a Git repository. If the cluster burns down, `kubectl apply -f root-app.yaml` and wait.
+The entire homelab - from bare metal to running Authelia and Vaultwarden - is a Git repository. If the cluster burns down, `kubectl apply -f root-app.yaml` and wait.
 
 ---
 
-The same GitOps principles apply in enterprise Azure environments — with Terraform as the infrastructure layer and ArgoCD or Flux managing the application layer on top of AKS.
+The same GitOps principles apply in enterprise Azure environments - with Terraform as the infrastructure layer and ArgoCD or Flux managing the application layer on top of AKS.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

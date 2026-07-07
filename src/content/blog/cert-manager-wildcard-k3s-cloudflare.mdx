@@ -1,15 +1,15 @@
 ---
 title: "Wildcard TLS Certificates on K3s with cert-manager and Cloudflare DNS"
-description: "How to automate wildcard Let's Encrypt certificates on a bare-metal K3s cluster using cert-manager's DNS-01 challenge with Cloudflare — and why HTTP-01 won't work for internal services."
+description: "How to automate wildcard Let's Encrypt certificates on a bare-metal K3s cluster using cert-manager's DNS-01 challenge with Cloudflare - and why HTTP-01 won't work for internal services."
 date: "2026-05-22"
 tags: ["Kubernetes", "Homelab", "Security"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-Getting TLS certificates for public-facing services is straightforward — Let's Encrypt's HTTP-01 challenge just works. But for a homelab where services run on internal IPs behind a firewall, HTTP-01 is impossible. Let's Encrypt can't reach your cluster to verify ownership.
+Getting TLS certificates for public-facing services is straightforward - Let's Encrypt's HTTP-01 challenge just works. But for a homelab where services run on internal IPs behind a firewall, HTTP-01 is impossible. Let's Encrypt can't reach your cluster to verify ownership.
 
-The solution is DNS-01 challenge validation: instead of proving you control a domain by serving a file over HTTP, you prove it by creating a DNS TXT record. This works entirely offline — your cluster never needs to be publicly reachable.
+The solution is DNS-01 challenge validation: instead of proving you control a domain by serving a file over HTTP, you prove it by creating a DNS TXT record. This works entirely offline - your cluster never needs to be publicly reachable.
 
 This article documents how to automate wildcard certificates for an entire domain using cert-manager, Cloudflare DNS, and ArgoCD.
 
@@ -22,7 +22,7 @@ HTTP-01 requires Let's Encrypt to make an HTTP request to `http://yourdomain.com
 DNS-01 works differently:
 1. cert-manager creates a `_acme-challenge.yourdomain.com` TXT record via the Cloudflare API
 2. Let's Encrypt queries public DNS to verify the record exists
-3. Verification succeeds — no inbound connection to your cluster required
+3. Verification succeeds - no inbound connection to your cluster required
 4. cert-manager deletes the TXT record and stores the certificate as a Kubernetes Secret
 
 The entire process happens outbound from your cluster. No port forwarding, no public IP, no firewall rules.
@@ -78,11 +78,11 @@ spec:
       - CreateNamespace=true
 ```
 
-`installCRDs: true` — cert-manager requires CRDs (`Certificate`, `ClusterIssuer`, `CertificateRequest`, etc.) to function. Without this flag, the CRDs must be installed manually before the Helm chart deploys correctly.
+`installCRDs: true` - cert-manager requires CRDs (`Certificate`, `ClusterIssuer`, `CertificateRequest`, etc.) to function. Without this flag, the CRDs must be installed manually before the Helm chart deploys correctly.
 
-`--dns01-recursive-nameservers` — this is the non-obvious one. cert-manager by default uses the cluster's internal DNS resolver to verify that the TXT record it created is visible. If your cluster's internal DNS doesn't forward to public resolvers immediately, cert-manager will poll, time out, and fail the challenge. Explicitly pointing it at `1.1.1.1` and `8.8.8.8` ensures it always checks public DNS directly.
+`--dns01-recursive-nameservers` - this is the non-obvious one. cert-manager by default uses the cluster's internal DNS resolver to verify that the TXT record it created is visible. If your cluster's internal DNS doesn't forward to public resolvers immediately, cert-manager will poll, time out, and fail the challenge. Explicitly pointing it at `1.1.1.1` and `8.8.8.8` ensures it always checks public DNS directly.
 
-`--dns01-recursive-nameservers-only` — forces cert-manager to use only the specified nameservers for DNS-01 verification. Without this, it may fall back to the cluster's internal resolver and hit the same timeout issue.
+`--dns01-recursive-nameservers-only` - forces cert-manager to use only the specified nameservers for DNS-01 verification. Without this, it may fall back to the cluster's internal resolver and hit the same timeout issue.
 
 ## Step 2: Create the Cloudflare API Token Secret
 
@@ -99,7 +99,7 @@ kubectl create secret generic cloudflare-api-token-secret \
   -n cert-manager
 ```
 
-Use a scoped token, not the Global API Key. The token should only have permission to edit DNS records — nothing else.
+Use a scoped token, not the Global API Key. The token should only have permission to edit DNS records - nothing else.
 
 ## Step 3: Create the ClusterIssuer
 
@@ -124,7 +124,7 @@ spec:
             key: api-token
 ```
 
-The `privateKeySecretRef` stores the ACME account private key — cert-manager creates this automatically on first use. Don't delete it — if you lose it, you'll need to re-register with Let's Encrypt.
+The `privateKeySecretRef` stores the ACME account private key - cert-manager creates this automatically on first use. Don't delete it - if you lose it, you'll need to re-register with Let's Encrypt.
 
 ## Step 4: Request the Wildcard Certificate
 
@@ -146,7 +146,7 @@ spec:
   - "*.yourdomain.com"
 ```
 
-Both `yourdomain.com` and `*.yourdomain.com` are included — the wildcard covers subdomains but not the apex domain itself.
+Both `yourdomain.com` and `*.yourdomain.com` are included - the wildcard covers subdomains but not the apex domain itself.
 
 The certificate is stored in `kube-system` because that's where Traefik runs. Traefik's `tlsStore` references this Secret directly:
 
@@ -186,13 +186,13 @@ Once the certificate is issued and Traefik is configured with the `tlsStore` def
 
 - Every Ingress resource in the cluster automatically gets valid TLS
 - No per-service certificate configuration needed
-- Let's Encrypt auto-renews the certificate 30 days before expiry — cert-manager handles this entirely automatically
+- Let's Encrypt auto-renews the certificate 30 days before expiry - cert-manager handles this entirely automatically
 - New services are reachable at `service.yourdomain.com` with valid HTTPS immediately after creating an Ingress
 
-The entire certificate lifecycle — issuance, storage, renewal — is automated. The only manual step was creating the Cloudflare API token Secret, and that's a one-time operation.
+The entire certificate lifecycle - issuance, storage, renewal - is automated. The only manual step was creating the Cloudflare API token Secret, and that's a one-time operation.
 
 ---
 
-The same pattern applies in enterprise Azure environments — cert-manager with Azure DNS instead of Cloudflare, Private CA for internal services, or Azure Key Vault certificates managed via the Acmebot pattern.
+The same pattern applies in enterprise Azure environments - cert-manager with Azure DNS instead of Cloudflare, Private CA for internal services, or Azure Key Vault certificates managed via the Acmebot pattern.
 
 <ProductCTA variant="end" slug="acmebot-enterprise-vnet" />

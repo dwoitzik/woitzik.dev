@@ -9,7 +9,7 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 GitOps makes a specific promise: the cluster matches git. When a change is merged, it deploys. When a resource is deleted from git, it's deleted from the cluster. Merge = deploy is the core guarantee the entire workflow rests on.
 
-It's not always true. This is a story about finding three cases where it wasn't — two discovered during a drift audit, one that would have been inert even if ArgoCD had synced it correctly.
+It's not always true. This is a story about finding three cases where it wasn't - two discovered during a drift audit, one that would have been inert even if ArgoCD had synced it correctly.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -17,9 +17,9 @@ It's not always true. This is a story about finding three cases where it wasn't 
 
 The cluster uses ArgoCD's app-of-apps pattern: a root Application watches a directory, creates child Applications for each manifest it finds, and those child Applications sync the actual workloads. The root Application uses a `directory.include` glob to decide which files to track.
 
-The problem: that glob is set once, at bootstrap time, and files added to the directory later are only tracked if they match the existing glob. A file that doesn't match is invisible to ArgoCD — it won't create an Application for it, won't sync it, and won't alert about it. From ArgoCD's perspective, the file doesn't exist.
+The problem: that glob is set once, at bootstrap time, and files added to the directory later are only tracked if they match the existing glob. A file that doesn't match is invisible to ArgoCD - it won't create an Application for it, won't sync it, and won't alert about it. From ArgoCD's perspective, the file doesn't exist.
 
-The monitoring stack had this problem. Two files — `application.yml` and `manifests-application.yml` — had been added to the `kubernetes/system/monitoring/` directory but were missing from the parent Application's `directory.include` glob:
+The monitoring stack had this problem. Two files - `application.yml` and `manifests-application.yml` - had been added to the `kubernetes/system/monitoring/` directory but were missing from the parent Application's `directory.include` glob:
 
 ```yaml
 # monitoring-bootstrap/application.yml (the root)
@@ -30,7 +30,7 @@ spec:
       # application.yml and manifests-application.yml: invisible
 ```
 
-A fix for a broken `configSecret` reference had been merged to `application.yml`. It was valid YAML, it would have worked — but ArgoCD never picked it up. The live cluster was still running the broken version from initial bootstrap, indefinitely.
+A fix for a broken `configSecret` reference had been merged to `application.yml`. It was valid YAML, it would have worked - but ArgoCD never picked it up. The live cluster was still running the broken version from initial bootstrap, indefinitely.
 
 ## Finding the Gap: What the Drift Audit Actually Checks
 
@@ -48,11 +48,11 @@ for dir in kubernetes/system/*/; do
 done
 ```
 
-The audit found approximately 14 directories with the same untracked-after-bootstrap gap — no current drift in most of them, but nothing preventing drift from accumulating silently if files were added there in the future.
+The audit found approximately 14 directories with the same untracked-after-bootstrap gap - no current drift in most of them, but nothing preventing drift from accumulating silently if files were added there in the future.
 
 ## The First Live Finding: Traefik allowCrossNamespace
 
-Traefik's `allowCrossNamespace` fix had been merged to git on 2026-07-04. The change allowed IngressRoutes in one namespace to reference Services in another — without it, `argo.woitzik.dev`, `monitoring.woitzik.dev`, and `status.woitzik.dev` returned bare 404s.
+Traefik's `allowCrossNamespace` fix had been merged to git on 2026-07-04. The change allowed IngressRoutes in one namespace to reference Services in another - without it, `argo.woitzik.dev`, `monitoring.woitzik.dev`, and `status.woitzik.dev` returned bare 404s.
 
 The fix was in git. ArgoCD showed the Traefik Application as `Synced`. But the endpoints were still 404ing.
 
@@ -70,7 +70,7 @@ After manual sync, all three endpoints came back to 302 within seconds of the ro
 
 ## The Second Finding: Velero's Fix That Couldn't Have Worked
 
-Velero had a merged fix for repository maintenance frequency — too-frequent Kopia maintenance jobs were running during backup windows and causing timeouts. The fix set a custom maintenance frequency via Helm values.
+Velero had a merged fix for repository maintenance frequency - too-frequent Kopia maintenance jobs were running during backup windows and causing timeouts. The fix set a custom maintenance frequency via Helm values.
 
 The fix was synced correctly. It also did nothing, for two independent reasons:
 
@@ -91,7 +91,7 @@ velero:
       - "--default-repo-maintain-frequency=168h"
 ```
 
-Helm silently drops unknown top-level keys. No error, no warning — the extra args simply weren't passed to the binary. Velero started with its defaults.
+Helm silently drops unknown top-level keys. No error, no warning - the extra args simply weren't passed to the binary. Velero started with its defaults.
 
 **Reason 2: Wrong flag name.**
 
@@ -145,10 +145,10 @@ argocd app get <bootstrap-app> --output json | \
   jq '.spec.source.directory.include'
 ```
 
-None of these are expensive. They're all one-liners. The cost of skipping them — in this case, Traefik returning 404 for three production subdomains, Velero running backup maintenance at the wrong frequency indefinitely, and monitoring fixes sitting inert — was substantially higher.
+None of these are expensive. They're all one-liners. The cost of skipping them - in this case, Traefik returning 404 for three production subdomains, Velero running backup maintenance at the wrong frequency indefinitely, and monitoring fixes sitting inert - was substantially higher.
 
 ---
 
-The same GitOps verification gap exists in Azure DevOps pipelines and GitHub Actions that deploy Terraform or Helm. A pipeline that reports "succeeded" proves that the deployment command ran without error — it doesn't prove that the cluster's running state matches the manifest. Checking the running state directly, after deployment, is the only check that closes the gap.
+The same GitOps verification gap exists in Azure DevOps pipelines and GitHub Actions that deploy Terraform or Helm. A pipeline that reports "succeeded" proves that the deployment command ran without error - it doesn't prove that the cluster's running state matches the manifest. Checking the running state directly, after deployment, is the only check that closes the gap.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

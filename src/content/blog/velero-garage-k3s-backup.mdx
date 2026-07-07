@@ -1,13 +1,13 @@
 ---
 title: "k3s Backup Without the Complexity: Velero + Garage S3 on Longhorn"
-description: "Replace MinIO with Garage — a single 50MB binary — as the Velero backup target. Full daily cluster backups with Longhorn volume snapshots, deployed via ArgoCD."
+description: "Replace MinIO with Garage - a single 50MB binary - as the Velero backup target. Full daily cluster backups with Longhorn volume snapshots, deployed via ArgoCD."
 date: "2026-06-20"
 tags: ["Kubernetes", "Homelab"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-Every Kubernetes cluster needs a backup strategy. For a homelab running on bare metal, the options are limited: `etcd` snapshots cover cluster state but not persistent volumes, and MinIO is the standard S3 target for Velero — but MinIO is large, opinionated, and overkill for a single-node homelab.
+Every Kubernetes cluster needs a backup strategy. For a homelab running on bare metal, the options are limited: `etcd` snapshots cover cluster state but not persistent volumes, and MinIO is the standard S3 target for Velero - but MinIO is large, opinionated, and overkill for a single-node homelab.
 
 [Garage](https://garagehq.deuxfleurs.fr/) is a lightweight, open-source S3-compatible object store written in Rust. The binary is ~50MB, the configuration is a single TOML file, and it works with any S3-compatible client including the Velero AWS plugin. It's a much better fit for a homelab than MinIO.
 
@@ -92,7 +92,7 @@ data:
     admin_token_file = "/etc/garage/secrets/admin_token"
 ```
 
-`replication_factor = 1` is correct for a single-node setup. Garage supports multi-node replication but there's no need for it here — Longhorn handles data redundancy at the storage layer.
+`replication_factor = 1` is correct for a single-node setup. Garage supports multi-node replication but there's no need for it here - Longhorn handles data redundancy at the storage layer.
 
 Secrets (RPC secret and admin token) come from a Kubernetes Secret:
 
@@ -216,7 +216,7 @@ kubectl exec -it -n apps deploy/garage -- \
   /garage bucket allow velero --read --write --owner --key velero-key
 ```
 
-Note the `Key ID` and `Secret key` output — you need them for Velero.
+Note the `Key ID` and `Secret key` output - you need them for Velero.
 
 ## Step 3: Deploy Velero via ArgoCD
 
@@ -278,9 +278,9 @@ spec:
 
 Two important settings here:
 
-**`s3ForcePathStyle: true`** — Garage uses path-style URLs (`http://endpoint/bucket/key`), not virtual-hosted style (`http://bucket.endpoint/key`). Without this flag, the AWS SDK generates requests that Garage rejects.
+**`s3ForcePathStyle: true`** - Garage uses path-style URLs (`http://endpoint/bucket/key`), not virtual-hosted style (`http://bucket.endpoint/key`). Without this flag, the AWS SDK generates requests that Garage rejects.
 
-**`deployNodeAgent: true`** — The node agent runs as a DaemonSet and is required for Longhorn volume snapshots. Without it, Velero can back up Kubernetes objects but not the actual data in PVCs.
+**`deployNodeAgent: true`** - The node agent runs as a DaemonSet and is required for Longhorn volume snapshots. Without it, Velero can back up Kubernetes objects but not the actual data in PVCs.
 
 The credentials secret:
 
@@ -323,7 +323,7 @@ spec:
       - default
 ```
 
-30 days of daily backups. The TTL means Velero automatically deletes backups older than 720 hours — no manual cleanup.
+30 days of daily backups. The TTL means Velero automatically deletes backups older than 720 hours - no manual cleanup.
 
 ## Verifying Backups
 
@@ -373,14 +373,14 @@ Velero restores Kubernetes objects first, then triggers volume snapshot restores
 | S3 compatibility | Full (path-style) | Full |
 | Cluster mode | Optional | Requires distributed setup |
 
-For a homelab Velero target, Garage does everything MinIO does at a fraction of the resource cost. The only thing you give up is the MinIO web console — but `garage bucket info` and `garage key list` give you everything you need from the CLI.
+For a homelab Velero target, Garage does everything MinIO does at a fraction of the resource cost. The only thing you give up is the MinIO web console - but `garage bucket info` and `garage key list` give you everything you need from the CLI.
 
 ---
 
-With this setup, a complete cluster rebuild from scratch — fresh k3s installation, ArgoCD, and a `velero restore` — takes under 30 minutes. That's the practical test for whether your backup strategy actually works.
+With this setup, a complete cluster rebuild from scratch - fresh k3s installation, ArgoCD, and a `velero restore` - takes under 30 minutes. That's the practical test for whether your backup strategy actually works.
 
 ---
 
-The same backup-first mindset applies in enterprise Azure environments — where the equivalent is Azure Backup, geo-redundant storage, and immutable blob policies.
+The same backup-first mindset applies in enterprise Azure environments - where the equivalent is Azure Backup, geo-redundant storage, and immutable blob policies.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

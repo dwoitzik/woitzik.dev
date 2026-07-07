@@ -13,7 +13,7 @@ It ended with my control-plane node sitting at a load average of 90, CoreDNS gen
 
 The root cause of all of it: a single 1 GiB memory limit set three months earlier without much thought.
 
-This is the full post-mortem — not the sanitized version where everything was obvious in hindsight, but the actual sequence of failures and how I traced each one back to its cause.
+This is the full post-mortem - not the sanitized version where everything was obvious in hindsight, but the actual sequence of failures and how I traced each one back to its cause.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -21,15 +21,15 @@ This is the full post-mortem — not the sanitized version where everything was 
 
 Three-node k3s cluster running on Proxmox VMs (VLAN 20, server subnet):
 
-- `vm-srv-k3s-11` — control-plane, 4 cores, 12 GiB dedicated
-- `vm-srv-k3s-12` — worker, 4 cores, up to 16 GiB (balloon)
-- `vm-srv-k3s-13` — worker, 4 cores, up to 16 GiB (balloon)
+- `vm-srv-k3s-11` - control-plane, 4 cores, 12 GiB dedicated
+- `vm-srv-k3s-12` - worker, 4 cores, up to 16 GiB (balloon)
+- `vm-srv-k3s-13` - worker, 4 cores, up to 16 GiB (balloon)
 
 Apps namespace runs about 20 workloads: Nextcloud, Authelia, Paperless-ngx, Jellyfin, Home Assistant, Gitea, Mealie, and more. GitOps via ArgoCD; Longhorn for distributed storage.
 
 ## Failure 1: Paperless OOMKilled 16 Times in 5 Hours
 
-Paperless-ngx uses Tesseract for OCR and Apache Tika for document ingestion. When a batch of documents hits at once — invoice exports, scanned PDFs — both workers burst memory hard and fast.
+Paperless-ngx uses Tesseract for OCR and Apache Tika for document ingestion. When a batch of documents hits at once - invoice exports, scanned PDFs - both workers burst memory hard and fast.
 
 The deployment had this:
 
@@ -66,7 +66,7 @@ env:
 
 ## Failure 2: The Control-Plane Was Scheduling App Workloads
 
-When I checked where Paperless was running, it was on `vm-srv-k3s-11` — the control-plane.
+When I checked where Paperless was running, it was on `vm-srv-k3s-11` - the control-plane.
 
 In a standard k3s setup, the control-plane has a `node-role.kubernetes.io/control-plane:NoSchedule` taint. User workloads shouldn't land there. But somewhere along the way, the Paperless deployment had picked up a toleration:
 
@@ -87,7 +87,7 @@ During the OOM cascade, I noticed AdGuard Home (running on two Raspberry Pi node
 
 The culprit: CoreDNS default cache TTL.
 
-CoreDNS ships with a 30-second cache TTL. Every pod that makes a DNS lookup for a Kubernetes service gets an answer that expires in 30 seconds. In a healthy cluster that's fine. During an OOM cascade — where pods are restarting constantly, new IPs are being assigned, and connection state is unstable — the DNS query rate explodes. Pods that are restarting frequently keep hammering CoreDNS for the same records.
+CoreDNS ships with a 30-second cache TTL. Every pod that makes a DNS lookup for a Kubernetes service gets an answer that expires in 30 seconds. In a healthy cluster that's fine. During an OOM cascade - where pods are restarting constantly, new IPs are being assigned, and connection state is unstable - the DNS query rate explodes. Pods that are restarting frequently keep hammering CoreDNS for the same records.
 
 The fix was a one-line patch to the CoreDNS ConfigMap:
 
@@ -123,7 +123,7 @@ dns:
   cache_optimistic: true
 ```
 
-`cache_optimistic: true` means AdGuard returns the cached (possibly stale) answer immediately while refreshing in the background — eliminating the latency spike on cache expiry. Combined, these two changes brought the daily query count down to ~120k.
+`cache_optimistic: true` means AdGuard returns the cached (possibly stale) answer immediately while refreshing in the background - eliminating the latency spike on cache expiry. Combined, these two changes brought the daily query count down to ~120k.
 
 ## Failure 4: Worker Nodes Reporting Wrong Allocatable Memory
 
@@ -142,7 +142,7 @@ The VM was allocated 16 GiB in Proxmox. Why was kubelet reporting 3.8 GiB?
 
 The answer is Proxmox balloon memory.
 
-Balloon memory in Proxmox works like this: you set a `dedicated` (maximum) and a `floating` (minimum) value. When the host is under memory pressure, Proxmox can shrink the guest down to the `floating` minimum. The key detail: **kubelet reads available memory at startup time**. If kubelet starts when the VM has been ballooned down to its minimum, that's what it registers as the node's capacity — and it doesn't update that value dynamically.
+Balloon memory in Proxmox works like this: you set a `dedicated` (maximum) and a `floating` (minimum) value. When the host is under memory pressure, Proxmox can shrink the guest down to the `floating` minimum. The key detail: **kubelet reads available memory at startup time**. If kubelet starts when the VM has been ballooned down to its minimum, that's what it registers as the node's capacity - and it doesn't update that value dynamically.
 
 My Terraform config had this:
 
@@ -160,7 +160,7 @@ The fix: raise the minimum balloon to ensure kubelet always sees adequate memory
 ```hcl
 memory {
   dedicated = 16384
-  floating  = 8192   # 8 GiB min — safe floor for kubelet registration
+  floating  = 8192   # 8 GiB min - safe floor for kubelet registration
 }
 ```
 
@@ -202,7 +202,7 @@ A few things would have surfaced these issues before they compounded:
 
 **2. Control-plane taint monitoring.** A simple alert on `kube_pod_info{node="vm-srv-k3s-11"} unless kube_pod_info{namespace="kube-system"}` would have fired the moment a user workload landed on the control-plane.
 
-**3. Node capacity validation in Terraform.** The balloon minimum should be part of the VM definition review — ideally validated against the minimum kubelet requires to start safely.
+**3. Node capacity validation in Terraform.** The balloon minimum should be part of the VM definition review - ideally validated against the minimum kubelet requires to start safely.
 
 None of these are exotic. They're standard practice in production clusters. The lesson is that homelab clusters accumulate the same failure modes as production clusters, just with less monitoring to catch them.
 
@@ -219,6 +219,6 @@ The cluster has been stable since. Paperless processes the same document batches
 
 ---
 
-The same failure modes — resource limits without ceiling analysis, overly permissive scheduling constraints, and hypervisor-level capacity mismatches — appear in enterprise Kubernetes deployments running on Azure VMs or bare-metal. The only difference is scale: one misconfigured limit in a 500-node cluster can trigger the same DNS storm, just with three extra zeros behind the query count.
+The same failure modes - resource limits without ceiling analysis, overly permissive scheduling constraints, and hypervisor-level capacity mismatches - appear in enterprise Kubernetes deployments running on Azure VMs or bare-metal. The only difference is scale: one misconfigured limit in a 500-node cluster can trigger the same DNS storm, just with three extra zeros behind the query count.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

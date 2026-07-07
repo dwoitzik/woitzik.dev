@@ -1,15 +1,15 @@
 ---
 title: "Full Observability on k3s: kube-prometheus-stack + Loki + Grafana OIDC"
-description: "Deploy a production-grade monitoring stack on bare-metal k3s: Prometheus, Loki with Garage S3 storage, Promtail on edge nodes via Ansible, SNMP monitoring for MikroTik, and Grafana SSO via Authelia OIDC — all GitOps-managed."
+description: "Deploy a production-grade monitoring stack on bare-metal k3s: Prometheus, Loki with Garage S3 storage, Promtail on edge nodes via Ansible, SNMP monitoring for MikroTik, and Grafana SSO via Authelia OIDC - all GitOps-managed."
 date: "2026-07-04"
 tags: ["Kubernetes", "Homelab", "Monitoring"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-A Kubernetes cluster without observability is a black box. You deploy services, they run — until they don't. When something breaks at 2am, you need metrics, logs, and alerts that actually tell you what happened.
+A Kubernetes cluster without observability is a black box. You deploy services, they run - until they don't. When something breaks at 2am, you need metrics, logs, and alerts that actually tell you what happened.
 
-This is the full observability stack running on my bare-metal k3s cluster: `kube-prometheus-stack` for metrics and alerting, Loki with Garage S3 for log persistence, Promtail collecting logs from non-Kubernetes nodes via Ansible, SNMP metrics from the MikroTik router, and Grafana with Authelia OIDC — so there's one login for everything.
+This is the full observability stack running on my bare-metal k3s cluster: `kube-prometheus-stack` for metrics and alerting, Loki with Garage S3 for log persistence, Promtail collecting logs from non-Kubernetes nodes via Ansible, SNMP metrics from the MikroTik router, and Grafana with Authelia OIDC - so there's one login for everything.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -96,15 +96,15 @@ spec:
                 maxLines: 1000
 ```
 
-**`prometheusOperator.crds.enabled: false`** — CRDs and the operator have an ordering dependency. Disabling CRD installation here and managing them separately prevents ArgoCD sync failures on fresh installs.
+**`prometheusOperator.crds.enabled: false`** - CRDs and the operator have an ordering dependency. Disabling CRD installation here and managing them separately prevents ArgoCD sync failures on fresh installs.
 
-**`retention: 30d`** with Longhorn storage — Prometheus data persists across pod restarts and node reboots. Without `storageSpec`, metrics live only in the pod's ephemeral storage.
+**`retention: 30d`** with Longhorn storage - Prometheus data persists across pod restarts and node reboots. Without `storageSpec`, metrics live only in the pod's ephemeral storage.
 
-**`ndots: 1`** — reduces DNS lookup latency inside the cluster. With Kubernetes' default of 5, every single-label hostname triggers 5 NXDOMAIN lookups before resolution. Setting it to 1 cuts that overhead significantly for monitoring scrapes.
+**`ndots: 1`** - reduces DNS lookup latency inside the cluster. With Kubernetes' default of 5, every single-label hostname triggers 5 NXDOMAIN lookups before resolution. Setting it to 1 cuts that overhead significantly for monitoring scrapes.
 
 ## Step 2: Grafana OIDC via Authelia
 
-Grafana's generic OAuth provider connects to [Authelia](/blog/k3s-authelia-proxmox-homelab). Users authenticate once — the same session covers Grafana, Vaultwarden, and every other protected service.
+Grafana's generic OAuth provider connects to [Authelia](/blog/k3s-authelia-proxmox-homelab). Users authenticate once - the same session covers Grafana, Vaultwarden, and every other protected service.
 
 ```yaml
         grafana:
@@ -154,7 +154,7 @@ identity_providers:
 
 ## Step 3: Loki with Garage S3 Storage
 
-Loki needs durable object storage. Storing logs on a local PVC means a node failure loses your log history. Garage — the same lightweight S3 instance [already deployed for Velero backups](/blog/velero-garage-k3s-backup) — handles this.
+Loki needs durable object storage. Storing logs on a local PVC means a node failure loses your log history. Garage - the same lightweight S3 instance [already deployed for Velero backups](/blog/velero-garage-k3s-backup) - handles this.
 
 ```yaml
 # kubernetes/system/monitoring/loki.yaml
@@ -243,7 +243,7 @@ spec:
           enabled: false
 ```
 
-`s3ForcePathStyle: true` and `insecure: true` (plain HTTP to the cluster-internal Garage endpoint) are both required. Garage uses path-style URLs, and the internal cluster DNS endpoint is HTTP — Loki's TLS verification would fail on a self-signed cert.
+`s3ForcePathStyle: true` and `insecure: true` (plain HTTP to the cluster-internal Garage endpoint) are both required. Garage uses path-style URLs, and the internal cluster DNS endpoint is HTTP - Loki's TLS verification would fail on a self-signed cert.
 
 Before deploying, create the Loki bucket in Garage:
 
@@ -270,7 +270,7 @@ stringData:
 
 ## Step 4: Promtail as a DaemonSet
 
-Promtail ships with the Loki chart and runs as a DaemonSet — one pod per node — collecting all container logs automatically:
+Promtail ships with the Loki chart and runs as a DaemonSet - one pod per node - collecting all container logs automatically:
 
 ```yaml
 # kubernetes/system/monitoring/promtail.yaml
@@ -296,7 +296,7 @@ Promtail discovers all pods automatically via the Kubernetes API. No per-service
 
 ## Step 5: node_exporter + Promtail on Bare-Metal Nodes
 
-The Raspberry Pi nodes and Docker LXC container are not part of the k3s cluster — they need the monitoring agent installed via Ansible.
+The Raspberry Pi nodes and Docker LXC container are not part of the k3s cluster - they need the monitoring agent installed via Ansible.
 
 The `monitoring_agent` role deploys node_exporter and Promtail as Docker containers:
 
@@ -377,7 +377,7 @@ scrape_configs:
 
 ## Step 6: SNMP Monitoring for MikroTik
 
-The MikroTik router runs SNMP but doesn't expose Prometheus metrics natively. The SNMP exporter bridges this gap — it scrapes the router via SNMP and translates the results to Prometheus format.
+The MikroTik router runs SNMP but doesn't expose Prometheus metrics natively. The SNMP exporter bridges this gap - it scrapes the router via SNMP and translates the results to Prometheus format.
 
 In the Prometheus config (inside kube-prometheus-stack's `additionalScrapeConfigs`):
 
@@ -400,7 +400,7 @@ scrape_configs:
         replacement: snmp-exporter:9116
 ```
 
-This gives you per-interface traffic counters, error rates, and operational status for every port on the switch — all visible in Grafana.
+This gives you per-interface traffic counters, error rates, and operational status for every port on the switch - all visible in Grafana.
 
 ## Step 7: Custom Dashboard as ConfigMap
 
@@ -444,10 +444,10 @@ After deploying all components:
 - **Logs**: All pod logs and system logs from every node flow into Loki, stored durably on Garage S3. 30 day retention with automatic compaction.
 - **Dashboards**: Grafana shows metrics and logs in a single view, with Loki datasource pre-configured. Custom dashboards deploy via ArgoCD with zero manual steps.
 - **Access**: One SSO login via Authelia. Group membership determines the Grafana role.
-- **Storage efficiency**: Garage serves both Velero backups and Loki log chunks from a single lightweight deployment — two use cases, one binary.
+- **Storage efficiency**: Garage serves both Velero backups and Loki log chunks from a single lightweight deployment - two use cases, one binary.
 
 ---
 
-The same three-layer observability model — metrics, logs, traces — applies in enterprise Azure environments with Azure Monitor, Log Analytics, and Application Insights.
+The same three-layer observability model - metrics, logs, traces - applies in enterprise Azure environments with Azure Monitor, Log Analytics, and Application Insights.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

@@ -11,7 +11,7 @@ Your Terraform pipeline is green. The deployment completes without errors. You g
 
 Ten minutes later, you test your new Enterprise RAG application. It immediately throws a `403 Forbidden`. You log into the Azure Portal, check the OpenAI Networking tab, and there it is: your Shared Private Link from AI Search is sitting in a **Pending** state. Nobody told Terraform to approve it. Nobody told you it even needed approving.
 
-This is the CI/CD killer of Azure AI infrastructure — and it affects every team trying to deploy a private RAG stack in a governed environment.
+This is the CI/CD killer of Azure AI infrastructure - and it affects every team trying to deploy a private RAG stack in a governed environment.
 
 In this article I'll walk through how to break the Pending deadlock programmatically, strip out static API keys with Identity Chaining, and wire up Private DNS so the whole stack survives a Zero-Trust audit.
 
@@ -23,11 +23,11 @@ Deploying OpenAI and AI Search in a sandbox takes an afternoon. Securing them in
 
 **1. The Pending Deadlock**
 
-AI Search must call OpenAI to vectorize data. The `azurerm` provider can successfully *request* this Shared Private Link connection — but it cannot *approve* its own request. The target resource (OpenAI) must explicitly accept the inbound connection. Because the standard provider has no method to approve inbound Cognitive Services connections, the pipeline deadlocks. Someone has to manually click "Approve" in the Portal. ClickOps in a CI/CD pipeline is unacceptable.
+AI Search must call OpenAI to vectorize data. The `azurerm` provider can successfully *request* this Shared Private Link connection - but it cannot *approve* its own request. The target resource (OpenAI) must explicitly accept the inbound connection. Because the standard provider has no method to approve inbound Cognitive Services connections, the pipeline deadlocks. Someone has to manually click "Approve" in the Portal. ClickOps in a CI/CD pipeline is unacceptable.
 
 **2. The Public PaaS Trap**
 
-The moment you set `public_network_access_enabled = false` and `local_auth_enabled = false`, your AI services disappear from the internet. If your VNet injection, Private DNS, and Managed Identities are not perfectly aligned in Terraform, your application silently breaks — and debugging a `403` against a private endpoint with no public access is genuinely painful.
+The moment you set `public_network_access_enabled = false` and `local_auth_enabled = false`, your AI services disappear from the internet. If your VNet injection, Private DNS, and Managed Identities are not perfectly aligned in Terraform, your application silently breaks - and debugging a `403` against a private endpoint with no public access is genuinely painful.
 
 ## Target Architecture
 
@@ -52,15 +52,15 @@ The moment you set `public_network_access_enabled = false` and `local_auth_enabl
 
 Three engineering decisions make this work:
 
-- **AzAPI State Machine** — dynamically reads and approves the Pending connection without manual Portal access
-- **Identity Chaining** — AI Search authenticates to OpenAI via Managed Identity, zero static keys
-- **Private DNS** — both services resolve to private IPs inside the VNet, invisible to the internet
+- **AzAPI State Machine** - dynamically reads and approves the Pending connection without manual Portal access
+- **Identity Chaining** - AI Search authenticates to OpenAI via Managed Identity, zero static keys
+- **Private DNS** - both services resolve to private IPs inside the VNet, invisible to the internet
 
 ## Step 1: The AzAPI Auto-Approve State Machine
 
 To fix the Pending Deadlock, we bypass the `azurerm` provider and talk directly to the Azure Resource Manager REST API using the `azapi` provider.
 
-The challenge: Azure dynamically generates a random GUID for the incoming connection on the OpenAI side. We cannot hardcode this ID — we have to read it at runtime. This requires a two-step state machine.
+The challenge: Azure dynamically generates a random GUID for the incoming connection on the OpenAI side. We cannot hardcode this ID - we have to read it at runtime. This requires a two-step state machine.
 
 **First**, we read all current Private Endpoint Connections on the OpenAI account:
 
@@ -76,7 +76,7 @@ data "azapi_resource_list" "pe_connections" {
 }
 ```
 
-The `depends_on` is critical here. Without it, Terraform might query the connection list before the Shared Private Link has even been requested — returning an empty list and making the approval resource fail silently.
+The `depends_on` is critical here. Without it, Terraform might query the connection list before the Shared Private Link has even been requested - returning an empty list and making the approval resource fail silently.
 
 **Second**, we decode the response, filter for the Pending connection, and approve it:
 
@@ -103,13 +103,13 @@ resource "azapi_update_resource" "approve_shared_link" {
 }
 ```
 
-The `try()` wrapper deserves special attention. On a `terraform destroy` run, the Shared Private Link is deleted before this resource is evaluated. The connection list will be empty, and the `for` expression will return an empty array. Without `try()`, indexing `[0]` on an empty array throws a hard error and your destroy run crashes — leaving orphaned resources in Azure. With `try()`, the expression gracefully returns an empty string and Terraform skips the resource cleanly.
+The `try()` wrapper deserves special attention. On a `terraform destroy` run, the Shared Private Link is deleted before this resource is evaluated. The connection list will be empty, and the `for` expression will return an empty array. Without `try()`, indexing `[0]` on an empty array throws a hard error and your destroy run crashes - leaving orphaned resources in Azure. With `try()`, the expression gracefully returns an empty string and Terraform skips the resource cleanly.
 
 After `terraform apply`, the link transitions from Pending to Approved in under 30 seconds. No Portal access required.
 
 <ProductCTA variant="inline" slug="azure-rag-enterprise" />
 
-## Step 2: Identity Chaining — Killing Static API Keys
+## Step 2: Identity Chaining - Killing Static API Keys
 
 Auto-approving the link allows AI Search to *reach* OpenAI. But if you rely on static `admin_keys` to authenticate that traffic, you will fail any modern compliance audit. Keys leak. Keys get committed to Git. Keys expire at 3am on a Friday.
 
@@ -125,7 +125,7 @@ resource "azurerm_search_service" "search" {
   sku                           = "standard"
 
   public_network_access_enabled = false
-  local_authentication_enabled  = false  # No API keys — ever
+  local_authentication_enabled  = false  # No API keys - ever
 
   identity {
     type = "SystemAssigned"
@@ -133,7 +133,7 @@ resource "azurerm_search_service" "search" {
 }
 ```
 
-Then grant that identity exactly the permissions it needs on OpenAI — nothing more:
+Then grant that identity exactly the permissions it needs on OpenAI - nothing more:
 
 ```hcl
 resource "azurerm_role_assignment" "search_to_openai" {
@@ -143,13 +143,13 @@ resource "azurerm_role_assignment" "search_to_openai" {
 }
 ```
 
-`Cognitive Services OpenAI User` is the least-privileged role for this use case — it allows AI Search to submit inference requests but cannot modify the OpenAI account configuration. Least-privilege RBAC is a hard requirement under ISO 27001 Annex A.8 and NIS2 Article 21.
+`Cognitive Services OpenAI User` is the least-privileged role for this use case - it allows AI Search to submit inference requests but cannot modify the OpenAI account configuration. Least-privilege RBAC is a hard requirement under ISO 27001 Annex A.8 and NIS2 Article 21.
 
 When the AI Search instance is deleted, its Entra ID identity and all associated role assignments are automatically destroyed. No credential rotation. No secret management. No audit findings.
 
-## Step 3: Private DNS — The Last Trap
+## Step 3: Private DNS - The Last Trap
 
-The final failure mode is DNS. When Private Endpoints are injected into a subnet, internal traffic relies on DNS overrides. If `your-instance.openai.azure.com` still resolves to a public IP — because you forgot to link the Private DNS Zone to your VNet — the Azure Firewall drops the traffic and you get another opaque `403`.
+The final failure mode is DNS. When Private Endpoints are injected into a subnet, internal traffic relies on DNS overrides. If `your-instance.openai.azure.com` still resolves to a public IP - because you forgot to link the Private DNS Zone to your VNet - the Azure Firewall drops the traffic and you get another opaque `403`.
 
 Both services need their own Private DNS Zone linked to the VNet:
 
@@ -181,7 +181,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "search_vnet_link" {
 }
 ```
 
-`registration_enabled = false` is intentional — automatic DNS registration conflicts with centralized Private DNS Zone management in Hub & Spoke environments. If you are running this inside an existing Hub & Spoke topology, the DNS zones should live in the Hub and be linked cross-subscription, not deployed per-workload.
+`registration_enabled = false` is intentional - automatic DNS registration conflicts with centralized Private DNS Zone management in Hub & Spoke environments. If you are running this inside an existing Hub & Spoke topology, the DNS zones should live in the Hub and be linked cross-subscription, not deployed per-workload.
 
 ## The Result
 
@@ -190,10 +190,10 @@ Getting a Zero-Trust RAG stack to actually work in a governed Azure environment 
 With the AzAPI state machine, Identity Chaining, and proper Private DNS, you end up with an AI infrastructure that:
 
 - Deploys end-to-end without any manual Portal approval
-- Uses zero static API keys — authentication is entirely identity-based
+- Uses zero static API keys - authentication is entirely identity-based
 - Is completely invisible to the public internet
 - Satisfies ISO 27001 Annex A.8 and NIS2 Article 21 network and identity controls
 
-The free repository at the top covers the AzAPI automation trick and the basic networking setup. The Enterprise Blueprint packages everything in this article — automated approvals, full VNet injection, Private DNS, RBAC Identity Chaining, and hub integration — into a single tested module.
+The free repository at the top covers the AzAPI automation trick and the basic networking setup. The Enterprise Blueprint packages everything in this article - automated approvals, full VNet injection, Private DNS, RBAC Identity Chaining, and hub integration - into a single tested module.
 
 <ProductCTA variant="end" slug="azure-rag-enterprise" />

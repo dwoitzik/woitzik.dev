@@ -1,6 +1,6 @@
 ---
 title: "Enterprise Homelab: K3s, Authelia & Longhorn on Proxmox with Terraform"
-description: "How to build a production-grade Kubernetes homelab with K3s, Authelia SSO, Longhorn storage, and ArgoCD — and the five painful mistakes that will cost you hours if you don't know about them."
+description: "How to build a production-grade Kubernetes homelab with K3s, Authelia SSO, Longhorn storage, and ArgoCD - and the five painful mistakes that will cost you hours if you don't know about them."
 date: "2026-05-16"
 tags: ["Kubernetes", "Homelab", "Security"]
 ---
@@ -11,7 +11,7 @@ Most Kubernetes homelab guides stop at "kubectl get pods" and call it a day. Thi
 
 This article documents a full production-grade homelab stack: three K3s nodes provisioned via Terraform on Proxmox, GitOps-managed with ArgoCD, persistent storage via Longhorn, and Authelia as a proper SSO gateway in front of every service. The kind of setup you'd actually trust to run real workloads.
 
-It also documents every painful mistake along the way — because that's the part nobody writes about.
+It also documents every painful mistake along the way - because that's the part nobody writes about.
 
 ## The Stack
 
@@ -78,7 +78,7 @@ resource "proxmox_virtual_environment_vm" "vm_srv_k3s_11_master" {
 }
 ```
 
-`cpu.type = "host"` passes through the host CPU flags directly — important for Longhorn's checksumming and for any workload that benefits from AVX instructions. Don't use the default `kvm64` if you're running real workloads.
+`cpu.type = "host"` passes through the host CPU flags directly - important for Longhorn's checksumming and for any workload that benefits from AVX instructions. Don't use the default `kvm64` if you're running real workloads.
 
 Three identical worker definitions follow the same pattern with IPs `.12` and `.13`.
 
@@ -86,7 +86,7 @@ Three identical worker definitions follow the same pattern with IPs `.12` and `.
 
 The first thing that breaks on a fresh K3s cluster: Docker Hub rate limits.
 
-Pods start appearing with `ErrImagePull` or `ImagePullBackOff`. Not because the images don't exist — because Docker Hub has silently throttled anonymous pulls. In a homelab where you're constantly tearing down and rebuilding, you hit the limit fast.
+Pods start appearing with `ErrImagePull` or `ImagePullBackOff`. Not because the images don't exist - because Docker Hub has silently throttled anonymous pulls. In a homelab where you're constantly tearing down and rebuilding, you hit the limit fast.
 
 The fix: switch image sources entirely for the affected images.
 
@@ -101,7 +101,7 @@ Longhorn requires the iSCSI protocol on the host to mount virtual block devices 
 
 Symptom: pods stuck in `ContainerCreating` forever. Longhorn volumes stay `Detached` or report `volume is not ready for workloads`.
 
-Fix — run this on every node (including WSL host if applicable):
+Fix - run this on every node (including WSL host if applicable):
 
 ```bash
 sudo apt-get install -y open-iscsi
@@ -168,11 +168,11 @@ source:
             secretName: wildcard-woitzik-dev-tls
 ```
 
-The Traefik dashboard is disabled — it exposes too much information to be left on in a production-adjacent setup. Access it via `kubectl port-forward` if you need it.
+The Traefik dashboard is disabled - it exposes too much information to be left on in a production-adjacent setup. Access it via `kubectl port-forward` if you need it.
 
 ## Mistake 3: Authelia's Five Failure Modes
 
-Authelia is the most opinionated component in this stack. It fails hard and fast on configuration errors, which is actually good — but the error messages aren't always obvious.
+Authelia is the most opinionated component in this stack. It fails hard and fast on configuration errors, which is actually good - but the error messages aren't always obvious.
 
 Here's the full working Deployment:
 
@@ -192,7 +192,7 @@ spec:
       labels:
         app: authelia
     spec:
-      enableServiceLinks: false  # Critical — see Failure Mode 1
+      enableServiceLinks: false  # Critical - see Failure Mode 1
       containers:
       - name: authelia
         image: ghcr.io/authelia/authelia:latest
@@ -220,11 +220,11 @@ spec:
 
 **Failure Mode 1: `enableServiceLinks: false`**
 
-Kubernetes automatically injects environment variables for every Service in the namespace — including `AUTHELIA_PORT`, `AUTHELIA_PORT_9091_TCP`, and others. These collide directly with Authelia's own configuration keys and cause a fatal startup error. The fix: `enableServiceLinks: false` disables this injection entirely.
+Kubernetes automatically injects environment variables for every Service in the namespace - including `AUTHELIA_PORT`, `AUTHELIA_PORT_9091_TCP`, and others. These collide directly with Authelia's own configuration keys and cause a fatal startup error. The fix: `enableServiceLinks: false` disables this injection entirely.
 
 **Failure Mode 2: The Read-Only Filesystem**
 
-The `notifier` in Authelia's configuration needs a writable path to write notification files (used for password reset emails in filesystem mode). The `/config` directory is mounted from a ConfigMap — which is read-only by design in Kubernetes.
+The `notifier` in Authelia's configuration needs a writable path to write notification files (used for password reset emails in filesystem mode). The `/config` directory is mounted from a ConfigMap - which is read-only by design in Kubernetes.
 
 Wrong:
 ```yaml
@@ -353,16 +353,16 @@ spec:
 
 ## The Result
 
-After navigating Docker Hub rate limits, iSCSI daemons, Kubernetes service link injection, read-only ConfigMap filesystems, and deprecated configuration keys — the stack runs cleanly:
+After navigating Docker Hub rate limits, iSCSI daemons, Kubernetes service link injection, read-only ConfigMap filesystems, and deprecated configuration keys - the stack runs cleanly:
 
 - Every service behind Authelia SSO with Redis-backed sessions
 - Persistent storage via Longhorn distributed across three nodes
-- GitOps-managed via ArgoCD — every change is a Git commit
+- GitOps-managed via ArgoCD - every change is a Git commit
 - Wildcard TLS via cert-manager and Traefik
 - Zero manual `kubectl apply` in steady state
 
-The entire infrastructure — from bare metal to running pods — is reproducible from a `terraform apply` and a Git repository.
+The entire infrastructure - from bare metal to running pods - is reproducible from a `terraform apply` and a Git repository.
 
-If this level of network isolation and identity management sounds familiar from your corporate Azure environment, the same principles apply there — just with different primitives.
+If this level of network isolation and identity management sounds familiar from your corporate Azure environment, the same principles apply there - just with different primitives.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

@@ -1,13 +1,13 @@
 ---
 title: "HA DNS for Homelab: Unbound + AdGuard Home + Keepalived on Raspberry Pi"
-description: "A two-node recursive DNS stack with ad filtering, automatic config sync, and transparent failover — fully managed with Ansible."
+description: "A two-node recursive DNS stack with ad filtering, automatic config sync, and transparent failover - fully managed with Ansible."
 date: "2026-06-27"
 tags: ["Homelab", "Networking", "DNS"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-DNS is the most critical service in any network. If it goes down, nothing works — browsers can't resolve hostnames, services can't reach each other, and the error messages are uniformly unhelpful. In a homelab, a single DNS server is a single point of failure.
+DNS is the most critical service in any network. If it goes down, nothing works - browsers can't resolve hostnames, services can't reach each other, and the error messages are uniformly unhelpful. In a homelab, a single DNS server is a single point of failure.
 
 This is the DNS architecture running on two Raspberry Pi 4B edge nodes in my homelab: Unbound as a recursive resolver, AdGuard Home for filtering, and Keepalived for automatic failover. The whole stack is managed with Ansible.
 
@@ -21,8 +21,8 @@ Client (any device on the network)
         ▼
 Virtual IP 10.0.20.5 (Keepalived VIP)
         │
-        ├── Primary: rpi-srv-01 (10.0.20.2) — MASTER
-        └── Backup:  rpi-srv-02 (10.0.20.3) — BACKUP
+        ├── Primary: rpi-srv-01 (10.0.20.2) - MASTER
+        └── Backup:  rpi-srv-02 (10.0.20.3) - BACKUP
                │
                ▼
         AdGuard Home (filtering + blocking)
@@ -40,7 +40,7 @@ Clients point to a single IP (the VIP). If the primary Pi fails, Keepalived move
 
 Most homelab DNS setups forward queries to a public upstream (Cloudflare, Google, Quad9). That works, but every query you make is visible to a third party.
 
-Unbound resolves queries by starting at the DNS root servers and following delegations down — the same way authoritative DNS actually works. No single upstream sees your full query history. The trade-off is slightly higher first-query latency; subsequent queries are cached locally.
+Unbound resolves queries by starting at the DNS root servers and following delegations down - the same way authoritative DNS actually works. No single upstream sees your full query history. The trade-off is slightly higher first-query latency; subsequent queries are cached locally.
 
 ## Step 1: Unbound Ansible Role
 
@@ -104,9 +104,9 @@ Unbound runs in Docker on each Pi. The Ansible role deploys the Compose stack an
 
 Two things worth noting:
 
-**Port 5335** — Unbound does not bind to port 53. That port belongs to AdGuard Home. AdGuard forwards to `127.0.0.1:5335`.
+**Port 5335** - Unbound does not bind to port 53. That port belongs to AdGuard Home. AdGuard forwards to `127.0.0.1:5335`.
 
-**Autoheal** — watches for containers with the `autoheal=true` label and restarts them if the healthcheck fails. DNS downtime on a Pi is silent and annoying; autoheal catches it automatically.
+**Autoheal** - watches for containers with the `autoheal=true` label and restarts them if the healthcheck fails. DNS downtime on a Pi is silent and annoying; autoheal catches it automatically.
 
 The Unbound configuration template:
 
@@ -283,7 +283,7 @@ sudo systemctl stop keepalived
 
 # On any client
 dig @10.0.20.5 google.com
-# Should still resolve — now via rpi-srv-02
+# Should still resolve - now via rpi-srv-02
 ```
 
 Check which node now holds the VIP:
@@ -298,16 +298,16 @@ Restart Keepalived on the primary and it re-claims the VIP automatically.
 
 ## The Result
 
-- All devices point to `10.0.20.5` — a single address that never changes
+- All devices point to `10.0.20.5` - a single address that never changes
 - Queries are filtered by AdGuard (blocklists, custom rules) then resolved recursively by Unbound
 - If either Pi goes down, the other takes over within 3 seconds
 - Filter lists and config sync automatically every 10 minutes
 - Kernel buffer tuning ensures Unbound can handle high-volume UDP traffic without dropping queries
 
-The entire stack is idempotent Ansible — running the playbook again changes nothing if everything is already in the desired state.
+The entire stack is idempotent Ansible - running the playbook again changes nothing if everything is already in the desired state.
 
 ---
 
-DNS control is the foundation of any Zero-Trust network — on-premises or in the cloud. In Azure, the equivalent of this setup is Azure Private DNS Zones with Private Link resolvers.
+DNS control is the foundation of any Zero-Trust network - on-premises or in the cloud. In Azure, the equivalent of this setup is Azure Private DNS Zones with Private Link resolvers.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
