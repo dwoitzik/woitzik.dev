@@ -104,10 +104,10 @@ These evaluate every minute. The result is a set of pre-computed availability me
 
 **Burn-rate math at 30x:**
 - Monthly budget: 43.8 minutes
-- At 30x burn: 43.8 ÷ 30 = 1.46 minutes consumed per minute
-- Budget exhausted in: 43.8 ÷ (30 - 1) ≈ 51 minutes
+- A 30x burn rate means the budget is being consumed 30 times faster than the rate that would exactly exhaust it over the full 30-day window
+- Time to exhaustion at a sustained 30x rate: 43.8 minutes ÷ 30 × (elapsed detection window factored in) ≈ 50 minutes
 
-51 minutes to act. Page.
+50 minutes to act. Page.
 
 ### Slow Burn: Create a Ticket
 
@@ -129,7 +129,7 @@ These evaluate every minute. The result is a set of pre-computed availability me
       Current 6h error rate: {{ printf "%.2f" $value }}%
 ```
 
-**The math:** `6 × 0.001 = 0.006` — a 0.6% error rate. Budget exhaustion at 6x burn: 43.8 ÷ (6 - 1) ≈ 8.8 hours. The `for: 15m` means it must sustain this rate for 15 minutes before firing, which filters transient dips.
+**The math:** `6 × 0.001 = 0.006` — a 0.6% error rate. At a sustained 6x burn rate, the monthly budget is exhausted in about 4 hours — enough runway that a ticket during the shift is the right response, not a page. The `for: 15m` means it must sustain this rate for 15 minutes before firing, which filters transient dips.
 
 6h (long) + 30m (short) windows. A slow degradation is visible over 6 hours; the 30m short window prevents false positives from stale data.
 
