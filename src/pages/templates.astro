@@ -46,7 +46,7 @@ const bundleSlug = "azure-zero-trust-starter-pack";
                         Start here
                       </span>
                     )}
-                    {product.slug === bundleSlug && (
+                    {product.slug === bundleSlug && product.available && (
                       <span class="text-xs font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                         Most Popular
                       </span>
@@ -119,12 +119,14 @@ const bundleSlug = "azure-zero-trust-starter-pack";
                     Coming Soon
                   </span>
                 )}
-                <a
-                  href={product.articleHref}
-                  class="text-sm underline underline-offset-2 opacity-50 hover:opacity-80 transition-opacity"
-                >
-                  Read the article
-                </a>
+                {product.articleHref !== "/templates" && (
+                  <a
+                    href={product.articleHref}
+                    class="text-sm underline underline-offset-2 opacity-50 hover:opacity-80 transition-opacity"
+                  >
+                    Read the article
+                  </a>
+                )}
               </div>
             </article>
           ))
