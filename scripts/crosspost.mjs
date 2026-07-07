@@ -3,8 +3,13 @@
  * Crosspost a blog article to dev.to, Medium, and announce it on Mastodon.
  *
  * Usage:
- *   node scripts/crosspost.mjs <slug>           # post everywhere configured
- *   node scripts/crosspost.mjs <slug> --dry-run # preview without posting
+ *   node scripts/crosspost.mjs <slug>                 # post everywhere configured
+ *   node scripts/crosspost.mjs <slug> --dry-run       # preview without posting
+ *   node scripts/crosspost.mjs <slug> --update-devto   # article already exists on
+ *                                                       # dev.to -- PUT the current
+ *                                                       # markdown instead of skipping
+ *                                                       # (Medium/Mastodon still no-op
+ *                                                       # since they'd already been posted)
  *
  * Required env vars (set in .env.crosspost or export before running):
  *   DEVTO_API_KEY
@@ -100,17 +105,17 @@ function parseFrontmatter(raw) {
 }
 
 // ─── dev.to ───────────────────────────────────────────────────────────────
-async function alreadyOnDevTo(slug, apiKey) {
+async function findOnDevTo(slug, apiKey) {
   const canonical = `https://woitzik.dev/blog/${slug}/`;
   const res = await fetch("https://dev.to/api/articles/me/published?per_page=100", {
     headers: { "api-key": apiKey },
   });
-  if (!res.ok) return false;
+  if (!res.ok) return null;
   const articles = await res.json();
-  return articles.some((a) => a.canonical_url === canonical);
+  return articles.find((a) => a.canonical_url === canonical) ?? null;
 }
 
-async function postToDevTo(slug, fm, markdown, dryRun) {
+async function postToDevTo(slug, fm, markdown, dryRun, updateExisting) {
   const apiKey = process.env.DEVTO_API_KEY;
   if (!apiKey) {
     console.error("❌  DEVTO_API_KEY not set");
@@ -139,8 +144,25 @@ async function postToDevTo(slug, fm, markdown, dryRun) {
     return;
   }
 
-  if (await alreadyOnDevTo(slug, apiKey)) {
-    console.log(`⏭️   dev.to: already published (${slug}) — skipping`);
+  const existing = await findOnDevTo(slug, apiKey);
+
+  if (existing) {
+    if (!updateExisting) {
+      console.log(`⏭️   dev.to: already published (${slug}) — skipping`);
+      return;
+    }
+    const res = await fetch(`https://dev.to/api/articles/${existing.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "api-key": apiKey },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      console.log(`✅  dev.to: updated ${data.url}`);
+    } else {
+      console.error("❌  dev.to update error:", data);
+      process.exit(1);
+    }
     return;
   }
 
@@ -315,6 +337,7 @@ if (!slug) {
 }
 
 const dryRun = flags.includes("--dry-run");
+const updateDevTo = flags.includes("--update-devto");
 
 const mdxPath = resolve(ROOT, `src/content/blog/${slug}.mdx`);
 if (!existsSync(mdxPath)) {
@@ -330,6 +353,6 @@ console.log(`\n📝  Crossposting: ${fm.title}`);
 console.log(`🔗  Canonical: https://woitzik.dev/blog/${slug}/`);
 console.log(`🏷️   Tags: ${(fm.tags || []).join(", ")}\n`);
 
-await postToDevTo(slug, fm, markdown, dryRun);
+await postToDevTo(slug, fm, markdown, dryRun, updateDevTo);
 await postToMastodon(slug, fm, dryRun);
 await postToMedium(slug, fm, markdown, dryRun);
