@@ -49,7 +49,7 @@ This wasn't caught by planning, only by actually running the test and watching t
 
 ## The Second Finding: A Runbook Step That Would Have Failed
 
-While writing up this test, a second problem surfaced — not from testing, but from cross-checking Tier 1's other listed recovery path against a separate finding from the same week (REL-051, covered separately). The runbook's fallback for "total PBS storage loss" pointed at the Google Drive offsite sync as the recovery source.
+While writing up this test, a second problem surfaced — not from testing, but from cross-checking Tier 1's other listed recovery path against a separate finding from the same week: the Google Drive offsite sync had its own throttling and drift issues (REL-051), diagnosed the same week and covered in a separate write-up. The runbook's fallback for "total PBS storage loss" pointed at that same offsite sync as the recovery source.
 
 That offsite sync had been deliberately disabled months earlier — the destination Google Drive account didn't have enough free space for the datastore, so the sync was turned off rather than left to fail daily. The runbook still described it as an active recovery tier. Following it during a real total-loss event would have sent someone down a dead path while genuinely searching for a way to restore.
 

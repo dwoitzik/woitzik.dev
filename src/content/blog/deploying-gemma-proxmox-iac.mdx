@@ -93,7 +93,7 @@ resource "proxmox_virtual_environment_container" "ct_srv_ai_01" {
 }
 ```
 
-### 💡 Pro Tip: The `ignore_changes` Workaround
+### The `ignore_changes` Workaround
 If you manually enable features like `keyctl`, `fuse`, or `nesting` via the Proxmox Web UI, Terraform will often attempt to overwrite them or throw state errors on the next `apply`. Adding `features` to the `ignore_changes` lifecycle block prevents Terraform from actively fighting the Web UI overrides, keeping your deployments stable.
 
 ## 2. Provisioning Ollama & The AMD Workaround (Ansible)
@@ -119,7 +119,7 @@ If you enabled the `device_passthrough` in Terraform to utilize the integrated A
 - name: Download and execute official Ollama install script
   ansible.builtin.shell: |
     set -o pipefail
-    curl -fsSL [https://ollama.com/install.sh](https://ollama.com/install.sh) | sh
+    curl -fsSL https://ollama.com/install.sh | sh
   args:
     executable: /bin/bash
   when: not ollama_check_bin.stat.exists
@@ -128,7 +128,7 @@ If you enabled the `device_passthrough` in Terraform to utilize the integrated A
 - name: Ensure Ollama user is in video and render groups
   ansible.builtin.user:
     name: ollama
-    groups: video, render
+    groups: [video, render]
     append: true
 
 - name: Ensure systemd override directory for Ollama exists

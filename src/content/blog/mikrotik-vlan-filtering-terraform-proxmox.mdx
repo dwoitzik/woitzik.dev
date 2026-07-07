@@ -54,7 +54,7 @@ resource "routeros_interface_bridge" "core_bridge" {
 Next, we attach our physical ethernet ports to the bridge. This is where we define whether a port is an Access Port (untagged) or a Trunk Port (tagged).
 
 **The Proxmox Trunk:**
-Our Proxmox server (`ether5`) needs to receive tagged traffic so the virtual machines can reside in different VLANs. We assign it a default `pvid = 1` (acting as the native VLAN).
+Our Proxmox server (`ether5`) needs to receive tagged traffic so the virtual machines can reside in different VLANs. We leave it on the default `pvid = 1` — this port carries VLANs by explicit tag, so the pvid only matters for the rare untagged frame, and nothing on this trunk is meant to communicate over untagged VLAN 1 in the first place.
 
 ```hcl
 resource "routeros_interface_bridge_port" "proxmox_port" {
@@ -153,7 +153,7 @@ resource "routeros_interface_bridge_vlan" "vlan_matrix" {
 }
 ```
 
-### Why this is a Game Changer
+### Why This Scales
 
 Look at the `untagged` logic. If you decide to move a Raspberry Pi from the Server VLAN (20) to the DMZ VLAN (30), you don't have to touch the bridge configuration, the matrix, or the interface settings. 
 
