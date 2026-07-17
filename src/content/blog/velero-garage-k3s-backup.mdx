@@ -7,7 +7,7 @@ tags: ["Kubernetes", "Homelab"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
 Every Kubernetes cluster needs a backup strategy. For a homelab running on bare metal, a [BMAX Mini PC\*](https://amzn.to/4bv3yF1) with Longhorn for distributed storage, the options are limited: `etcd` snapshots cover cluster state but not persistent volumes, and MinIO is the standard S3 target for Velero - but MinIO is large, opinionated, and overkill for a single-node homelab.
 

@@ -7,7 +7,7 @@ tags: ["Kubernetes", "Networking", "Homelab"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
 Jellyfin's k3s Deployment had no GPU passthrough - pure software transcoding on a cluster with no GPU access. Moving it to a dedicated LXC with VAAPI hardware transcode access to the host's APU ([BMAX Mini PC\*](https://amzn.to/4bv3yF1) with its AMD Radeon Vega iGPU) is straightforward in principle: stand up the LXC, run Jellyfin there via Ansible, and point the existing Traefik `IngressRoute` at the new location instead of a cluster pod.
 

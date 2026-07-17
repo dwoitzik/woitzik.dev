@@ -7,7 +7,7 @@ tags: ["Homelab", "Security", "Networking"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
 Two Raspberry Pi 4Bs ([starter set I used\*](https://amzn.to/4wNS0oI)). If you're setting up edge nodes today, the [Raspberry Pi 5\*](https://amzn.to/4wETNfv) is the better buy. Run AdGuard Home and Unbound for an entire home network, in an active/passive pair via Keepalived. They're physical hardware sitting on a shelf, not VMs or LXCs - no Proxmox snapshot, no PBS backup, no `terraform destroy && apply` to recover from a bad state. If one hangs hard at 2am, nobody notices until someone's phone can't resolve a hostname.
 

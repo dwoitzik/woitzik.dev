@@ -7,7 +7,7 @@ tags: ["Kubernetes", "GitOps", "Homelab"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
 `kubectl apply` reports success. You check the resource - the field you just changed is back to its old value. No error. No event. `kubectl get` shows the change applied, then a few seconds later shows it gone, like it never happened. This is the kind of bug that shows up on a [BMAX Mini PC\*](https://amzn.to/4bv3yF1)-based k3s cluster running ArgoCD with `selfHeal: true`, small enough to miss in logs, annoying enough to waste an afternoon.
 

@@ -7,7 +7,7 @@ tags: ["Kubernetes", "Security", "Homelab"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
 `kubeconform` passed. `kubectl --dry-run` passed. The PR looked exactly like what every Kubernetes security checklist tells you to do: `capabilities.drop: [ALL]`, `runAsNonRoot: true`, `allowPrivilegeEscalation: false` across every container that was missing a `securityContext`. Schema-valid, reviewed, merged. The cluster runs on a [BMAX Mini PC\*](https://amzn.to/4bv3yF1): small environment, same failure modes as production. The [iFixit Toolkit\*](https://amzn.to/4wKbVEW) came in handy when I had to physically open the machine to swap a drive after one of these outages.
 
