@@ -1,0 +1,129 @@
+---
+title: "How a YAML List vs Map Difference Crash-Looped My Kyverno Fix"
+description: "Kyverno's cleanup-controller extraArgs expects a map, not a list. My fix for leader-election instability crash-looped the very pod it was meant to stabilize. Here's the subtle Helm chart gotcha and how to catch it before it hits production."
+date: "2026-07-17"
+tags: ["Kubernetes", "Security", "Debugging"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+Kyverno's cleanup-controller was restarting every few hours. The leader-election timeout was expiring under load, the controller lost its lock, and the new leader took over — causing a brief gap in policy enforcement. The fix looked simple: increase `leaderElectionRetryPeriod`. The fix crash-looped the very pod it was meant to stabilize.
+
+## The Symptom
+
+```
+cleanup-controller-7f8b9c4d6-xk2p4   0/1     CrashLoopBackOff   3 (42s ago)
+```
+
+The pod started, immediately crashed, and Kubernetes restarted it. Three crashes in under two minutes. The Kyverno dashboard showed the cleanup controller as unavailable, and policy reports stopped updating.
+
+## The Investigation
+
+The crash-loop meant the binary was rejecting its own flags. Checking the pod's logs:
+
+```
+Error: unknown flag: --0=--leaderElectionRetryPeriod=10s
+```
+
+The binary received `--0=--leaderElectionRetryPeriod=10s` as a single flag. That's not a valid argument — it's a rendered artifact of wrong YAML structure.
+
+## The Root Cause: List vs Map
+
+The Helm chart's `cleanupController.extraArgs` expects a **map**, not a list:
+
+```yaml
+# WRONG — list syntax, renders as --0=--leaderElectionRetryPeriod=10s
+cleanupController:
+  extraArgs:
+    - "--leaderElectionRetryPeriod=10s"
+
+# CORRECT — map syntax, renders as --leaderElectionRetryPeriod=10s
+cleanupController:
+  extraArgs:
+    leaderElectionRetryPeriod: "10s"
+```
+
+Helm's `range` function iterates over maps as `$key, $value` pairs. When you pass a list, Helm treats each list item as a map entry with an integer index as the key. The rendered result:
+
+```bash
+# What the binary actually receives:
+--0=--leaderElectionRetryPeriod=10s
+
+# What it expected:
+--leaderElectionRetryPeriod=10s
+```
+
+The binary sees `--0` as a flag name, doesn't recognize it, and exits with a non-zero code. Kubernetes restarts the pod. Crash-loop.
+
+## Why This Is a Production Risk
+
+This wasn't a staging environment. The Kyverno cleanup-controller handles:
+- **Policy report cleanup** — old reports pile up without it
+- **Namespace selector caching** — stale cache entries cause policy enforcement delays
+- **Leader election** — the restart cycle itself destabilizes the leader lock
+
+The irony: the fix for leader-election instability *caused* a worse instability. The cleanup-controller restarted 3 times before I caught it — and during those restarts, policy reports accumulated without cleanup.
+
+## How to Catch This Before It Hits Production
+
+**1. Dry-run the Helm template:**
+
+```bash
+helm template kyverno kyverno/kyverno -n kyverno \
+  --set cleanupController.extraArgs.leaderElectionRetryPeriod=10s \
+  | grep -A5 cleanup-controller
+```
+
+If the rendered YAML shows `--0=...` in the container args, the structure is wrong.
+
+**2. Check the chart's values.yaml:**
+
+```bash
+helm show values kyverno/kyverno | grep -A10 extraArgs
+```
+
+The chart documents whether `extraArgs` is a map or list. Trust the chart, not your muscle memory from other Helm charts.
+
+**3. Use Kyverno's policy reports to validate:**
+
+After deploying, check the cleanup controller's pod status immediately:
+
+```bash
+kubectl get pods -n kyverno -l app.kubernetes.io/name=kyverno-cleanup-controller
+```
+
+If it shows `CrashLoopBackOff` within the first minute, the flags are wrong.
+
+## The Fix
+
+```yaml
+# kubernetes/system/kyverno/application.yml
+cleanupController:
+  extraArgs:
+    leaderElectionRetryPeriod: "10s"
+```
+
+One line change. The pod started cleanly, the crash-loop stopped, and policy reports resumed normal cleanup.
+
+## The Pattern
+
+This is a common Helm gotcha across many charts, not just Kyverno:
+
+| Chart | Flag field | Type | Gotcha |
+|---|---|---|---|
+| Kyverno | `extraArgs` | map | List syntax renders `--0=` prefix |
+| Cert-Manager | `extraArgs` | map | Same pattern |
+| Prometheus | `extraArgs` | map | Same pattern |
+| ArgoCD | `extraArgs` | map | Same pattern |
+
+The fix is always the same: if the chart expects a map, use map syntax. If you're unsure, `helm template` will show you exactly what the binary receives.
+
+**Further reading:** If you're debugging Kubernetes issues like this regularly, [Kubernetes Patterns by Bilgin Ibryam and Roland Huß&#42;](https://amzn.to/3QdWfkH) covers the operational patterns (including policy-as-code and leader-election) that prevent entire classes of these problems. For a deeper dive into distributed systems failure modes, [Designing Data-Intensive Applications by Martin Kleppmann&#42;](https://amzn.to/4aUtkCs) explains why leader-election timeouts behave the way they do under I/O pressure.
+
+---
+
+<ProductCTA id="hub-spoke" variant="end" />
+
+*Kyverno policies are only effective when the controller is running. A crash-looping cleanup controller means policy reports accumulate without cleanup, and namespace selector caches go stale. Pin your Helm values correctly, and dry-run before deploying to production.*

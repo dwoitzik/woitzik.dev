@@ -1,0 +1,202 @@
+---
+title: "Zero NetworkPolicies on Vault: How I Found the Biggest Gap in My Cluster and a GitOps Tracking Bug That Hid It"
+description: "Vault is the trust root every ExternalSecret reads from. Its namespace had zero NetworkPolicies — any pod in the cluster could reach it. The investigation also uncovered a class of ArgoCD drift that silently ignores merged changes."
+date: "2026-07-19"
+tags: ["Kubernetes", "Security", "GitOps", "Vault"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+A cross-cutting isolation check across every namespace in my k3s cluster revealed that Vault — the trust root every ExternalSecret reads from — had zero NetworkPolicies. Any pod in any namespace, including a compromised Immich or a misconfigured application, could reach Vault's API on port 8200 with no network-layer restriction.
+
+The fix was straightforward. The investigation that followed uncovered a second, more insidious problem: a class of ArgoCD drift where merged git changes silently do nothing.
+
+## The Finding
+
+```bash
+kubectl get networkpolicy -n vault
+# No resources found in vault namespace
+```
+
+Every other sensitive namespace had at least a basic ingress policy. Vault had nothing. The trust root — the service that every `ExternalSecret` in the cluster resolves secrets from — was wide open at the network layer.
+
+### Why This Matters
+
+The blast radius of a Vault compromise is the entire cluster. Every `ExternalSecret` references a `ClusterSecretStore` pointing at Vault. If Vault is compromised, every secret the cluster trusts is compromised. Network segmentation is the first line of defense.
+
+## Mapping the Real Traffic Pattern
+
+Before writing any policy, I mapped who actually talks to Vault:
+
+```bash
+# Who's calling Vault right now?
+kubectl exec -n vault vault-0 -- \
+  cat /vault/logs/audit-backend.file-c-audit.log | \
+  jq -r '.request.connection.remoteAddress' | \
+  sort | uniq -c | sort -rn
+```
+
+The result was simpler than expected:
+
+- **external-secrets namespace** — the External Secrets Operator's central controller calls Vault via the `ClusterSecretStore`
+- **vault namespace** — `vault-unseal` and `vault-0` (same-namespace communication)
+
+No other pod in the cluster calls Vault directly. ESO resolves centrally and writes plain Kubernetes Secrets into each app's namespace. So the policy only needs to allow cross-namespace access from `external-secrets` — not from every app namespace.
+
+## The Policy
+
+```yaml
+# kubernetes/system/vault/network-policies.yml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vault-allow-external-secrets
+  namespace: vault
+spec:
+  podSelector: {}  # all pods in vault namespace
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow External Secrets Operator to reach Vault API
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: external-secrets
+      ports:
+        - port: 8200
+          protocol: TCP
+    # Allow same-namespace (vault-unseal, vault-0)
+    - from:
+        - podSelector: {}
+```
+
+The key insight: `external-secrets` is the only cross-namespace caller. Individual app pods never touch Vault — ESO handles it centrally. This means the policy is narrow by design, not by guessing.
+
+## Live-Tested Before Committing
+
+This isn't a "write and hope" policy. I tested it live with selfHeal temporarily disabled:
+
+```bash
+# 1. Delete a live ExternalSecret's backing Secret
+kubectl delete secret renovate-token -n external-secrets
+
+# 2. Verify ESO recreates it through the new policy
+kubectl get secret renovate-token -n external-secrets
+# → recreated within 5s — proves ESO→Vault traffic works
+
+# 3. Verify a pod OUTSIDE the allowed namespaces is blocked
+kubectl run test-pod --rm -it --image=busybox -n apps -- \
+  wget -q -O- --timeout=3 http://vault.vault.svc:8200/v1/sys/health
+# → timeout — proves the policy actually restricts
+
+# 4. Restore selfHeal
+```
+
+The policy works in both directions: legitimate traffic flows, unauthorized traffic is blocked.
+
+## The Second Problem: ArgoCD Tracking Gap
+
+While investigating the Vault namespace, I found that `kubernetes/apps/network-policies.yml` and `traefik-websockets.yml` were loose files directly under `kubernetes/apps/` — not in subdirectories.
+
+The `homelab-apps` ApplicationSet generates Applications per **subdirectory**:
+
+```yaml
+# homelab-apps ApplicationSet
+spec:
+  generators:
+    - directories:
+        - path: kubernetes/apps/*
+```
+
+Loose files under `kubernetes/apps/` are never picked up. They're not subdirectories. No Application watches them.
+
+```bash
+# Check if ArgoCD tracks these files
+kubectl get applications -A -o json | \
+  jq -r '.items[] | select(.spec.source.path | startswith("kubernetes/apps/")) | .spec.source.path'
+# → kubernetes/apps/*/ (only subdirectories)
+```
+
+### The Drift
+
+These files had `kubectl.kubernetes.io/last-applied-configuration` annotations — they were applied by hand at some point, never reconciled against git since. Real drift had already happened:
+
+- `network-policies.yml` still excluded Atlantis from `allow-intra-namespace` even though Atlantis moved to its own LXC months ago
+- A stale `allow-atlantis-ingress` policy matched zero live pods — dead code, never pruned
+
+### The Fix: Self-Watching Application
+
+```yaml
+# kubernetes/apps/gitops-tracking-application.yml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops-tracking
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dwoitzik/homelab-infrastructure.git
+    path: kubernetes/apps
+    directory:
+      recurse: false
+      exclude: "*/"
+  syncPolicy:
+    automated:
+      selfHeal: true
+```
+
+This Application watches `kubernetes/apps/` itself — including loose files. It's the same pattern as `monitoring/manifests-application.yml`, but applied to the apps directory.
+
+**Important:** This file includes itself in its own source path. That's intentional — it's a self-watching bootstrap. The first sync reconciles all previously orphaned files at once.
+
+## The Orphaned Bootstrap Class
+
+This isn't just about two files. The sweep found **18 of 41 live Applications** with their defining `.yml` file untracked by any parent Application:
+
+```
+kubernetes/system/*/  →  no ApplicationSet, no recurse generator
+kubernetes/apps/*.yml →  ApplicationSet only watches subdirectories
+```
+
+For `kubernetes/apps/*`, the subdirectory generator covers everything inside directories. But loose files at the root level fall through. For `kubernetes/system/*`, nothing watches individual Application files at all — each system app is manually `kubectl apply`'d.
+
+### The Pattern
+
+```bash
+# How to find orphaned Applications in any ArgoCD cluster
+for app in $(kubectl get applications -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}'); do
+  ns=$(echo $app | cut -d/ -f1)
+  name=$(echo $app | cut -d/ -f2)
+  path=$(kubectl get application $name -n $ns -o jsonpath='{.spec.source.path}')
+  
+  # Check if any generator covers this path
+  covers=$(kubectl get applicationsets -A -o json | \
+    jq -r ".items[].spec.generators[].directories[].path" | \
+    grep -c "$(dirname $path)")
+  
+  if [ "$covers" -eq 0 ]; then
+    echo "ORPHANED: $ns/$name → $path"
+  fi
+done
+```
+
+## Lessons
+
+**1. Network policies should be based on real traffic patterns, not assumptions.** I didn't guess which pods talk to Vault — I checked the audit logs. The result was narrower than expected: only `external-secrets` needs cross-namespace access.
+
+**2. Test policies live before committing.** Delete a Secret, confirm ESO recreates it. Run a test pod, confirm it's blocked. This catches both over-permissive and over-restrictive policies.
+
+**3. ArgoCD ApplicationSets have blind spots.** Directory generators don't watch loose files. If you have files directly under the watched path (not in subdirectories), they're orphaned. Either move them into subdirectories or create a tracking Application.
+
+**4. Orphaned files drift silently.** The git edit happens, gets merged, and everyone assumes ArgoCD picked it up. It didn't. The only way to catch this is to audit which files are actually watched.
+
+**Further reading:** For understanding the full blast radius of a Vault compromise, [Zero Trust Networks by Evan Gilman and Doug Barth&#42;](https://amzn.to/3QdWfkH) covers the network segmentation principles behind "never trust, always verify." The ArgoCD tracking gap is a common GitOps blind spot — [GitOps and Kubernetes by Billy Yuen et al.\*](https://amzn.to/4aUtkCs) covers ApplicationSet generators and their failure modes in depth.
+
+---
+
+<ProductCTA id="firewall" variant="end" />
+
+*Vault is the trust root. If its namespace has no NetworkPolicies, you've built zero-trust everywhere except the one place that matters most. And if your GitOps tool isn't watching the files you think it's watching, the "git is the source of truth" guarantee doesn't apply to those files.*
