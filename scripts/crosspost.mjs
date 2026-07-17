@@ -271,116 +271,54 @@ async function postToMedium(slug, fm, dryRun) {
   }
 
   const canonicalUrl = `https://woitzik.dev/blog/${slug}/`;
-  const tags = (fm.tags || []).slice(0, 3);
 
   if (dryRun) {
     console.log(`\n[DRY RUN] Medium: would import ${canonicalUrl}`);
     console.log(`  Title: ${fm.title}`);
-    console.log(`  Tags: ${tags.join(", ")}`);
     return;
   }
 
-  const { chromium } = await import("playwright");
-  const authDir = resolve(ROOT, "scripts/.auth/medium");
-  const context = await chromium.launchPersistentContext(authDir, {
-    headless: false,
-    viewport: { width: 1280, height: 900 },
-    args: ["--no-sandbox"],
-  });
-
-  const page = context.pages()[0] || await context.newPage();
-
-  // Check if logged in by navigating to import page
-  await page.goto("https://medium.com/p/import", { waitUntil: "domcontentloaded", timeout: 30000 });
-  await page.waitForTimeout(3000);
-
-  // If we're on a login page, wait for user to log in manually
-  if (page.url().includes("login") || page.url().includes("sign-in")) {
-    console.log("🔐  Medium: please log in manually in the browser window...");
-    console.log("    Waiting up to 120 seconds...");
-    await page.waitForURL("**/p/import", { timeout: 120000 });
-    console.log("    Login detected, continuing...");
-    await page.waitForTimeout(2000);
+  const mediumSid = process.env.MEDIUM_SID;
+  if (!mediumSid) {
+    console.error("❌  Medium: MEDIUM_SID not set.");
+    console.error("   Firefox → medium.com → DevTools → Application → Cookies → sid");
+    return;
   }
 
-  // We should be on the import page now — paste the canonical URL
   console.log(`📤  Medium: importing ${canonicalUrl}...`);
 
-  // Find the import URL input and paste
-  const urlInput = page.locator('input[placeholder*="URL"], input[type="url"], input[name*="url"], textarea[placeholder*="URL"]').first();
-  if (await urlInput.isVisible({ timeout: 10000 }).catch(() => false)) {
-    await urlInput.fill(canonicalUrl);
-  } else {
-    // Fallback: try any visible text input on the import page
-    const anyInput = page.locator('input[type="text"], input:not([type])').first();
-    await anyInput.fill(canonicalUrl);
-  }
-
-  // Click the Import button
-  const importBtn = page.locator('button:has-text("Import"), button:has-text("import")').first();
-  await importBtn.click();
-
-  // Wait for import to complete — Medium redirects to the editor
-  console.log("⏳  Medium: waiting for content to load...");
-  await page.waitForURL("**/edit/**", { timeout: 60000 }).catch(() => {
-    // Sometimes it goes to a different URL pattern
+  const meRes = await fetch("https://medium.com/me", {
+    headers: { Cookie: `sid=${mediumSid}` },
   });
-  await page.waitForTimeout(5000);
+  if (!meRes.ok) {
+    console.error(`❌  Medium: auth failed (HTTP ${meRes.status}). SID abgelaufen?`);
+    return;
+  }
+  const meData = await meRes.json();
+  const userId = meData.data.id;
 
-  // Add attribution at the top of the article
-  console.log("📝  Medium: adding attribution...");
-  const editor = page.locator('[contenteditable="true"], .prose, .postArticle-content').first();
-  if (await editor.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await editor.click();
-    // Go to start of document
-    await page.keyboard.press("Control+Home");
-    await page.waitForTimeout(500);
-    // Type attribution
-    await page.keyboard.type(`Originally published at woitzik.dev — `);
-    // Add a link to the canonical URL
-    await page.keyboard.press("Control+K");
-    await page.waitForTimeout(500);
-    const linkInput = page.locator('input[placeholder*="URL"], input[placeholder*="Type or paste"]').first();
-    if (await linkInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await linkInput.fill(canonicalUrl);
-      await page.keyboard.press("Enter");
-    }
-    await page.keyboard.press("Enter");
-    await page.keyboard.press("Enter");
+  const importRes = await fetch(`https://medium.com/v1/users/${userId}/posts`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: `sid=${mediumSid}`,
+    },
+    body: JSON.stringify({
+      importUrl: canonicalUrl,
+      publishStatus: "public",
+      license: "all-rights-reserved",
+    }),
+  });
+
+  if (!importRes.ok) {
+    const errText = await importRes.text();
+    console.error(`❌  Medium: import failed (HTTP ${importRes.status}): ${errText.slice(0, 200)}`);
+    return;
   }
 
-  // Add tags
-  console.log("🏷️  Medium: adding tags...");
-  for (const tag of tags) {
-    const tagInput = page.locator('input[placeholder*="tag"], input[placeholder*="Tag"]').first();
-    if (await tagInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await tagInput.fill(tag);
-      await page.keyboard.press("Enter");
-      await page.waitForTimeout(500);
-    }
-  }
-
-  // Click Publish
-  console.log("🚀  Medium: publishing...");
-  const publishBtn = page.locator('button:has-text("Publish")').first();
-  if (await publishBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await publishBtn.click();
-    await page.waitForTimeout(3000);
-
-    // Confirm publish if there's a modal
-    const confirmBtn = page.locator('button:has-text("Publish"), button:has-text("Got it")').last();
-    if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await confirmBtn.click();
-    }
-  }
-
-  await page.waitForTimeout(3000);
-  const finalUrl = page.url();
-  console.log(`✅  Medium: ${finalUrl}`);
-
-  posted.push(slug);
-  saveMediumPosted(posted);
-  await context.close();
+  const importData = await importRes.json();
+  console.log(`✅  Medium: published — https://medium.com/p/${importData.data.uniqueSlug}`);
+  saveMediumPosted([...posted, slug]);
 }
 
 // ─── Hackernoon (Playwright — no API, editorial review) ────────────────────
