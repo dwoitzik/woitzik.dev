@@ -7,7 +7,7 @@ tags: ["Kubernetes", "Redis", "Homelab"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-The Nextcloud outage looked like a capabilities problem at first. Kubernetes had just received a `securityContext` hardening pass - `readOnlyRootFilesystem: true` across most containers - and the timing fit. Pods were up, they passed readiness checks, but PHP requests were hanging and returning zero bytes. The capabilities hardening had broken things before. It was a reasonable assumption.
+The Nextcloud outage looked like a capabilities problem at first. Kubernetes had just received a `securityContext` hardening pass - `readOnlyRootFilesystem: true` across most containers - and the timing fit. Pods were up, they passed readiness checks, but PHP requests were hanging and returning zero bytes. The capabilities hardening had broken things before — on the same [BMAX Mini PC\*](https://amzn.to/4bv3yF1) k3s cluster where the [securityContext post-mortem](/blog/kubernetes-securitycontext-hardening-broke-9-containers) happened. It was a reasonable assumption.
 
 It was wrong. The capabilities issue was real, but it wasn't what took Nextcloud down. This is the Redis story.
 

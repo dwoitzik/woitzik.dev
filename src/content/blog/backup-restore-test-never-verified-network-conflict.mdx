@@ -15,7 +15,7 @@ This is what running it for the first time found.
 
 ## The Test, Designed to Be Safe
 
-The container chosen was `ct-srv-atlantis-01` - not because it was low-stakes exactly, but because its data (Terraform plan history, lock state) is reconstructible if something went wrong, unlike, say, Nextcloud's actual file storage.
+The container chosen was `ct-srv-atlantis-01` - not because it was low-stakes exactly, but because its data (Terraform plan history, lock state) is reconstructible if something went wrong, unlike, say, Nextcloud's actual file storage. Backups go to a local [Seagate 2TB External HDD\*](https://amzn.to/4vxwLpY) — deliberately local, because depending on the thing you're backing up *away from* failing defeats the purpose.
 
 The test design: restore the latest PBS snapshot to a scratch VMID, distinct from the running original, boot it there, verify it comes up with its Docker stack auto-starting and real data present, then destroy the scratch instance. The live original was never touched, never stopped, never at risk.
 

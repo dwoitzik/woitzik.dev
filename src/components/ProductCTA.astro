@@ -8,6 +8,22 @@ interface Props {
 
 const { variant = "inline", slug } = Astro.props;
 const product = getProduct(slug);
+
+function withUTM(href: string, pathname: string): string {
+  if (href === "PENDING_LEMONSQUEEZY_BUNDLE_URL") return href;
+  try {
+    const url = new URL(href);
+    const postSlug = pathname.replace(/^\/blog\//, "").replace(/\/$/, "");
+    url.searchParams.set("utm_source", "blog");
+    url.searchParams.set("utm_medium", "article");
+    url.searchParams.set("utm_campaign", postSlug || "homepage");
+    return url.toString();
+  } catch {
+    return href;
+  }
+}
+
+const ctaHref = withUTM(product.href, Astro.url.pathname);
 ---
 
 {
@@ -20,7 +36,7 @@ const product = getProduct(slug);
             Skip the trial-and-error - get the production-ready module.
           </p>
           <a
-            href={product.href}
+            href={ctaHref}
             target="_blank"
             rel="noopener noreferrer"
             class="cta-button"
@@ -67,7 +83,7 @@ const product = getProduct(slug);
           <div class="cta-price">{product.price}</div>
           <div class="cta-price-note">{product.priceNote}</div>
           <a
-            href={product.href}
+            href={ctaHref}
             target="_blank"
             rel="noopener noreferrer"
             class="cta-button-lg"

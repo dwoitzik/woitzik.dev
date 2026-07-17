@@ -7,9 +7,9 @@ tags: ["MikroTik", "Terraform", "Networking"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-If you have ever tried to configure VLANs on a MikroTik router, you know the pain. Transitioning from the legacy switch-chip VLAN methods to the modern **Bridge VLAN Filtering** often results in completely locking yourself out of the router. 
+If you have ever tried to configure VLANs on a MikroTik router, you know the pain. I run the [RB5009\*](https://amzn.to/4w08b21) specifically for its hardware-offloaded VLAN switching — cheaper models like the hEX do VLAN filtering in software, which introduces latency under sustained trunk traffic. Transitioning from the legacy switch-chip VLAN methods to the modern **Bridge VLAN Filtering** often results in completely locking yourself out of the router.
 
-When you add a virtualization host like Proxmox into the mix-which requires a trunk port passing multiple tagged VLANs-the complexity multiplies. Doing this via the WinBox GUI is a recipe for configuration drift and late-night network outages.
+When you add a virtualization host like Proxmox into the mix-which requires a trunk port passing multiple tagged VLANs-the complexity multiplies. Label your cables early — a [Brother Labelmaker\*](https://amzn.to/4wcr4PG) saved me hours tracing connections during a VLAN migration. Doing this via the WinBox GUI is a recipe for configuration drift and late-night network outages.
 
 In this deep dive, I will show you how to tame MikroTik VLANs using Infrastructure as Code (Terraform). We will build a dynamic, scalable L2 network architecture that includes a Proxmox trunk port, dedicated management access, and hardware-offloaded access ports for edge devices (like Raspberry Pis).
 

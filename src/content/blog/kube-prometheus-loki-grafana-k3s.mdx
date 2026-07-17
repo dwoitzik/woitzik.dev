@@ -7,7 +7,7 @@ tags: ["Kubernetes", "Homelab", "Monitoring"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-A Kubernetes cluster without observability is a black box. You deploy services, they run - until they don't. When something breaks at 2am, you need metrics, logs, and alerts that actually tell you what happened.
+A Kubernetes cluster without observability is a black box. You deploy services, they run - until they don't. When something breaks at 2am, you need metrics, logs, and alerts that actually tell you what happened. The whole stack runs on a [BMAX Mini PC\*](https://amzn.to/4bv3yF1) with a [MikroTik RB5009\*](https://amzn.to/4w08b21) handling the network.
 
 This is the full observability stack running on my bare-metal k3s cluster: `kube-prometheus-stack` for metrics and alerting, Loki with Garage S3 for log persistence, Promtail collecting logs from non-Kubernetes nodes via Ansible, SNMP metrics from the MikroTik router, and Grafana with Authelia OIDC - so there's one login for everything.
 

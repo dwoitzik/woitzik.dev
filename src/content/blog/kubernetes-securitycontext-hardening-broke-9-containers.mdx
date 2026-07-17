@@ -7,7 +7,7 @@ tags: ["Kubernetes", "Security", "Homelab"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-`kubeconform` passed. `kubectl --dry-run` passed. The PR looked exactly like what every Kubernetes security checklist tells you to do: `capabilities.drop: [ALL]`, `runAsNonRoot: true`, `allowPrivilegeEscalation: false` across every container that was missing a `securityContext`. Schema-valid, reviewed, merged.
+`kubeconform` passed. `kubectl --dry-run` passed. The PR looked exactly like what every Kubernetes security checklist tells you to do: `capabilities.drop: [ALL]`, `runAsNonRoot: true`, `allowPrivilegeEscalation: false` across every container that was missing a `securityContext`. Schema-valid, reviewed, merged. The cluster runs on a [BMAX Mini PC\*](https://amzn.to/4bv3yF1) — small environment, same failure modes as production. The [iFixit Toolkit\*](https://amzn.to/4wKbVEW) came in handy when I had to physically open the machine to swap a drive after one of these outages.
 
 Within minutes - because this cluster runs ArgoCD with `selfHeal: true`, where merge is deploy - nine containers were down. Two of them were Postgres, backing Paperless and Nextcloud. That's not a degraded non-critical service; that's an outage.
 

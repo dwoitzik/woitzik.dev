@@ -7,7 +7,7 @@ tags: ["Kubernetes", "GitOps", "Homelab"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-`kubectl apply` reports success. You check the resource - the field you just changed is back to its old value. No error. No event. `kubectl get` shows the change applied, then a few seconds later shows it gone, like it never happened.
+`kubectl apply` reports success. You check the resource - the field you just changed is back to its old value. No error. No event. `kubectl get` shows the change applied, then a few seconds later shows it gone, like it never happened. This is the kind of bug that shows up on a [BMAX Mini PC\*](https://amzn.to/4bv3yF1)-based k3s cluster running ArgoCD with `selfHeal: true` — small enough to miss in logs, annoying enough to waste an afternoon.
 
 This isn't a typo or a YAML indentation bug. It's ArgoCD's `selfHeal` doing exactly what it's designed to do - re-applying from its own cached understanding of what the resource *should* be, which can lag behind a change you just made by hand, or even behind a fresh `git push`.
 

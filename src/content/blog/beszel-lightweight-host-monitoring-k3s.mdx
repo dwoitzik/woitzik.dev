@@ -1,0 +1,130 @@
+---
+title: "Beszel: Lightweight Host Monitoring That Doesn't Deserve Its Own Server"
+description: "Why I replaced a heavyweight monitoring stack for host-level metrics with a single container, how Kyverno caught my first deploy before it hit production, and why internal-only dashboards don't need a public DNS record."
+date: "2026-07-16"
+tags: ["Kubernetes", "Homelab", "Monitoring"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+I already run `kube-prometheus-stack` with Prometheus, Grafana, and Loki — full observability for everything inside the cluster. But host-level metrics like CPU temperature, disk health, and per-node resource usage on the Proxmox VMs and bare-metal nodes needed something separate. The node-exporter inside kube-prometheus handles k3s nodes, but the non-Kubernetes hosts — the [Raspberry Pi 5\*](https://amzn.to/4wETNfv) edge nodes and the [BMAX Mini PC\*](https://amzn.to/4bv3yF1) running Proxmox itself — were a blind spot.
+
+The obvious answer was another exporter. The realistic answer was that I didn't want to manage another exporter, another Prometheus scrape config, and another set of dashboards for something that only needs to answer "is this machine healthy right now?"
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## What Beszel Actually Is
+
+Beszel is a lightweight host monitoring hub with per-agent collectors. One container runs the dashboard, each machine you want to monitor runs a tiny agent. CPU, memory, disk, network, temperatures — the basics, without the complexity of a full metrics pipeline.
+
+What sold me: the entire deployment is one YAML file, the container uses 64Mi of memory at idle, and it has a built-in API health endpoint that makes Kubernetes probes trivial.
+
+The catch: it needs to be internal-only. No public DNS record, no Cloudflare proxy, no reason for the Beszel dashboard to be reachable from the internet. It's an admin surface, not a user-facing service.
+
+## The Deployment
+
+The full manifest lives at `kubernetes/apps/beszel/beszel.yml` and follows the same pattern as every other app in this cluster: PVC first, Deployment second, Service third, IngressRoute last.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beszel
+  namespace: apps
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: beszel
+  template:
+    spec:
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      containers:
+        - name: beszel
+          image: henrygd/beszel:0.18.7
+          env:
+            - name: APP_URL
+              value: https://beszel.woitzik.dev
+          securityContext:
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8090
+          volumeMounts:
+            - name: data
+              mountPath: /beszel_data
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+```
+
+The `ndots: 1` DNS config is the same workaround I use on every deployment in this cluster — without it, k3s's default ndots of 5 causes a DNS lookup for every internal service name, adding latency to every inter-service call. Setting it to 1 means only names that actually need a search-domain suffix trigger extra lookups.
+
+The security context follows the same hardening pattern as everything else: no privilege escalation, seccomp RuntimeDefault, all capabilities dropped. The container doesn't need any of them.
+
+The PVC is `nfs-client`, not `local-path` — same reasoning as every other app in this repo. Local-path pins the PV to whichever node created it, nfs-client doesn't. And since Velero's existing backup scope covers `["*"]` in the apps namespace with `defaultVolumesToFsBackup`, the PVC is automatically backed up without any additional configuration.
+
+## Kyverno Caught the First Attempt
+
+The image tag is pinned to `0.18.7`, not `:latest`. This wasn't my first instinct — I initially wrote `henrygd/beszel:latest` because it was quicker. Kyverno's `disallow-latest-tag` policy rejected it at the admission webhook before any pod was created. The policy exists precisely for this: unpinned tags mean your deployment behavior depends on whatever the registry serves at apply time, not what you tested.
+
+If you're running Kyverno in your cluster and you don't have this policy, add it. It catches exactly this kind of lazy shorthand before it becomes a "works on my machine" surprise.
+
+## Internal-Only by Design
+
+The IngressRoute makes this clear:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: beszel-final
+  namespace: apps
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`beszel.woitzik.dev`)
+      kind: Rule
+      middlewares: [{name: authelia}]
+      services: [{name: beszel, port: 8090}]
+  tls: {secretName: wildcard-woitzik-dev-tls}
+```
+
+No `cloudflare_dns_record` in Terraform for `beszel.woitzik.dev`. The hostname only resolves inside the LAN via AdGuard's wildcard rewrite that points `*.woitzik.dev` to the Traefik VIP. The Authelia middleware gates access — same SSO login as every other admin surface in the cluster.
+
+This is the same pattern I use for ArgoCD, Gitea, and any other service that needs to be accessible from the LAN but has no business being on the public internet. The cost of maintaining it is zero: no Cloudflare DNS entry means no cert management, no WAF rules, no attack surface. The DNS wildcard does all the work.
+
+## Resource Usage
+
+128Mi memory limit. 200m CPU limit. That's it. For context, Prometheus alone uses 2Gi on this cluster. Beszel's footprint is closer to a sidecar than a standalone monitoring system.
+
+This matters because monitoring tools have a nasty habit of becoming the thing that needs monitoring. A tool that uses 128Mi to tell you how your 16Gi nodes are doing isn't going to be the thing that tips your resource budget.
+
+## What It Covers vs. What It Doesn't
+
+Beszel handles the basics: CPU, memory, disk, network, temperatures. It does not replace Prometheus for cluster-level metrics, alerting, or log aggregation. It answers a different question: "is this specific host healthy right now?" versus "is my infrastructure operating within defined SLOs?"
+
+For my setup, the split makes sense:
+
+- **kube-prometheus-stack**: cluster metrics, service-level alerting, Grafana dashboards, Prometheus/Loki/Alertmanager
+- **Beszel**: host-level health for every machine in the rack, accessible from one dashboard without leaving the LAN
+
+If you're running a smaller homelab without a full Prometheus stack, Beszel might be enough on its own. If you already have Prometheus, it fills the gap for non-Kubernetes hosts without adding another exporter to manage.
+
+---
+
+Monitoring infrastructure at scale — whether a 10-inch rack or a multi-subscription Azure landing zone — follows the same principle: separate the layers, keep each one focused, and make sure the monitoring tool itself isn't the weakest link in terms of resource consumption and attack surface.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

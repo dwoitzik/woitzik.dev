@@ -1,0 +1,138 @@
+---
+title: "Inside My Homelab: The Hardware Behind Every Article on This Blog"
+description: "A full tour of the physical rack, compute, and networking gear powering my K3s cluster, Proxmox hosts, and everything I write about here — what I run, why I picked it, and what I'd change."
+date: "2026-07-15"
+tags: ["Homelab", "Hardware", "Networking"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with \*). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+Every article on this blog — the K3s cluster, the MikroTik VLAN setup, the Terraform-managed VMs — runs on real, physical hardware sitting in my apartment. I get asked fairly often what that actually looks like, so here's the full tour: what's in the rack, why I picked each piece, and what I'd do differently if I started over.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Rack & Power
+
+Everything lives in a compact 10-inch rack — not the full 19-inch server racks you see in datacenter photos, but a scaled-down version that fits realistically in a home office.
+
+**The Enclosure:** I'm using a [DIGITUS 10-Inch 6U Wall Mounting Cabinet\*](https://amzn.to/4pGBkxb). Six rack units is enough for everything below with room to spare, and the closed design keeps noise down significantly. I picked 10-inch over 19-inch for three reasons: it fits on a single wall mount without studs, the noise containment is noticeably better with a smaller volume to resonate, and every piece of gear I run has a 10-inch form factor option. A 19-inch rack in a home office is overkill unless you're running multiple full-size servers.
+
+**Shelving & Airflow:** For mounting the Raspberry Pis and smaller gear, I use a [DIGITUS 1U 10-Inch Perforated Shelf\*](https://amzn.to/456lv9g). The perforation matters more than it sounds: it keeps airflow moving through the rack instead of trapping heat around the Pis.
+
+**Cooling:** Since it's a closed rack, passive cooling isn't always enough. I've added a pack of [ARCTIC P12 120mm Fans\*](https://amzn.to/44vgXJy) as exhaust. They are whisper-quiet but push enough air to keep temperatures stable. The real test was summer: with the rack closed and ambient room temperature at 28°C, the Proxmox host's NVMe was hitting 72°C under sustained load. After adding the P12s as exhaust pulling warm air out the top, that dropped to 58°C. The key detail: I mounted them as exhaust, not intake. In a small rack, pulling hot air out is more effective than pushing cool air in, because the perforated shelf already provides passive intake from below.
+
+**Power Delivery:** Everything is powered by a [DIGITUS 4-Way 10-Inch PDU\*](https://amzn.to/3RiBttM) mounted at the very bottom. It fits perfectly in the 10" profile and keeps the cable clutter to a minimum.
+
+```hcl
+# Power monitoring via Terraform — TP-Link Tapo P110
+# Tracks idle draw vs. load for capacity planning
+# See terraform/stacks/network/power.tf in the repo
+resource "routeros_ip_firewall_filter" "fwd_99_drop_all" {
+  action  = "drop"
+  chain   = "forward"
+  comment = "99: Global - Final Drop (Zero Trust Policy)"
+}
+```
+
+The power monitoring is critical for planning: knowing the idle draw of the entire rack (47W) versus under load (120W) tells you exactly how much UPS capacity you need and whether a given mini PC upgrade is worth the thermal cost.
+
+## Compute
+
+### Primary Proxmox Host
+
+This is the workhorse of the entire lab. Everything from the local AI stack running Ollama to the bulk of my K3s worker nodes lives here.
+
+I run an older BMAX B5A Pro (Ryzen 7 5825U), but if you are buying one today, the upgraded [BMAX Ryzen 7 8745HS Mini PC\*](https://amzn.to/4bv3yF1) is the direct successor with a much faster Radeon 780M GPU and DDR5 support.
+
+**The Memory Upgrade:** Out of the box, these mini PCs usually ship with modest RAM. I upgraded my node to 64GB using a [Crucial 64GB DDR4 SODIMM Kit\*](https://amzn.to/3QZejZn) (or the [Crucial 64GB DDR5 SODIMM Kit\*](https://amzn.to/4aUt06I) if you go with the newer DDR5-based BMAX model). I chose Crucial specifically because mini-PC platforms can be picky with memory compatibility, and I wanted 24/7 rock-solid stability. The 64GB is not luxury — it's the minimum for running a K3s control plane, several worker workloads, and local LLM inference simultaneously without resource contention. The OOM cascade I wrote about in [How a 1 GiB Memory Limit Took Down My Entire k3s Cluster](/blog/k3s-cascading-failure-oomkill-dns-storm) was partly caused by underestimating how quickly memory fills when Proxmox balloons down and kubelet reads the wrong capacity.
+
+**Backup Storage:** For local backups and raw file storage, I have a [Seagate Portable 2TB External HDD\*](https://amzn.to/4vxwLpY) connected directly via USB. It's the offsite sync target that the [disaster recovery runbook](/blog/backup-restore-test-never-verified-network-conflict) references — deliberately local-only, because depending on the thing you're backing up *away from* failing defeats the purpose.
+
+### Edge Nodes
+
+For redundant, low-power edge compute (Keepalived nodes, lightweight K3s agents, and local DNS), I run a Raspberry Pi cluster:
+
+I originally started with the [db-tronic Raspberry Pi 4 (8GB) Starter Set\*](https://amzn.to/4wNS0oI). It came as a complete kit with a case, power supply, and SD card, which saves a lot of time ordering components separately.
+
+If you are building a new node today, I'd highly recommend going straight for the newer [db-tronic Raspberry Pi 5 (8GB) Starter Set\*](https://amzn.to/4wETNfv), as the performance jump for containerized workloads is massive.
+
+The Pis run AdGuard Home and Unbound for the entire network's DNS, in an active/passive pair via Keepalived. Physical hardware means no Proxmox snapshot, no PBS backup, no `terraform destroy && apply` to recover. That's why the [hardening pass](/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables) — watchdog, fail2ban, nftables — matters so much. A k3s pod that crashes gets rescheduled in seconds. A Raspberry Pi that hard-hangs stays hung until someone pulls the power.
+
+## Networking
+
+The networking layer is where most of the actual engineering happens — this is the physical backbone behind the MikroTik VLAN filtering and Zero-Trust firewall articles.
+
+**The Gateway:** My setup is fed by an [AVM FRITZ!Box 6591 Cable Modem\*](https://amzn.to/4f5WDEI) (if you want the modern Wi-Fi 6 equivalent, look at the [FRITZ!Box 6690 Cable\*](https://amzn.to/4f2yuid)).
+
+**Core Router:** Behind the modem sits the brain of my network: the [MikroTik RB5009 Router\*](https://amzn.to/4w08b21). This single device replaced what used to be a separate router and a dumb switch. RouterOS gives me full VLAN filtering, firewall rules, and WireGuard VPN termination, all managed through Terraform.
+
+**Cabling:** To connect the router, patch panel, and servers inside the tight space of the 10-inch rack, I use short, high-quality [deleyCON 0.5m CAT7 Patch Cables\*](https://amzn.to/4plOgZ5). Using 50cm cables keeps the rack looking clean without needing complex cable management bars.
+
+I picked the RB5009 specifically over MikroTik's cheaper hEX or hAP models because of the switch chip. Full hardware offloading for VLAN-tagged traffic matters once you're running a Proxmox trunk port carrying multiple VLANs. Software-switched VLANs on cheaper models introduce latency you *will* notice under sustained load.
+
+Here's the actual Terraform code that configures the VLAN matrix — the same code that generates every firewall rule, bridge entry, and IP address in the network:
+
+```hcl
+locals {
+  homelab_vlans = {
+    "vlan20-srv"    = 20
+    "vlan30-dmz"    = 30
+    "vlan40-iot"    = 40
+    "vlan100-admin" = 100
+  }
+
+  rpi_port_mapping = {
+    "ether6" = 20 # RPi 4B #1 (Keepalived Node A)
+    "ether7" = 20 # RPi 4B #2 (Keepalived Node B)
+  }
+
+  proxmox_port = "ether5"
+}
+```
+
+This `locals` block is the single source of truth. Add a VLAN here, and Terraform auto-generates the interfaces, DHCP servers, bridge matrix entries, and firewall rules. Move a Raspberry Pi between VLANs by changing one number. That's the power of treating network infrastructure as code — and it's all in the [MikroTik VLAN Filtering article](/blog/mikrotik-vlan-filtering-terraform-proxmox).
+
+The same default-deny logic that drives the MikroTik firewall applies at enterprise scale in Azure — just implemented through NSGs, Azure Firewall, and Private Link instead of RouterOS rules.
+
+## The Workbench & Bookshelves (Tools & Tech I Recommend)
+
+A homelab is never truly finished, and you need the right tools to maintain it (and the right resources to learn how to build it). Here is the gear on my desk and the books that shaped how I build infrastructure:
+
+### Essential Tools
+
+**The Tool Kit:** Every time I need to open a mini PC or swap an M.2 SSD, I reach for the [iFixit Pro Tech Toolkit\*](https://amzn.to/4wKbVEW). It has every security bit imaginable and is practically a lifetime investment.
+
+**Labeling:** You cannot run VLANs and complex patch panels without labeling your cables. I use the [Brother PT-H110 Label Maker\*](https://amzn.to/4wcr4PG) to keep my sanity when tracing connections. After the third time spending 20 minutes tracing a cable because "I'll remember which one that is," I bought this. Should have been the first purchase.
+
+**Cable Management:** No plastic zip ties inside the rack! I use [15m Roll of Velcro Cable Ties\*](https://amzn.to/4bnvY3K) because they are reusable and don't damage the copper inside your CAT7 cables.
+
+**Power Monitoring:** Because power prices in Germany are no joke, I run my entire rack through a [TP-Link Tapo P110 Smart Plug with Energy Monitoring\*](https://amzn.to/3STKPwD) so I can track the exact wattage and idle draw.
+
+### Recommended Reading
+
+- [Designing Data-Intensive Applications by Martin Kleppmann\*](https://amzn.to/4aUtkCs) — The absolute holy grail for understanding distributed systems, databases, and scalability. Essential for anyone running Kubernetes.
+- [The Phoenix Project by Gene Kim\*](https://amzn.to/4f4RHQf) — A novel about IT and DevOps. It's highly entertaining and will feel painfully familiar to anyone working in tech.
+- [The Linux Command Line by William Shotts\*](https://amzn.to/4gEAhv9) — The best introduction to mastering the bash shell, which you will need daily when managing headless servers.
+- [Netzwerke: Verstehen, Einrichten, Administrieren\*](https://amzn.to/4f3kTar) — A fantastic, comprehensive German guide to understanding network architecture from the ground up.
+
+---
+
+## What I'd Change If Starting Over
+
+Three things, in reverse order of importance:
+
+**1. Buy the RB5009 first, not second.** I started with a cheaper MikroTik hEX and quickly outgrew it — the software-switched VLANs couldn't keep up with Proxmox trunk traffic. The RB5009's hardware offloading for VLAN-tagged traffic is not a nice-to-have once you're running multiple tagged VLANs across a trunk. Buy once, buy right.
+
+**2. Start with the Pi 5, not the Pi 4.** The Pi 4B works fine for DNS and Keepalived, but the Pi 5's performance for containerized workloads is a genuine leap. If you're buying new today, skip the 4 entirely.
+
+**3. Label cables from day one.** I didn't. The photo of my patch panel before labeling looks like spaghetti. The Brother label maker paid for itself in saved debugging time within a week.
+
+---
+
+If you want to see the Terraform and Ansible code that turns this physical hardware into the K3s cluster, Proxmox VMs, and network segmentation covered across this blog, the full [homelab-infrastructure repo](https://github.com/dwoitzik/homelab-infrastructure) is public on GitHub.
+
+The same IaC patterns — Terraform for provisioning, Ansible for configuration, GitOps via Atlantis — apply directly to enterprise Azure environments. The Hub & Spoke topology, the NSG micro-segmentation, the forced tunneling — all of it starts with the same mental model you build managing a MikroTik and a few Proxmox nodes.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
