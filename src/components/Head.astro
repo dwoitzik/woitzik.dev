@@ -144,7 +144,9 @@ const {
     animate();
 
     const backToTop = document.getElementById("back-to-top");
-    backToTop?.addEventListener("click", (event) => scrollToTop(event));
+    backToTop?.addEventListener("click", () =>
+      window.scrollTo({ top: 0, behavior: "smooth" }),
+    );
 
     const backToPrev = document.getElementById("back-to-prev");
     backToPrev?.addEventListener("click", () => window.history.back());
@@ -194,14 +196,6 @@ const {
     } else {
       document.documentElement.classList.remove("scrolled");
     }
-  }
-
-  function scrollToTop(event) {
-    event.preventDefault();
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
   }
 
   function toggleTheme(dark) {
@@ -302,7 +296,6 @@ const {
   document.addEventListener("astro:after-swap", () => init());
   document.addEventListener("DOMContentLoaded", initCopyButtons);
   document.addEventListener("astro:after-swap", initCopyButtons);
-  preloadTheme();
 
   // Mermaid diagram rendering
   function initMermaid() {

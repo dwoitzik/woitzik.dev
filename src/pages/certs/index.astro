@@ -6,10 +6,13 @@ import { dateRange } from "@lib/utils";
 import { CERTS } from "@consts";
 import { Image } from "astro:assets";
 
-const collection = (await getCollection("certs")).sort(
-  (a, b) =>
-    new Date(b.data.dateStart).valueOf() - new Date(a.data.dateStart).valueOf(),
-);
+const collection = (await getCollection("certs"))
+  .filter((item) => !item.data.draft)
+  .sort(
+    (a, b) =>
+      new Date(b.data.dateStart).valueOf() -
+      new Date(a.data.dateStart).valueOf(),
+  );
 
 const certs = await Promise.all(
   collection.map(async (item) => {

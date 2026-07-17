@@ -101,9 +101,6 @@ article figcaption {
   .code-block-wrapper pre code .diff-remove {
     @apply bg-red-500/10 text-red-700 dark:text-red-300 line-through opacity-70;
   }
-  .code-block-wrapper pre code .diff-line-number {
-    @apply select-none text-neutral-400 dark:text-neutral-500 mr-3 inline-block w-4 text-right;
-  }
 }
 
 /* Global focus-visible ring */

@@ -3,7 +3,7 @@ interface Props {
   variant?: "inline" | "compact";
 }
 
-const { variant = "inline" } = Astro.props;
+const { variant = "compact" } = Astro.props;
 ---
 
 {
@@ -30,7 +30,7 @@ const { variant = "inline" } = Astro.props;
         Enjoying this? Get the next deep dive in your inbox.
       </p>
       <a
-        href="#email-capture"
+        href="/newsletter"
         class="text-sm font-semibold text-sky-600 dark:text-sky-400 hover:underline whitespace-nowrap"
       >
         Subscribe &rarr;

@@ -6,7 +6,7 @@ import ArrowCard from "@components/ArrowCard.astro";
 import tagDescriptions from "@data/tag-descriptions.json";
 
 export async function getStaticPaths() {
-  const posts = await getCollection("blog");
+  const posts = (await getCollection("blog")).filter((p) => !p.data.draft);
   const tags = [...new Set(posts.flatMap((p) => p.data.tags ?? []))];
   return tags.map((tag) => ({
     params: { tag: tag.toLowerCase() },

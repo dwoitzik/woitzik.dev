@@ -24,9 +24,12 @@ const groupId = `tabs-${group}-${Math.random().toString(36).slice(2, 8)}`;
       tabs.map((tab, i) => (
         <button
           role="tab"
+          id={`${groupId}-tab-${i}`}
+          aria-controls={`${groupId}-panel-${i}`}
           data-tab={`${groupId}-${i}`}
           data-group={groupId}
           aria-selected={i === 0 ? "true" : "false"}
+          tabindex={i === 0 ? "0" : "-1"}
           class:list={[
             "px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px",
             i === 0
@@ -44,8 +47,11 @@ const groupId = `tabs-${group}-${Math.random().toString(36).slice(2, 8)}`;
       tabs.map((tab, i) => (
         <div
           role="tabpanel"
+          id={`${groupId}-panel-${i}`}
+          aria-labelledby={`${groupId}-tab-${i}`}
           data-panel={`${groupId}-${i}`}
           class:list={["text-sm", i !== 0 && "hidden"]}
+          tabindex="0"
           set:html={tab.content}
         />
       ))
@@ -55,44 +61,68 @@ const groupId = `tabs-${group}-${Math.random().toString(36).slice(2, 8)}`;
 
 <script is:inline>
   document.addEventListener("astro:page-load", () => {
-    document.querySelectorAll("[data-group]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const group = btn.getAttribute("data-group");
-        document.querySelectorAll(`[data-group="${group}"]`).forEach((b) => {
-          b.setAttribute("aria-selected", "false");
-          b.classList.remove(
-            "border-sky-500",
-            "text-sky-600",
-            "dark:text-sky-400",
-          );
-          b.classList.add(
-            "border-transparent",
-            "text-neutral-500",
-            "dark:text-neutral-400",
-          );
+    document.querySelectorAll("[role='tablist']").forEach((tablist) => {
+      const tabs = tablist.querySelectorAll("[role='tab']");
+
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => activateTab(tab));
+        tab.addEventListener("keydown", (e) => {
+          const tabArray = Array.from(tabs);
+          const index = tabArray.indexOf(tab);
+          let newIndex = index;
+
+          if (e.key === "ArrowRight") newIndex = (index + 1) % tabArray.length;
+          else if (e.key === "ArrowLeft")
+            newIndex = (index - 1 + tabArray.length) % tabArray.length;
+          else if (e.key === "Home") newIndex = 0;
+          else if (e.key === "End") newIndex = tabArray.length - 1;
+          else return;
+
+          e.preventDefault();
+          activateTab(tabArray[newIndex]);
+          tabArray[newIndex].focus();
         });
-        btn.setAttribute("aria-selected", "true");
-        btn.classList.add(
+      });
+    });
+
+    function activateTab(tab) {
+      const group = tab.getAttribute("data-group");
+      const allTabs = document.querySelectorAll(`[data-group="${group}"]`);
+
+      allTabs.forEach((t) => {
+        t.setAttribute("aria-selected", "false");
+        t.setAttribute("tabindex", "-1");
+        t.classList.remove(
           "border-sky-500",
           "text-sky-600",
           "dark:text-sky-400",
         );
-        btn.classList.remove(
+        t.classList.add(
           "border-transparent",
           "text-neutral-500",
           "dark:text-neutral-400",
         );
-        document.querySelectorAll(`[data-group="${group}"]`).forEach((b) => {
-          const panel = document.querySelector(
-            `[data-panel="${b.getAttribute("data-tab")}"]`,
-          );
-          if (panel)
-            panel.classList.toggle(
-              "hidden",
-              b.getAttribute("aria-selected") !== "true",
-            );
-        });
       });
-    });
+
+      tab.setAttribute("aria-selected", "true");
+      tab.setAttribute("tabindex", "0");
+      tab.classList.add("border-sky-500", "text-sky-600", "dark:text-sky-400");
+      tab.classList.remove(
+        "border-transparent",
+        "text-neutral-500",
+        "dark:text-neutral-400",
+      );
+
+      allTabs.forEach((t) => {
+        const panel = document.querySelector(
+          `[data-panel="${t.getAttribute("data-tab")}"]`,
+        );
+        if (panel)
+          panel.classList.toggle(
+            "hidden",
+            t.getAttribute("aria-selected") !== "true",
+          );
+      });
+    }
   });
 </script>

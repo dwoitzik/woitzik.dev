@@ -89,7 +89,8 @@ import Container from "@components/Container.astro";
           showImages: false,
           resetStyles: false,
         });
-        el.querySelector("input") && el.querySelector("input").focus();
+        const input = el.querySelector("input");
+        if (input) input.focus();
       })
       .catch(function () {
         el.innerHTML = `<p class="text-sm text-neutral-500">Search is not available in this environment.</p>`;
