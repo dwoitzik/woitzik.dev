@@ -9,13 +9,13 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with \*). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-Every article on this blog — the K3s cluster, the MikroTik VLAN setup, the Terraform-managed VMs — runs on real, physical hardware sitting in my apartment. I get asked fairly often what that actually looks like, so here's the full tour: what's in the rack, why I picked each piece, and what I'd do differently if I started over.
+Every article on this blog, the K3s cluster, the MikroTik VLAN setup, the Terraform-managed VMs, runs on real, physical hardware sitting in my apartment. I get asked fairly often what that actually looks like, so here's the full tour: what's in the rack, why I picked each piece, and what I'd do differently if I started over.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Rack & Power
 
-Everything lives in a compact 10-inch rack — not the full 19-inch server racks you see in datacenter photos, but a scaled-down version that fits realistically in a home office.
+Everything lives in a compact 10-inch rack, not the full 19-inch server racks you see in datacenter photos, but a scaled-down version that fits realistically in a home office.
 
 **The Enclosure:** I'm using a [DIGITUS 10-Inch 6U Wall Mounting Cabinet\*](https://amzn.to/4pGBkxb). Six rack units is enough for everything below with room to spare, and the closed design keeps noise down significantly. I picked 10-inch over 19-inch for three reasons: it fits on a single wall mount without studs, the noise containment is noticeably better with a smaller volume to resonate, and every piece of gear I run has a 10-inch form factor option. A 19-inch rack in a home office is overkill unless you're running multiple full-size servers.
 
@@ -46,9 +46,9 @@ This is the workhorse of the entire lab. Everything from the local AI stack runn
 
 I run an older BMAX B5A Pro (Ryzen 7 5825U), but if you are buying one today, the upgraded [BMAX Ryzen 7 8745HS Mini PC\*](https://amzn.to/4bv3yF1) is the direct successor with a much faster Radeon 780M GPU and DDR5 support.
 
-**The Memory Upgrade:** Out of the box, these mini PCs usually ship with modest RAM. I upgraded my node to 64GB using a [Crucial 64GB DDR4 SODIMM Kit\*](https://amzn.to/3QZejZn) (or the [Crucial 64GB DDR5 SODIMM Kit\*](https://amzn.to/4aUt06I) if you go with the newer DDR5-based BMAX model). I chose Crucial specifically because mini-PC platforms can be picky with memory compatibility, and I wanted 24/7 rock-solid stability. The 64GB is not luxury — it's the minimum for running a K3s control plane, several worker workloads, and local LLM inference simultaneously without resource contention. The OOM cascade I wrote about in [How a 1 GiB Memory Limit Took Down My Entire k3s Cluster](/blog/k3s-cascading-failure-oomkill-dns-storm) was partly caused by underestimating how quickly memory fills when Proxmox balloons down and kubelet reads the wrong capacity.
+**The Memory Upgrade:** Out of the box, these mini PCs usually ship with modest RAM. I upgraded my node to 64GB using a [Crucial 64GB DDR4 SODIMM Kit\*](https://amzn.to/3QZejZn) (or the [Crucial 64GB DDR5 SODIMM Kit\*](https://amzn.to/4aUt06I) if you go with the newer DDR5-based BMAX model). I chose Crucial specifically because mini-PC platforms can be picky with memory compatibility, and I wanted 24/7 rock-solid stability. The 64GB is not luxury, it's the minimum for running a K3s control plane, several worker workloads, and local LLM inference simultaneously without resource contention. The OOM cascade I wrote about in [How a 1 GiB Memory Limit Took Down My Entire k3s Cluster](/blog/k3s-cascading-failure-oomkill-dns-storm) was partly caused by underestimating how quickly memory fills when Proxmox balloons down and kubelet reads the wrong capacity.
 
-**Backup Storage:** For local backups and raw file storage, I have a [Seagate Portable 2TB External HDD\*](https://amzn.to/4vxwLpY) connected directly via USB. It's the offsite sync target that the [disaster recovery runbook](/blog/backup-restore-test-never-verified-network-conflict) references — deliberately local-only, because depending on the thing you're backing up *away from* failing defeats the purpose.
+**Backup Storage:** For local backups and raw file storage, I have a [Seagate Portable 2TB External HDD\*](https://amzn.to/4vxwLpY) connected directly via USB. It's the offsite sync target that the [disaster recovery runbook](/blog/backup-restore-test-never-verified-network-conflict) references, deliberately local-only, because depending on the thing you're backing up *away from* failing defeats the purpose.
 
 ### Edge Nodes
 
@@ -58,11 +58,11 @@ I originally started with the [db-tronic Raspberry Pi 4 (8GB) Starter Set\*](htt
 
 If you are building a new node today, I'd highly recommend going straight for the newer [db-tronic Raspberry Pi 5 (8GB) Starter Set\*](https://amzn.to/4wETNfv), as the performance jump for containerized workloads is massive.
 
-The Pis run AdGuard Home and Unbound for the entire network's DNS, in an active/passive pair via Keepalived. Physical hardware means no Proxmox snapshot, no PBS backup, no `terraform destroy && apply` to recover. That's why the [hardening pass](/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables) — watchdog, fail2ban, nftables — matters so much. A k3s pod that crashes gets rescheduled in seconds. A Raspberry Pi that hard-hangs stays hung until someone pulls the power.
+The Pis run AdGuard Home and Unbound for the entire network's DNS, in an active/passive pair via Keepalived. Physical hardware means no Proxmox snapshot, no PBS backup, no `terraform destroy && apply` to recover. That's why the [hardening pass](/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables): watchdog, fail2ban, nftables, matters so much. A k3s pod that crashes gets rescheduled in seconds. A Raspberry Pi that hard-hangs stays hung until someone pulls the power.
 
 ## Networking
 
-The networking layer is where most of the actual engineering happens — this is the physical backbone behind the MikroTik VLAN filtering and Zero-Trust firewall articles.
+The networking layer is where most of the actual engineering happens, this is the physical backbone behind the MikroTik VLAN filtering and Zero-Trust firewall articles.
 
 **The Gateway:** My setup is fed by an [AVM FRITZ!Box 6591 Cable Modem\*](https://amzn.to/4f5WDEI) (if you want the modern Wi-Fi 6 equivalent, look at the [FRITZ!Box 6690 Cable\*](https://amzn.to/4f2yuid)).
 
@@ -72,7 +72,7 @@ The networking layer is where most of the actual engineering happens — this is
 
 I picked the RB5009 specifically over MikroTik's cheaper hEX or hAP models because of the switch chip. Full hardware offloading for VLAN-tagged traffic matters once you're running a Proxmox trunk port carrying multiple VLANs. Software-switched VLANs on cheaper models introduce latency you *will* notice under sustained load.
 
-Here's the actual Terraform code that configures the VLAN matrix — the same code that generates every firewall rule, bridge entry, and IP address in the network:
+Here's the actual Terraform code that configures the VLAN matrix, the same code that generates every firewall rule, bridge entry, and IP address in the network:
 
 ```hcl
 locals {
@@ -92,9 +92,9 @@ locals {
 }
 ```
 
-This `locals` block is the single source of truth. Add a VLAN here, and Terraform auto-generates the interfaces, DHCP servers, bridge matrix entries, and firewall rules. Move a Raspberry Pi between VLANs by changing one number. That's the power of treating network infrastructure as code — and it's all in the [MikroTik VLAN Filtering article](/blog/mikrotik-vlan-filtering-terraform-proxmox).
+This `locals` block is the single source of truth. Add a VLAN here, and Terraform auto-generates the interfaces, DHCP servers, bridge matrix entries, and firewall rules. Move a Raspberry Pi between VLANs by changing one number. That's the power of treating network infrastructure as code, and it's all in the [MikroTik VLAN Filtering article](/blog/mikrotik-vlan-filtering-terraform-proxmox).
 
-The same default-deny logic that drives the MikroTik firewall applies at enterprise scale in Azure — just implemented through NSGs, Azure Firewall, and Private Link instead of RouterOS rules.
+The same default-deny logic that drives the MikroTik firewall applies at enterprise scale in Azure, just implemented through NSGs, Azure Firewall, and Private Link instead of RouterOS rules.
 
 ## The Workbench & Bookshelves (Tools & Tech I Recommend)
 
@@ -112,10 +112,10 @@ A homelab is never truly finished, and you need the right tools to maintain it (
 
 ### Recommended Reading
 
-- [Designing Data-Intensive Applications by Martin Kleppmann\*](https://amzn.to/4aUtkCs) — The absolute holy grail for understanding distributed systems, databases, and scalability. Essential for anyone running Kubernetes.
-- [The Phoenix Project by Gene Kim\*](https://amzn.to/4f4RHQf) — A novel about IT and DevOps. It's highly entertaining and will feel painfully familiar to anyone working in tech.
-- [The Linux Command Line by William Shotts\*](https://amzn.to/4gEAhv9) — The best introduction to mastering the bash shell, which you will need daily when managing headless servers.
-- [Netzwerke: Verstehen, Einrichten, Administrieren\*](https://amzn.to/4f3kTar) — A fantastic, comprehensive German guide to understanding network architecture from the ground up.
+- [Designing Data-Intensive Applications by Martin Kleppmann\*](https://amzn.to/4aUtkCs): The absolute holy grail for understanding distributed systems, databases, and scalability. Essential for anyone running Kubernetes.
+- [The Phoenix Project by Gene Kim\*](https://amzn.to/4f4RHQf): A novel about IT and DevOps. It's highly entertaining and will feel painfully familiar to anyone working in tech.
+- [The Linux Command Line by William Shotts\*](https://amzn.to/4gEAhv9): The best introduction to mastering the bash shell, which you will need daily when managing headless servers.
+- [Netzwerke: Verstehen, Einrichten, Administrieren\*](https://amzn.to/4f3kTar): A fantastic, comprehensive German guide to understanding network architecture from the ground up.
 
 ---
 
@@ -123,7 +123,7 @@ A homelab is never truly finished, and you need the right tools to maintain it (
 
 Three things, in reverse order of importance:
 
-**1. Buy the RB5009 first, not second.** I started with a cheaper MikroTik hEX and quickly outgrew it — the software-switched VLANs couldn't keep up with Proxmox trunk traffic. The RB5009's hardware offloading for VLAN-tagged traffic is not a nice-to-have once you're running multiple tagged VLANs across a trunk. Buy once, buy right.
+**1. Buy the RB5009 first, not second.** I started with a cheaper MikroTik hEX and quickly outgrew it, the software-switched VLANs couldn't keep up with Proxmox trunk traffic. The RB5009's hardware offloading for VLAN-tagged traffic is not a nice-to-have once you're running multiple tagged VLANs across a trunk. Buy once, buy right.
 
 **2. Start with the Pi 5, not the Pi 4.** The Pi 4B works fine for DNS and Keepalived, but the Pi 5's performance for containerized workloads is a genuine leap. If you're buying new today, skip the 4 entirely.
 
@@ -133,6 +133,6 @@ Three things, in reverse order of importance:
 
 If you want to see the Terraform and Ansible code that turns this physical hardware into the K3s cluster, Proxmox VMs, and network segmentation covered across this blog, the full [homelab-infrastructure repo](https://github.com/dwoitzik/homelab-infrastructure) is public on GitHub.
 
-The same IaC patterns — Terraform for provisioning, Ansible for configuration, GitOps via Atlantis — apply directly to enterprise Azure environments. The Hub & Spoke topology, the NSG micro-segmentation, the forced tunneling — all of it starts with the same mental model you build managing a MikroTik and a few Proxmox nodes.
+The same IaC patterns, Terraform for provisioning, Ansible for configuration, GitOps via Atlantis, apply directly to enterprise Azure environments. The Hub & Spoke topology, the NSG micro-segmentation, the forced tunneling, all of it starts with the same mental model you build managing a MikroTik and a few Proxmox nodes.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

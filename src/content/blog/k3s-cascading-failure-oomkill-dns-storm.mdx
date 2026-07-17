@@ -7,6 +7,8 @@ tags: ["Kubernetes", "Homelab", "Debugging"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
 It started with Paperless-ngx crashing.
 
 It ended with my control-plane node sitting at a load average of 90, CoreDNS generating 1.2 million DNS queries per day, and worker nodes reporting 3.8 GiB of allocatable memory instead of the 16 GiB they actually had.
@@ -19,7 +21,7 @@ This is the full post-mortem - not the sanitized version where everything was ob
 
 ## The Setup
 
-Three-node k3s cluster running on Proxmox VMs (VLAN 20, server subnet) — all on a single [BMAX Mini PC\*](https://amzn.to/4bv3yF1) with 64GB [Crucial DDR4 RAM\*](https://amzn.to/3QZejZn):
+Three-node k3s cluster running on Proxmox VMs (VLAN 20, server subnet), all on a single [BMAX Mini PC\*](https://amzn.to/4bv3yF1) with 64GB [Crucial DDR4 RAM\*](https://amzn.to/3QZejZn):
 
 - `vm-srv-k3s-11` - control-plane, 4 cores, 12 GiB dedicated
 - `vm-srv-k3s-12` - worker, 4 cores, up to 16 GiB (balloon)

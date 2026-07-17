@@ -7,9 +7,11 @@ tags: ["Homelab", "Networking", "DNS"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
 DNS is the most critical service in any network. If it goes down, nothing works - browsers can't resolve hostnames, services can't reach each other, and the error messages are uniformly unhelpful. In a homelab, a single DNS server is a single point of failure.
 
-This is the DNS architecture running on two Raspberry Pi 4B edge nodes ([starter set\*](https://amzn.to/4wNS0oI)) in my homelab — if you're building this today, go straight for the [Raspberry Pi 5\*](https://amzn.to/4wETNfv), the performance jump for containerized workloads is massive: Unbound as a recursive resolver, AdGuard Home for filtering, and Keepalived for automatic failover. The whole stack is managed with Ansible.
+This is the DNS architecture running on two Raspberry Pi 4B edge nodes ([starter set\*](https://amzn.to/4wNS0oI)) in my homelab. If you're building this today, go straight for the [Raspberry Pi 5\*](https://amzn.to/4wETNfv), the performance jump for containerized workloads is massive: Unbound as a recursive resolver, AdGuard Home for filtering, and Keepalived for automatic failover. The whole stack is managed with Ansible.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 

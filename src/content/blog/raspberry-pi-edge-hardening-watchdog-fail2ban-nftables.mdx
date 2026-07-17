@@ -7,7 +7,9 @@ tags: ["Homelab", "Security", "Networking"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-Two Raspberry Pi 4Bs ([starter set I used\*](https://amzn.to/4wNS0oI)) — if you're setting up edge nodes today, the [Raspberry Pi 5\*](https://amzn.to/4wETNfv) is the better buy — run AdGuard Home and Unbound for an entire home network, in an active/passive pair via Keepalived. They're physical hardware sitting on a shelf, not VMs or LXCs - no Proxmox snapshot, no PBS backup, no `terraform destroy && apply` to recover from a bad state. If one hangs hard at 2am, nobody notices until someone's phone can't resolve a hostname.
+*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+Two Raspberry Pi 4Bs ([starter set I used\*](https://amzn.to/4wNS0oI)). If you're setting up edge nodes today, the [Raspberry Pi 5\*](https://amzn.to/4wETNfv) is the better buy. Run AdGuard Home and Unbound for an entire home network, in an active/passive pair via Keepalived. They're physical hardware sitting on a shelf, not VMs or LXCs - no Proxmox snapshot, no PBS backup, no `terraform destroy && apply` to recover from a bad state. If one hangs hard at 2am, nobody notices until someone's phone can't resolve a hostname.
 
 This is the hardening pass that closed every gap I found in that setup: a hardware watchdog for total-system-freeze recovery, fail2ban for the one SSH-exposed surface, an nftables host firewall that's careful not to fight with Docker's own iptables rules, log size caps to stop slow SD-card death, and a DNS health check that works even on the day the rest of the monitoring stack is offline - which, as it turned out, was exactly the day it mattered.
 

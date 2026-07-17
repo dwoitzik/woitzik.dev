@@ -7,7 +7,9 @@ tags: ["Kubernetes", "Homelab", "Debugging"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-On a [BMAX Mini PC\*](https://amzn.to/4bv3yF1) running 20+ workloads across a three-node k3s cluster, I had about 20 long-lived services running without a single health probe. A process that hangs — not crashes, but stops responding — would go undetected forever. Kubernetes would keep routing traffic to an unresponsive pod because there's no mechanism to say "this pod is alive but broken."
+*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+On a [BMAX Mini PC\*](https://amzn.to/4bv3yF1) running 20+ workloads across a three-node k3s cluster, I had about 20 long-lived services running without a single health probe. A process that hangs, not crashes but stops responding, would go undetected forever. Kubernetes would keep routing traffic to an unresponsive pod because there's no mechanism to say "this pod is alive but broken."
 
 The fix sounded simple: add `livenessProbe` and `readinessProbe` to every deployment. The reality was six batches of probes, each live-tested against the running pods, and a gotcha on batch one that restarted a healthy pod because of a host-header mismatch nobody warned me about.
 
@@ -17,7 +19,7 @@ The fix sounded simple: add `livenessProbe` and `readinessProbe` to every deploy
 
 Homepage was batch one. I added a standard `httpGet` probe against `/api/healthcheck` on port 3000. Curled it manually from a busybox pod: `200`, probe works. Deployed it. Pod immediately entered a restart loop.
 
-`kubectl describe pod` showed 10 readiness failures and 1 liveness failure. The probe was failing because `HOMEPAGE_ALLOWED_HOSTS` is set to `home.woitzik.dev` plus loopback — a security setting that prevents host-header-based attacks. When kubelet sends an `httpGet` probe, it sends the Pod IP as the `Host` header. Homepage's Next.js host-validation middleware sees `10.0.20.147` in the Host header, it's not in the allowlist, it returns `400`. Kubelet treats `400` as failure.
+`kubectl describe pod` showed 10 readiness failures and 1 liveness failure. The probe was failing because `HOMEPAGE_ALLOWED_HOSTS` is set to `home.woitzik.dev` plus loopback, a security setting that prevents host-header-based attacks. When kubelet sends an `httpGet` probe, it sends the Pod IP as the `Host` header. Homepage's Next.js host-validation middleware sees `10.0.20.147` in the Host header, it's not in the allowlist, it returns `400`. Kubelet treats `400` as failure.
 
 The fix is a `Host` header override on the probe, not loosening the allowlist:
 
@@ -48,7 +50,7 @@ Started with the three highest-blast-radius services where the probe endpoint co
 
 - **Authelia**: `/api/health` on port 9091, returns `{"status":"OK"}`. Already the exact endpoint blackbox-exporter scrapes externally, so this was a known-good path, not a guess.
 - **Garage**: TCP-only on the S3 port. No `wget` or `curl` in the image to verify an HTTP health path against live first. TCP probe it is.
-- **Vaultwarden**: Same — TCP-only, no HTTP health endpoint available in the image.
+- **Vaultwarden**: Same, TCP-only, no HTTP health endpoint available in the image.
 
 ```yaml
 # Authelia — HTTP probe, known-good endpoint
@@ -80,17 +82,17 @@ All three were live-tested by temporarily pausing ArgoCD's selfHeal, applying th
 
 Each endpoint was tested before writing the probe via port-forward or in-container curl against the running pod:
 
-- **cloudflared**: `/ready` on its metrics port (20241). Reports actual tunnel connection count — catches a process that's alive but has lost its tunnel to Cloudflare's edge. Required adding `--metrics 0.0.0.0:20241` so kubelet can reach it from outside the pod network namespace.
+- **cloudflared**: `/ready` on its metrics port (20241). Reports actual tunnel connection count, catches a process that's alive but has lost its tunnel to Cloudflare's edge. Required adding `--metrics 0.0.0.0:20241` so kubelet can reach it from outside the pod network namespace.
 - **gitea**: `/api/healthz` → `{"status":"pass"}`
 - **headscale**: `/health` on the HTTP port → `{"status":"pass"}`
-- **home-assistant**: `/manifest.json` — public, no auth token needed unlike `/api/*`, returns 200 once the frontend is serving
+- **home-assistant**: `/manifest.json`, public, no auth token needed unlike `/api/*`, returns 200 once the frontend is serving
 - **homepage**: `/api/healthcheck` → `"up"` (with the `Host: localhost` override from the gotcha above)
 
 Generous `initialDelaySeconds` and `failureThreshold` on each to avoid flapping during normal startup. Home Assistant especially can take 30+ seconds to fully initialize its integrations.
 
 ## Batch 3: Keel, Mealie, MySpeed, SearXNG, Uptime Kuma
 
-All tested via Pod IP using a temporary busybox pod or a same-namespace pod's `wget` — not `localhost`:
+All tested via Pod IP using a temporary busybox pod or a same-namespace pod's `wget`, not `localhost`:
 
 - **keel**: `/healthz` → 200, empty body
 - **mealie**: `/api/app/about` → public JSON, no auth needed
@@ -102,7 +104,7 @@ The lesson from batch one: always test probes via Pod IP, not `localhost`. A pro
 
 ## Batch 4: Immich Stack
 
-Immich had zero probes across all four workloads — postgres, valkey, server, and ml. One logical stack, so all four fixed together:
+Immich had zero probes across all four workloads: postgres, valkey, server, and ml. One logical stack, so all four fixed together:
 
 - **immich-postgres**: `pg_isready -U immich` → accepting connections
 - **immich-valkey**: `valkey-cli ping` → PONG
@@ -128,12 +130,12 @@ The final batch, same Host header gotcha as Homepage:
 
 Every probe was live-tested against the actual running pod before committing. Not guessed from docs, not assumed from README files. The endpoint, the expected response, and the Host header behavior were all confirmed against the real deployment.
 
-For PostgreSQL instances, `pg_isready` is the canonical liveness probe. For Redis/Valkey, `redis-cli ping` or `valkey-cli ping`. For HTTP services, find the lightest public endpoint that doesn't require authentication. If the app validates Host headers, add the override — don't widen the allowlist.
+For PostgreSQL instances, `pg_isready` is the canonical liveness probe. For Redis/Valkey, `redis-cli ping` or `valkey-cli ping`. For HTTP services, find the lightest public endpoint that doesn't require authentication. If the app validates Host headers, add the override, don't widen the allowlist.
 
 The `initialDelaySeconds` and `failureThreshold` values vary per service. Home Assistant needs 30+ seconds. Immich ML needs time for model loading. Authelia is fast. Copy-pasting the same probe config across all deployments is how you get false-positive restart loops.
 
 ---
 
-Health probes in Kubernetes are the same principle as Azure's health monitoring: Application Gateway health probes, AKS node health, Cosmos DB connection validation — all require understanding what "healthy" means for the specific service, not a generic HTTP 200 check.
+Health probes in Kubernetes are the same principle as Azure's health monitoring: Application Gateway health probes, AKS node health, Cosmos DB connection validation, all require understanding what "healthy" means for the specific service, not a generic HTTP 200 check.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

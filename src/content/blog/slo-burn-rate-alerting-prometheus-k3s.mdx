@@ -7,6 +7,8 @@ tags: ["Kubernetes", "Monitoring", "Homelab"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
 Most uptime alerts look like this:
 
 ```yaml
@@ -19,7 +21,7 @@ That fires when a service is completely down for two minutes. It won't fire when
 
 Burn-rate alerting is a different model. Instead of alerting on current state, it alerts on **how fast you're spending your error budget**. A 30x burn rate means you'll exhaust your entire month of tolerance in about 50 minutes. A 6x burn rate means you have a few hours. Both warrant action - just different kinds of action.
 
-This is the implementation running on my bare-metal k3s cluster ([BMAX Mini PC\*](https://amzn.to/4bv3yF1) with 64GB), based directly on the multi-window multi-burn-rate approach from the [Google SRE Workbook](https://sre.google/workbook/alerting-on-slos/). I also track server power draw via a [Tapo P110\*](https://amzn.to/3STKPwD) — useful for correlating outages with power events.
+This is the implementation running on my bare-metal k3s cluster ([BMAX Mini PC\*](https://amzn.to/4bv3yF1) with 64GB), based directly on the multi-window multi-burn-rate approach from the [Google SRE Workbook](https://sre.google/workbook/alerting-on-slos/). I also track server power draw via a [Tapo P110\*](https://amzn.to/3STKPwD): useful for correlating outages with power events.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 

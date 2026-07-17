@@ -7,6 +7,8 @@ tags: ["MikroTik", "Terraform", "Security", "Networking"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
 I wrote an [article about building a zero-trust MikroTik firewall with Terraform](/blog/mikrotik-zero-trust-firewall-terraform) - default-deny chains, explicit allow rules, `place_before` for deterministic ordering. This runs on the [RB5009\*](https://amzn.to/4w08b21), whose hardware-offloaded switching matters once you're carrying multiple VLANs across a trunk. The Terraform code was correct. I'd run `terraform plan` regularly and it showed no drift.
 
 The live router had 77 firewall filter rules. The Terraform configuration tracked 22.

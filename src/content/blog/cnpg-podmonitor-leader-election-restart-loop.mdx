@@ -7,9 +7,11 @@ tags: ["Kubernetes", "Homelab", "Debugging"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
 Two problems. Same database namespace. Discovered one after the other because fixing the first one required understanding the second. All of it running on a [BMAX Mini PC\*](https://amzn.to/4bv3yF1) with the [MikroTik RB5009\*](https://amzn.to/4w08b21) handling the network between the cluster and everything else.
 
-The CNPG (CloudNativePG) operator had restarted 310 times in 21 days. Meanwhile, its PodMonitor — the thing that was supposed to scrape PostgreSQL metrics into Prometheus — had never actually collected a single data point. Both issues were live, both were silent, and both traced back to the same root cause: a mismatch between what the operator assumed about the cluster and what the cluster actually required.
+The CNPG (CloudNativePG) operator had restarted 310 times in 21 days. Meanwhile, its PodMonitor, the thing that was supposed to scrape PostgreSQL metrics into Prometheus, had never actually collected a single data point. Both issues were live, both were silent, and both traced back to the same root cause: a mismatch between what the operator assumed about the cluster and what the cluster actually required.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -21,7 +23,7 @@ In practice, the operator-generated PodMonitor only carries the `cnpg.io/cluster
 
 The PodMonitor showed as `Synced` and `Healthy` in ArgoCD. CNPG reported it as created. Everything looked fine. But `kubectl get podmonitor -n database` showed the operator-generated one had no `release` label, and `kubectl get prometheus -o jsonpath='{.spec.podMonitorSelector}'` confirmed the selector required it. The metrics endpoint on `:9187` was never scraped.
 
-No CNPG CRD field adds metadata labels to the auto-generated PodMonitor. `podMonitorRelabelings` only rewrites samples after they're scraped — it can't make Prometheus notice the object in the first place. The fix was to disable the operator's own PodMonitor and replace it with a git-managed one:
+No CNPG CRD field adds metadata labels to the auto-generated PodMonitor. `podMonitorRelabelings` only rewrites samples after they're scraped, it can't make Prometheus notice the object in the first place. The fix was to disable the operator's own PodMonitor and replace it with a git-managed one:
 
 ```yaml
 # kubernetes/system/postgres/cluster.yml
@@ -50,7 +52,7 @@ spec:
 
 Both labels. The git-managed version is the one Prometheus actually selects. The operator's own version is disabled. This is the same pattern as every other monitoring resource in this cluster: if Prometheus needs to see it, you manage the label yourself, don't rely on the operator to guess what your selector requires.
 
-The new file also had to be added to the ArgoCD Application's `directory.include` pattern — the postgres Application only syncs explicitly listed YAML files, not everything in the directory. Missing this means the PodMonitor gets created in git but never applied:
+The new file also had to be added to the ArgoCD Application's `directory.include` pattern, the postgres Application only syncs explicitly listed YAML files, not everything in the directory. Missing this means the PodMonitor gets created in git but never applied:
 
 ```yaml
 include: '{cluster,external-secret,scheduled-backup,backup-config,network-policies,postgres-monitoring}.yml'
@@ -66,7 +68,7 @@ Every restart's previous-container log ended the same way:
 context deadline exceeded
 ```
 
-On a `Lease PUT` — the leader-election renewal. The CNPG operator uses controller-runtime's standard leader-election mechanism: a single replica holds a Lease object, and when it can't renew that Lease within the deadline, controller-runtime terminates the process so another instance can take over. With a single replica, there's no other instance. The process dies, Kubernetes restarts it, it acquires leadership again, and the cycle repeats.
+On a `Lease PUT`, the leader-election renewal. The CNPG operator uses controller-runtime's standard leader-election mechanism: a single replica holds a Lease object, and when it can't renew that Lease within the deadline, controller-runtime terminates the process so another instance can take over. With a single replica, there's no other instance. The process dies, Kubernetes restarts it, it acquires leadership again, and the cycle repeats.
 
 The defaults are `--leader-lease-duration=15s` and `--leader-renew-deadline=10s`. On a host with documented I/O fragility (the same one that caused the etcd cascading failure I wrote about earlier), a brief apiserver latency blip pushes the renewal past the 10-second deadline. Controller-runtime kills the process. Kubernetes restarts it. The operator is healthy for hours, then one blip kills it again.
 
@@ -84,7 +86,7 @@ spec:
             - --leader-renew-deadline=50
 ```
 
-I confirmed both flags exist via the live v1.25.0 binary's `--help` output before applying. Not guessed, not assumed — the same discipline I apply to every Terraform resource: check what's actually available, don't rely on documentation that might be version-skewed.
+I confirmed both flags exist via the live v1.25.0 binary's `--help` output before applying. Not guessed, not assumed, the same discipline I apply to every Terraform resource: check what's actually available, don't rely on documentation that might be version-skewed.
 
 After applying, restarts dropped to zero. The operator stopped dying on every apiserver latency blip because a 50-second renewal deadline is generous enough to survive the I/O spikes that this host reliably produces.
 
@@ -92,7 +94,7 @@ After applying, restarts dropped to zero. The operator stopped dying on every ap
 
 Both issues share the same root cause: assumptions that don't match reality.
 
-The PodMonitor assumed the operator would add the right labels. The operator assumed Prometheus would select any PodMonitor with the cluster label. Neither was true, and both failures were silent — the PodMonitor existed, looked healthy, and did nothing.
+The PodMonitor assumed the operator would add the right labels. The operator assumed Prometheus would select any PodMonitor with the cluster label. Neither was true, and both failures were silent, the PodMonitor existed, looked healthy, and did nothing.
 
 The leader-election assumed a 10-second renewal deadline was enough. On a host that regularly produces I/O latency spikes, it wasn't. The operator died, restarted, and the death was invisible unless you specifically checked the restart count.
 
@@ -100,6 +102,6 @@ The fix for both was the same: stop relying on defaults and assumptions, manage 
 
 ---
 
-Configuring operators for real hardware — not the idealized environment the defaults assume — is the same problem in enterprise Azure: AKS node pools have their own I/O profiles, managed PostgreSQL has its own failover timing, and the defaults are tuned for average cases, not your specific failure modes.
+Configuring operators for real hardware, not the idealized environment the defaults assume, is the same problem in enterprise Azure: AKS node pools have their own I/O profiles, managed PostgreSQL has its own failover timing, and the defaults are tuned for average cases, not your specific failure modes.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

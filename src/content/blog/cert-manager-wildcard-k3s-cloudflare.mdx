@@ -7,7 +7,9 @@ tags: ["Kubernetes", "Homelab", "Security"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-Getting TLS certificates for public-facing services is straightforward - Let's Encrypt's HTTP-01 challenge just works. But for a homelab where services run on internal IPs behind a firewall — a [MikroTik RB5009\*](https://amzn.to/4w08b21) with default-deny rules — HTTP-01 is impossible. Let's Encrypt can't reach your cluster to verify ownership.
+*Disclosure: This post contains Amazon affiliate links (marked with *). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+Getting TLS certificates for public-facing services is straightforward - Let's Encrypt's HTTP-01 challenge just works. But for a homelab where services run on internal IPs behind a firewall, a [MikroTik RB5009\*](https://amzn.to/4w08b21) with default-deny rules, HTTP-01 is impossible. Let's Encrypt can't reach your cluster to verify ownership.
 
 The solution is DNS-01 challenge validation: instead of proving you control a domain by serving a file over HTTP, you prove it by creating a DNS TXT record. This works entirely offline - your cluster never needs to be publicly reachable.
 
