@@ -1,0 +1,40 @@
+---
+interface Props {
+  variant?: "inline" | "compact";
+}
+
+const { variant = "inline" } = Astro.props;
+---
+
+{
+  variant === "compact" && (
+    <div class="not-prose my-8 flex items-center gap-3 p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
+      <div class="shrink-0 w-8 h-8 rounded-full bg-sky-500/10 flex items-center justify-center">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="text-sky-500"
+        >
+          <rect width="20" height="16" x="2" y="4" rx="2" />
+          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+        </svg>
+      </div>
+      <p class="text-sm text-neutral-600 dark:text-neutral-300 m-0 flex-1">
+        Enjoying this? Get the next deep dive in your inbox.
+      </p>
+      <a
+        href="#email-capture"
+        class="text-sm font-semibold text-sky-600 dark:text-sky-400 hover:underline whitespace-nowrap"
+      >
+        Subscribe &rarr;
+      </a>
+    </div>
+  )
+}

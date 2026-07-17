@@ -51,6 +51,10 @@ const {
 />
 <meta name="generator" content={Astro.generator} />
 
+<!-- PWA -->
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#0ea5e9" />
+
 <!-- Font preloads -->
 <link rel="preload" href={inter400} as="font" type="font/woff2" crossorigin />
 <link rel="preload" href={inter600} as="font" type="font/woff2" crossorigin />
@@ -112,6 +116,14 @@ const {
   type="application/rss+xml"
   title={SITE.NAME}
   href={new URL("rss.xml", Astro.site)}
+/>
+
+<!-- llms.txt -->
+<link
+  rel="alternate"
+  type="text/plain"
+  href="/llms.txt"
+  title="LLM-friendly site summary"
 />
 
 <script>
@@ -238,11 +250,39 @@ const {
       pre.parentNode.insertBefore(wrapper, pre);
       wrapper.appendChild(pre);
 
+      const code = pre.querySelector("code");
+      const langClass = code?.className?.match(/language-(\w+)/);
+      if (langClass) {
+        const label = document.createElement("span");
+        label.className = "lang-label";
+        label.textContent = langClass[1];
+        wrapper.appendChild(label);
+      }
+
+      // Diff highlighting for lines starting with + or -
+      if (code) {
+        const text = code.innerHTML;
+        if (
+          text.includes("\n") &&
+          (text.match(/^[+-]/m) || text.match(/^\\n[+-]/m))
+        ) {
+          code.innerHTML = text
+            .split("\n")
+            .map((line) => {
+              if (line.startsWith("+"))
+                return `<span class="diff-add">${line}</span>`;
+              if (line.startsWith("-"))
+                return `<span class="diff-remove">${line}</span>`;
+              return line;
+            })
+            .join("\n");
+        }
+      }
+
       const btn = document.createElement("button");
       btn.className = "copy-button";
       btn.textContent = "Copy";
       btn.addEventListener("click", () => {
-        const code = pre.querySelector("code");
         navigator.clipboard
           .writeText(code ? code.innerText : pre.innerText)
           .then(() => {
@@ -263,4 +303,50 @@ const {
   document.addEventListener("DOMContentLoaded", initCopyButtons);
   document.addEventListener("astro:after-swap", initCopyButtons);
   preloadTheme();
+
+  // Mermaid diagram rendering
+  function initMermaid() {
+    const blocks = document.querySelectorAll("code.language-mermaid");
+    if (blocks.length === 0) return;
+    const existingScript = document.querySelector("script[src*='mermaid']");
+    if (existingScript) {
+      renderMermaidBlocks(blocks);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
+    script.onload = () => {
+      window.mermaid?.initialize({
+        startOnLoad: false,
+        theme: document.documentElement.classList.contains("dark")
+          ? "dark"
+          : "default",
+        fontFamily: "Inter, sans-serif",
+      });
+      renderMermaidBlocks(blocks);
+    };
+    document.head.appendChild(script);
+  }
+
+  function renderMermaidBlocks(blocks) {
+    blocks.forEach(async (code) => {
+      const pre = code.parentElement;
+      if (!pre || pre.getAttribute("data-mermaid") === "rendered") return;
+      pre.setAttribute("data-mermaid", "rendered");
+      const container = document.createElement("div");
+      container.className = "not-prose my-6 overflow-x-auto";
+      const id = "mermaid-" + Math.random().toString(36).slice(2, 8);
+      const { svg } = await window.mermaid.render(id, code.textContent || "");
+      container.innerHTML = svg;
+      pre.replaceWith(container);
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", initMermaid);
+  document.addEventListener("astro:after-swap", initMermaid);
+
+  // Service Worker registration
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }
 </script>

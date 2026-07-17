@@ -1,0 +1,63 @@
+---
+interface Props {
+  type?: "note" | "tip" | "warning";
+  title?: string;
+}
+
+const { type = "note", title } = Astro.props;
+
+const config = {
+  note: {
+    label: title ?? "Note",
+    border: "border-sky-500",
+    bg: "bg-sky-50 dark:bg-sky-950/30",
+    icon: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z",
+    textColor: "text-sky-800 dark:text-sky-200",
+    titleColor: "text-sky-900 dark:text-sky-100",
+    iconColor: "text-sky-500",
+  },
+  tip: {
+    label: title ?? "Tip",
+    border: "border-emerald-500",
+    bg: "bg-emerald-50 dark:bg-emerald-950/30",
+    icon: "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
+    textColor: "text-emerald-800 dark:text-emerald-200",
+    titleColor: "text-emerald-900 dark:text-emerald-100",
+    iconColor: "text-emerald-500",
+  },
+  warning: {
+    label: title ?? "Warning",
+    border: "border-amber-500",
+    bg: "bg-amber-50 dark:bg-amber-950/30",
+    icon: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z",
+    textColor: "text-amber-800 dark:text-amber-200",
+    titleColor: "text-amber-900 dark:text-amber-100",
+    iconColor: "text-amber-500",
+  },
+};
+
+const c = config[type];
+---
+
+<aside
+  class:list={["not-prose my-6 rounded-lg border-l-4 p-4", c.border, c.bg]}
+>
+  <div class="flex items-center gap-2 mb-2">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      class={c.iconColor}
+    >
+      <path d={c.icon}></path>
+    </svg>
+    <span class:list={["font-semibold text-sm", c.titleColor]}>
+      {c.label}
+    </span>
+  </div>
+  <div class:list={["text-sm leading-relaxed", c.textColor]}>
+    <slot />
+  </div>
+</aside>

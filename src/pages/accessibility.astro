@@ -1,0 +1,134 @@
+---
+const accessibilityFeatures = [
+  {
+    title: "Semantic HTML",
+    description:
+      "All pages use proper HTML5 semantic elements: <header>, <nav>, <main>, <article>, <footer>, <aside>.",
+  },
+  {
+    title: "Keyboard Navigation",
+    description:
+      "All interactive elements (links, buttons, form inputs) are fully accessible via keyboard. Visible focus indicators appear on every focusable element.",
+  },
+  {
+    title: "Skip to Content",
+    description:
+      'A "Skip to content" link appears as the first focusable element on every page, allowing keyboard users to bypass navigation.',
+  },
+  {
+    title: "Color Contrast",
+    description:
+      "Text colors meet WCAG 2.2 AA contrast ratios (4.5:1 for normal text, 3:1 for large text) in both light and dark modes.",
+  },
+  {
+    title: "Dark Mode",
+    description:
+      "A three-way theme toggle (light/dark/system) respects your operating system preference and persists your choice.",
+  },
+  {
+    title: "Responsive Design",
+    description:
+      "All pages are fully responsive and readable on screens from 320px to 2560px+ without horizontal scrolling.",
+  },
+  {
+    title: "Alt Text",
+    description:
+      "All meaningful images include descriptive alt text. Decorative images use empty alt attributes.",
+  },
+  {
+    title: "Reduced Motion",
+    description:
+      "Animations use CSS transitions that can be overridden by the prefers-reduced-motion media query.",
+  },
+  {
+    title: "Form Labels",
+    description:
+      "All form inputs have associated labels or placeholder text for screen reader compatibility.",
+  },
+  {
+    title: "ARIA Attributes",
+    description:
+      "Interactive components use appropriate ARIA roles, labels, and states (e.g., aria-label on icon buttons, role=tablist on tab components).",
+  },
+];
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Accessibility Statement | woitzik.dev</title>
+    <meta
+      name="description"
+      content="Accessibility features and commitments for woitzik.dev"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon-dark.svg" />
+  </head>
+  <body
+    class="font-sans antialiased bg-stone-100 dark:bg-stone-900 text-black/70 dark:text-white/70"
+  >
+    <main class="max-w-2xl mx-auto px-6 py-16">
+      <a
+        href="/"
+        class="text-sm text-sky-600 dark:text-sky-400 hover:underline mb-8 inline-block"
+        >&larr; Back to woitzik.dev</a
+      >
+
+      <h1 class="text-3xl font-bold text-black dark:text-white mb-4">
+        Accessibility Statement
+      </h1>
+
+      <p class="text-neutral-600 dark:text-neutral-300 mb-8 leading-relaxed">
+        I am committed to ensuring digital accessibility for all visitors to
+        woitzik.dev. This page describes the accessibility features implemented
+        on this site and my ongoing commitment to maintaining an inclusive
+        experience.
+      </p>
+
+      <h2 class="text-xl font-semibold text-black dark:text-white mb-4 mt-10">
+        Accessibility Features
+      </h2>
+
+      <div class="space-y-4">
+        {
+          accessibilityFeatures.map((feature) => (
+            <div class="p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50">
+              <h3 class="font-semibold text-sm text-black dark:text-white mb-1">
+                {feature.title}
+              </h3>
+              <p class="text-sm text-neutral-500 dark:text-neutral-400 m-0 leading-relaxed">
+                {feature.description}
+              </p>
+            </div>
+          ))
+        }
+      </div>
+
+      <h2 class="text-xl font-semibold text-black dark:text-white mb-4 mt-10">
+        Standards
+      </h2>
+      <p class="text-neutral-600 dark:text-neutral-300 leading-relaxed">
+        This site strives to conform to <strong>WCAG 2.2 Level AA</strong> standards.
+        I regularly test with screen readers (VoiceOver, NVDA) and keyboard-only navigation.
+      </p>
+
+      <h2 class="text-xl font-semibold text-black dark:text-white mb-4 mt-10">
+        Feedback
+      </h2>
+      <p class="text-neutral-600 dark:text-neutral-300 leading-relaxed">
+        If you encounter any accessibility barriers on this site, please contact
+        me at
+        <a
+          href="mailto:david@woitzik.dev"
+          class="text-sky-600 dark:text-sky-400 hover:underline"
+          >david@woitzik.dev</a
+        >. I take accessibility reports seriously and will respond within 48
+        hours.
+      </p>
+
+      <p class="text-xs text-neutral-400 dark:text-neutral-500 mt-12">
+        Last updated: July 2026
+      </p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "Azure": "Azure cloud architecture, networking, and compliance — Hub & Spoke, Firewall, Private Link, and zero-trust patterns.",
+  "Terraform": "Infrastructure as Code with Terraform — from MikroTik VLANs to enterprise Azure modules.",
+  "Kubernetes": "Running production workloads on K3s — ArgoCD GitOps, Velero backups, network policies, and troubleshooting.",
+  "Security": "Security findings, secret scanning, firewall hardening, and incident post-mortems from a real homelab.",
+  "Homelab": "Physical hardware, Proxmox LXC, Raspberry Pi clusters, and the infrastructure behind this blog.",
+  "Networking": "MikroTik RouterOS, VLAN segmentation, WireGuard VPN, QoS, and network engineering.",
+  "Compliance": "ISO 27001, NIS2, KRITIS — translating audit requirements into Terraform code.",
+  "GitOps": "ArgoCD, Atlantis, Renovate — managing infrastructure through Git workflows.",
+  "AI": "Azure OpenAI, RAG pipelines, local LLM inference, and AI infrastructure.",
+  "DevOps": "CI/CD pipelines, monitoring stacks, Prometheus, Grafana, and observability."
+}

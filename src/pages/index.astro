@@ -10,7 +10,11 @@ import EmailCapture from "@components/EmailCapture.astro";
 
 const blog = (await getCollection("blog"))
   .filter((post) => !post.data.draft)
-  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+  .sort((a, b) => {
+    if (a.data.pinned && !b.data.pinned) return -1;
+    if (!a.data.pinned && b.data.pinned) return 1;
+    return b.data.date.valueOf() - a.data.date.valueOf();
+  });
 
 const projects = (await getCollection("projects"))
   .filter((project) => !project.data.draft)
@@ -102,9 +106,16 @@ const techStack = [
                   class="group flex flex-col gap-2 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-500 transition-colors"
                 >
                   <div class="flex items-center gap-2 justify-between">
-                    <h3 class="font-semibold text-sm text-black dark:text-white leading-snug">
-                      {post.data.title}
-                    </h3>
+                    <div class="flex items-center gap-2">
+                      {post.data.pinned && (
+                        <span class="text-[0.6rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 shrink-0">
+                          Pinned
+                        </span>
+                      )}
+                      <h3 class="font-semibold text-sm text-black dark:text-white leading-snug">
+                        {post.data.title}
+                      </h3>
+                    </div>
                     <span class="text-xs opacity-30 shrink-0">
                       {post.data.date.toLocaleDateString("en-GB", {
                         day: "2-digit",

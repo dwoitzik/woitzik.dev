@@ -7,30 +7,49 @@ import { readingTime } from "@lib/utils";
 import BackToPrev from "@components/BackToPrev.astro";
 import TableOfContents from "@components/TableOfContents.astro";
 import EmailCapture from "@components/EmailCapture.astro";
+import ShareButtons from "@components/ShareButtons.astro";
+import AuthorBio from "@components/AuthorBio.astro";
+import Giscus from "@components/Giscus.astro";
+import FeedbackWidget from "@components/FeedbackWidget.astro";
 
 export async function getStaticPaths() {
   const posts = (await getCollection("blog"))
     .filter((post) => !post.data.draft)
     .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
-  return posts.map((post, index) => ({
-    params: { slug: post.slug },
-    props: {
-      post,
-      prev: posts[index + 1] ?? null,
-      next: posts[index - 1] ?? null,
-    },
-  }));
+
+  return posts.map((post, index) => {
+    const postTags = post.data.tags?.map((t) => t.toLowerCase()) ?? [];
+    const related = posts
+      .filter(
+        (p) =>
+          p.slug !== post.slug &&
+          p.data.tags?.some((t) => postTags.includes(t.toLowerCase())),
+      )
+      .slice(0, 3);
+
+    return {
+      params: { slug: post.slug },
+      props: {
+        post,
+        prev: posts[index + 1] ?? null,
+        next: posts[index - 1] ?? null,
+        related,
+      },
+    };
+  });
 }
 
 interface Props {
   post: CollectionEntry<"blog">;
   prev: CollectionEntry<"blog"> | null;
   next: CollectionEntry<"blog"> | null;
+  related: CollectionEntry<"blog">[];
 }
 
-const { post, prev, next } = Astro.props;
+const { post, prev, next, related } = Astro.props;
 const { Content, headings } = await post.render();
 const tocHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
+const postUrl = `https://woitzik.dev/blog/${post.slug}/`;
 
 const jsonLd = {
   "@context": "https://schema.org",
@@ -38,12 +57,13 @@ const jsonLd = {
   headline: post.data.title,
   description: post.data.description,
   datePublished: post.data.date.toISOString(),
+  dateModified: (post.data.updated ?? post.data.date).toISOString(),
   author: {
     "@type": "Person",
     name: "David Woitzik",
     url: "https://woitzik.dev",
   },
-  url: `https://woitzik.dev/blog/${post.slug}/`,
+  url: postUrl,
 };
 ---
 
@@ -64,15 +84,62 @@ const jsonLd = {
   </div>
 
   <Container>
+    <!-- Breadcrumbs -->
+    <nav
+      class="animate text-xs text-neutral-400 dark:text-neutral-500 mb-6"
+      aria-label="Breadcrumb"
+    >
+      <ol class="flex items-center gap-1.5 flex-wrap">
+        <li>
+          <a href="/" class="hover:text-sky-500 transition-colors">Home</a>
+        </li>
+        <li aria-hidden="true">/</li>
+        <li>
+          <a href="/blog/" class="hover:text-sky-500 transition-colors">Blog</a>
+        </li>
+        {
+          post.data.tags && post.data.tags.length > 0 && (
+            <>
+              <li aria-hidden="true">/</li>
+              <li>
+                <a
+                  href={`/blog/tag/${post.data.tags[0].toLowerCase()}/`}
+                  class="hover:text-sky-500 transition-colors"
+                >
+                  {post.data.tags[0]}
+                </a>
+              </li>
+            </>
+          )
+        }
+        <li aria-hidden="true">/</li>
+        <li class="text-black/50 dark:text-white/60 truncate max-w-[200px]">
+          {post.data.title}
+        </li>
+      </ol>
+    </nav>
+
     <div class="animate">
       <BackToPrev href="/blog/">Back to blog</BackToPrev>
     </div>
 
     <div class="space-y-3 my-10">
-      <div class="animate flex items-center gap-1.5 text-sm opacity-60">
+      <div
+        class="animate flex items-center gap-1.5 text-sm opacity-60 flex-wrap"
+      >
         <FormattedDate date={post.data.date} />
         &bull;
         <span>{readingTime(post.body)}</span>
+        {
+          post.data.updated && (
+            <>
+              &bull;
+              <span>
+                Updated <FormattedDate date={post.data.updated} />
+              </span>
+            </>
+          )
+        }
       </div>
       <h1 class="animate text-2xl font-semibold text-black dark:text-white">
         {post.data.title}
@@ -111,11 +178,56 @@ const jsonLd = {
           <Content />
         </article>
 
+        <!-- Share + Author -->
+        <div
+          class="animate mt-10 flex flex-wrap items-center justify-between gap-4"
+        >
+          <ShareButtons title={post.data.title} url={postUrl} />
+        </div>
+
+        <div class="animate mt-8">
+          <AuthorBio />
+        </div>
+
+        <div class="animate">
+          <FeedbackWidget slug={post.slug} />
+        </div>
+
+        <!-- Related Posts -->
+        {
+          related.length > 0 && (
+            <div class="animate mt-12">
+              <h2 class="text-sm font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500 mb-4">
+                Related articles
+              </h2>
+              <div class="grid gap-4 sm:grid-cols-2">
+                {related.map((p) => (
+                  <a
+                    href={`/blog/${p.slug}/`}
+                    class="group block p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 hover:border-sky-500/50 transition-colors"
+                  >
+                    <h3 class="text-sm font-semibold text-black dark:text-white group-hover:text-sky-500 transition-colors leading-snug m-0">
+                      {p.data.title}
+                    </h3>
+                    <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 m-0 line-clamp-2">
+                      {p.data.description}
+                    </p>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )
+        }
+
         <div class="animate mt-12">
           <EmailCapture
             title="More like this in your inbox"
             description="New enterprise modules and deep dives — straight to your inbox. No spam."
           />
+        </div>
+
+        <div class="animate">
+          <Giscus />
         </div>
 
         {
@@ -166,7 +278,11 @@ const jsonLd = {
   </Container>
 </PageLayout>
 
-<script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+<script
+  is:inline
+  type="application/ld+json"
+  set:html={JSON.stringify(jsonLd)}
+/>
 
 <script is:inline>
   function updateProgress() {

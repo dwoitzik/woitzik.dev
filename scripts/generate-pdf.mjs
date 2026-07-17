@@ -49,7 +49,7 @@ if (isWindowsChrome) {
 const html = readFileSync(htmlPath, "utf8");
 
 // Serve HTML on localhost so Chrome can load fonts etc.
-const server = createServer((req, res) => {
+const server = createServer((_, res) => {
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 });

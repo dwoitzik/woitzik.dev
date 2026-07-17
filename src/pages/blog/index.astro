@@ -6,50 +6,74 @@ import ArrowCard from "@components/ArrowCard.astro";
 import { BLOG } from "@consts";
 
 const data = (await getCollection("blog"))
-  .filter(post => !post.data.draft)
+  .filter((post) => !post.data.draft)
   .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
-  
+
 type Acc = {
   [year: string]: CollectionEntry<"blog">[];
-}
+};
 
 const posts = data.reduce((acc: Acc, post) => {
-    const year = post.data.date.getFullYear().toString();
-    if (!acc[year]) {
-      acc[year] = [];
-    }
-    acc[year].push(post);
-    return acc;
-  }, {});
+  const year = post.data.date.getFullYear().toString();
+  if (!acc[year]) {
+    acc[year] = [];
+  }
+  acc[year].push(post);
+  return acc;
+}, {});
 
-const years = Object.keys(posts).sort((a, b) => parseInt(b) - parseInt(a)); 
+const years = Object.keys(posts).sort((a, b) => parseInt(b) - parseInt(a));
+const allTags = [...new Set(data.flatMap((p) => p.data.tags ?? []))].sort();
 ---
 
 <PageLayout title={BLOG.TITLE} description={BLOG.DESCRIPTION}>
   <Container>
     <div class="space-y-10">
-      <div class="animate font-semibold text-black dark:text-white">
-        Blog
+      <div class="animate space-y-3">
+        <div class="font-semibold text-black dark:text-white">Blog</div>
+        <p class="text-sm text-neutral-500 dark:text-neutral-400">
+          {data.length} article{data.length !== 1 ? "s" : ""} on infrastructure, automation,
+          and cloud.
+        </p>
       </div>
+
+      <!-- Tag filter -->
+      <div class="animate flex flex-wrap gap-1.5">
+        <a
+          href="/blog/"
+          class="text-xs px-2.5 py-1 rounded-full border border-sky-500 bg-sky-500/10 text-sky-600 dark:text-sky-400 font-medium"
+        >
+          All
+        </a>
+        {
+          allTags.map((tag) => (
+            <a
+              href={`/blog/tag/${tag.toLowerCase()}/`}
+              class="text-xs px-2.5 py-1 rounded-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-sky-500 hover:text-sky-500 transition-colors"
+            >
+              {tag}
+            </a>
+          ))
+        }
+      </div>
+
       <div class="space-y-4">
-        {years.map(year => (
-          <section class="animate space-y-4">
-            <div class="font-semibold text-black dark:text-white">
-              {year}
-            </div>
-            <div>
-              <ul class="flex flex-col gap-4">
-                {
-                  posts[year].map((post) => (
+        {
+          years.map((year) => (
+            <section class="animate space-y-4">
+              <div class="font-semibold text-black dark:text-white">{year}</div>
+              <div>
+                <ul class="flex flex-col gap-4">
+                  {posts[year].map((post) => (
                     <li>
-                      <ArrowCard entry={post}/>
+                      <ArrowCard entry={post} />
                     </li>
-                  ))
-                }
-              </ul>
-            </div>
-          </section>
-        ))}
+                  ))}
+                </ul>
+              </div>
+            </section>
+          ))
+        }
       </div>
     </div>
   </Container>

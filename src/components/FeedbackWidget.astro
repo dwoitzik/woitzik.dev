@@ -1,0 +1,84 @@
+---
+interface Props {
+  slug: string;
+}
+
+const { slug } = Astro.props;
+---
+
+<div
+  class="not-prose my-8 flex items-center gap-4 p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50"
+>
+  <span class="text-sm text-neutral-500 dark:text-neutral-400 shrink-0">
+    War das hilfreich?
+  </span>
+  <div class="flex gap-2">
+    <button
+      data-feedback="up"
+      data-slug={slug}
+      class="feedback-btn px-3 py-1.5 text-sm rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-emerald-500 hover:text-emerald-500 transition-colors"
+    >
+      Ja
+    </button>
+    <button
+      data-feedback="down"
+      data-slug={slug}
+      class="feedback-btn px-3 py-1.5 text-sm rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-red-500 hover:text-red-500 transition-colors"
+    >
+      Nein
+    </button>
+  </div>
+  <span
+    data-feedback-result
+    class="text-xs text-neutral-400 dark:text-neutral-500 hidden"
+  >
+    Danke für das Feedback!
+  </span>
+</div>
+
+<script is:inline>
+  document.addEventListener("astro:page-load", () => {
+    document.querySelectorAll(".feedback-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const slug = btn.getAttribute("data-slug");
+        const type = btn.getAttribute("data-feedback");
+        if (!slug || !type) return;
+
+        try {
+          const key = `feedback-${slug}`;
+          localStorage.setItem(key, type);
+        } catch {
+          /* localStorage may be unavailable */
+        }
+
+        document.querySelectorAll(`[data-slug="${slug}"]`).forEach((b) => {
+          b.disabled = true;
+          b.classList.add("opacity-40");
+        });
+
+        const result = btn.parentElement?.parentElement?.querySelector(
+          "[data-feedback-result]",
+        );
+        if (result) {
+          result.classList.remove("hidden");
+        }
+      });
+
+      // Restore state
+      try {
+        const slug = btn.getAttribute("data-slug");
+        const saved = localStorage.getItem(`feedback-${slug}`);
+        if (saved === btn.getAttribute("data-feedback")) {
+          btn.disabled = true;
+          btn.classList.add("opacity-40");
+          const result = btn.parentElement?.parentElement?.querySelector(
+            "[data-feedback-result]",
+          );
+          if (result) result.classList.remove("hidden");
+        }
+      } catch {
+        /* localStorage may be unavailable */
+      }
+    });
+  });
+</script>

@@ -6,21 +6,24 @@ const blog = defineCollection({
     title: z.string(),
     description: z.string(),
     date: z.coerce.date(),
+    updated: z.coerce.date().optional(),
     draft: z.boolean().optional(),
+    pinned: z.boolean().optional(),
     tags: z.array(z.string()).optional(),
   }),
 });
 
 const certs = defineCollection({
   type: "content",
-  schema: ({ image }) => z.object({
-    company: z.string(),
-    role: z.string(),
-    dateStart: z.coerce.date(),
-    dateEnd: z.coerce.date().optional(),
-    image: image().optional(),
-    draft: z.boolean().optional(),
-  }),
+  schema: ({ image }) =>
+    z.object({
+      company: z.string(),
+      role: z.string(),
+      dateStart: z.coerce.date(),
+      dateEnd: z.coerce.date().optional(),
+      image: image().optional(),
+      draft: z.boolean().optional(),
+    }),
 });
 
 const projects = defineCollection({

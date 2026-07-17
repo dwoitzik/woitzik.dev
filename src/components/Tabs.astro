@@ -1,0 +1,98 @@
+---
+export interface Tab {
+  label: string;
+  content: string;
+}
+
+interface Props {
+  tabs: Tab[];
+  group?: string;
+}
+
+const { tabs, group = "default" } = Astro.props;
+const groupId = `tabs-${group}-${Math.random().toString(36).slice(2, 8)}`;
+---
+
+<div
+  class="not-prose my-6 rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden"
+>
+  <div
+    class="flex border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50"
+    role="tablist"
+  >
+    {
+      tabs.map((tab, i) => (
+        <button
+          role="tab"
+          data-tab={`${groupId}-${i}`}
+          data-group={groupId}
+          aria-selected={i === 0 ? "true" : "false"}
+          class:list={[
+            "px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px",
+            i === 0
+              ? "border-sky-500 text-sky-600 dark:text-sky-400"
+              : "border-transparent text-neutral-500 dark:text-neutral-400 hover:text-black dark:hover:text-white",
+          ]}
+        >
+          {tab.label}
+        </button>
+      ))
+    }
+  </div>
+  <div class="p-4">
+    {
+      tabs.map((tab, i) => (
+        <div
+          role="tabpanel"
+          data-panel={`${groupId}-${i}`}
+          class:list={["text-sm", i !== 0 && "hidden"]}
+          set:html={tab.content}
+        />
+      ))
+    }
+  </div>
+</div>
+
+<script is:inline>
+  document.addEventListener("astro:page-load", () => {
+    document.querySelectorAll("[data-group]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const group = btn.getAttribute("data-group");
+        document.querySelectorAll(`[data-group="${group}"]`).forEach((b) => {
+          b.setAttribute("aria-selected", "false");
+          b.classList.remove(
+            "border-sky-500",
+            "text-sky-600",
+            "dark:text-sky-400",
+          );
+          b.classList.add(
+            "border-transparent",
+            "text-neutral-500",
+            "dark:text-neutral-400",
+          );
+        });
+        btn.setAttribute("aria-selected", "true");
+        btn.classList.add(
+          "border-sky-500",
+          "text-sky-600",
+          "dark:text-sky-400",
+        );
+        btn.classList.remove(
+          "border-transparent",
+          "text-neutral-500",
+          "dark:text-neutral-400",
+        );
+        document.querySelectorAll(`[data-group="${group}"]`).forEach((b) => {
+          const panel = document.querySelector(
+            `[data-panel="${b.getAttribute("data-tab")}"]`,
+          );
+          if (panel)
+            panel.classList.toggle(
+              "hidden",
+              b.getAttribute("aria-selected") !== "true",
+            );
+        });
+      });
+    });
+  });
+</script>

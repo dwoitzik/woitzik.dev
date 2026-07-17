@@ -37,15 +37,31 @@ article {
   @apply prose-headings:text-black prose-headings:dark:text-white;
 }
 
+article img {
+  @apply rounded-md;
+}
+
+article figure {
+  @apply my-6;
+}
+
+article figure img {
+  @apply w-full;
+}
+
+article figcaption {
+  @apply text-xs text-center text-neutral-500 dark:text-neutral-400 mt-2 font-sans;
+}
+
 @layer utilities {
   article a {
-    @apply font-sans text-current underline underline-offset-2;
-    @apply decoration-black/15 dark:decoration-white/30;
+    @apply font-sans text-sky-600 dark:text-sky-400 underline underline-offset-2;
+    @apply decoration-sky-600/30 dark:decoration-sky-400/40;
     @apply transition-colors duration-300 ease-in-out;
   }
   article a:hover {
-    @apply text-black dark:text-white;
-    @apply decoration-black/25 dark:decoration-white/50;
+    @apply text-sky-700 dark:text-sky-300;
+    @apply decoration-sky-600/60 dark:decoration-sky-400/70;
   }
 
   /* Anchor links on headings */
@@ -71,6 +87,28 @@ article {
   .copy-button.copied {
     @apply text-green-400;
   }
+
+  /* Code block language label */
+  .code-block-wrapper .lang-label {
+    @apply absolute top-2 left-3 text-[0.65rem] font-mono uppercase tracking-wider;
+    @apply text-neutral-500 dark:text-neutral-400 select-none pointer-events-none;
+  }
+
+  /* Code diff highlighting */
+  .code-block-wrapper pre code .diff-add {
+    @apply bg-emerald-500/10 text-emerald-700 dark:text-emerald-300;
+  }
+  .code-block-wrapper pre code .diff-remove {
+    @apply bg-red-500/10 text-red-700 dark:text-red-300 line-through opacity-70;
+  }
+  .code-block-wrapper pre code .diff-line-number {
+    @apply select-none text-neutral-400 dark:text-neutral-500 mr-3 inline-block w-4 text-right;
+  }
+}
+
+/* Global focus-visible ring */
+*:focus-visible {
+  @apply outline-2 outline-offset-2 outline-sky-500;
 }
 
 .animate {
