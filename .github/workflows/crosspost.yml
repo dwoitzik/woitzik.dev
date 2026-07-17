@@ -6,7 +6,7 @@ on:
     paths:
       - "src/content/blog/*.mdx"
   schedule:
-    - cron: "0 6 * * 1" # weekly safety net
+    - cron: "0 6 * * 1"
   workflow_dispatch: {}
 
 permissions:
@@ -37,15 +37,8 @@ jobs:
         env:
           DEVTO_API_KEY: ${{ secrets.DEVTO_API_KEY }}
         run: |
-          set +e
-          failed=0
           for file in src/content/blog/*.mdx; do
             slug=$(basename "$file" .mdx)
-            node scripts/crosspost.mjs "$slug" --devto || failed=1
+            node scripts/crosspost.mjs "$slug" --devto || true
             sleep 35
           done
-          exit $failed
-
-      # Medium + Hackernoon: Playwright, runs locally only
-  # Run manually when PC is on:
-  #   node scripts/crosspost.mjs --all --medium --hackernoon

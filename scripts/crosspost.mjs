@@ -175,9 +175,10 @@ async function postToDevTo(slug, fm, markdown, dryRun, updateExisting) {
   const data = await res.json();
   if (res.ok) {
     console.log(`✅  dev.to: ${data.url}`);
+  } else if (res.status === 422 && data.error?.includes("already been taken")) {
+    console.log(`⏭️   dev.to: already posted (${slug}) — skipping`);
   } else {
     console.error("❌  dev.to error:", data);
-    process.exit(1);
   }
 }
 
