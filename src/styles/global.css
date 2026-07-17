@@ -54,12 +54,12 @@ article figcaption {
 }
 
 @layer utilities {
-  article a {
+  article a:not(:is(h1, h2, h3, h4) a) {
     @apply font-sans text-sky-600 dark:text-sky-400 underline underline-offset-2;
     @apply decoration-sky-600/30 dark:decoration-sky-400/40;
     @apply transition-colors duration-300 ease-in-out;
   }
-  article a:hover {
+  article a:not(:is(h1, h2, h3, h4) a):hover {
     @apply text-sky-700 dark:text-sky-300;
     @apply decoration-sky-600/60 dark:decoration-sky-400/70;
   }
