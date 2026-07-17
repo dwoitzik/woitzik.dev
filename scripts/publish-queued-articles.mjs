@@ -21,25 +21,35 @@ try {
   queued = [];
 }
 
+// Sort by date ascending — publish oldest first
+const withDates = queued
+  .map((file) => {
+    const content = readFileSync(resolve(QUEUE_DIR, file), "utf8");
+    const date = frontmatterDate(content);
+    return { file, date };
+  })
+  .filter((item) => {
+    if (!item.date) {
+      console.warn(`Skipping ${item.file}: no parseable date frontmatter`);
+      return false;
+    }
+    return item.date <= today;
+  })
+  .sort((a, b) => a.date - b.date);
+
 const published = [];
 
-for (const file of queued) {
+if (withDates.length > 0) {
+  const { file, date } = withDates[0];
   const srcPath = resolve(QUEUE_DIR, file);
-  const content = readFileSync(srcPath, "utf8");
-  const date = frontmatterDate(content);
-  if (!date) {
-    console.warn(`Skipping ${file}: no parseable date frontmatter`);
-    continue;
+  const destPath = resolve(BLOG_DIR, file);
+  renameSync(srcPath, destPath);
+  published.push(file);
+  console.log(`Published: ${file} (scheduled ${date.toISOString().slice(0, 10)})`);
+  if (withDates.length > 1) {
+    console.log(`${withDates.length - 1} more article(s) queued for future dates.`);
   }
-  if (date <= today) {
-    const destPath = resolve(BLOG_DIR, file);
-    renameSync(srcPath, destPath);
-    published.push(file);
-    console.log(`Published: ${file} (scheduled ${date.toISOString().slice(0, 10)})`);
-  }
-}
-
-if (published.length === 0) {
+} else {
   console.log("Nothing due for publishing today.");
 }
 
