@@ -278,47 +278,63 @@ async function postToMedium(slug, fm, dryRun) {
     return;
   }
 
-  const mediumSid = process.env.MEDIUM_SID;
-  if (!mediumSid) {
-    console.error("❌  Medium: MEDIUM_SID not set.");
-    console.error("   Firefox → medium.com → DevTools → Application → Cookies → sid");
-    return;
+  const { firefox } = await import("playwright");
+  const authDir = resolve(ROOT, "scripts/.auth/medium");
+  const context = await firefox.launchPersistentContext(authDir, {
+    headless: false,
+    viewport: { width: 1280, height: 900 },
+  });
+
+  const page = context.pages()[0] || await context.newPage();
+
+  await page.goto("https://medium.com/p/import", { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.waitForTimeout(3000);
+
+  // If login page, wait for user
+  if (page.url().includes("login") || page.url().includes("signin")) {
+    console.log("🔐  Medium: Bitte einloggen im Browser-Fenster...");
+    console.log("    Warte bis zu 120 Sekunden...");
+    await page.waitForURL("**/p/import", { timeout: 120000 });
+    console.log("    Login erkannt, fahre fort...");
+    await page.waitForTimeout(2000);
   }
 
   console.log(`📤  Medium: importing ${canonicalUrl}...`);
 
-  const meRes = await fetch("https://medium.com/me", {
-    headers: { Cookie: `sid=${mediumSid}` },
-  });
-  if (!meRes.ok) {
-    console.error(`❌  Medium: auth failed (HTTP ${meRes.status}). SID abgelaufen?`);
-    return;
-  }
-  const meData = await meRes.json();
-  const userId = meData.data.id;
-
-  const importRes = await fetch(`https://medium.com/v1/users/${userId}/posts`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Cookie: `sid=${mediumSid}`,
-    },
-    body: JSON.stringify({
-      importUrl: canonicalUrl,
-      publishStatus: "public",
-      license: "all-rights-reserved",
-    }),
-  });
-
-  if (!importRes.ok) {
-    const errText = await importRes.text();
-    console.error(`❌  Medium: import failed (HTTP ${importRes.status}): ${errText.slice(0, 200)}`);
-    return;
+  // Find import URL input
+  const urlInput = page.locator('input[placeholder*="URL"], input[type="url"], textarea[placeholder*="URL"]').first();
+  if (await urlInput.isVisible({ timeout: 10000 }).catch(() => false)) {
+    await urlInput.fill(canonicalUrl);
+  } else {
+    const anyInput = page.locator('input[type="text"], input:not([type])').first();
+    await anyInput.fill(canonicalUrl);
   }
 
-  const importData = await importRes.json();
-  console.log(`✅  Medium: published — https://medium.com/p/${importData.data.uniqueSlug}`);
+  // Click Import
+  const importBtn = page.locator('button:has-text("Import"), button:has-text("import")').first();
+  await importBtn.click();
+
+  // Wait for editor
+  console.log("⏳  Medium: waiting for content...");
+  await page.waitForURL("**/edit/**", { timeout: 60000 }).catch(() => {});
+  await page.waitForTimeout(5000);
+
+  // Publish
+  console.log("🚀  Medium: publishing...");
+  const publishBtn = page.locator('button:has-text("Publish")').first();
+  if (await publishBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    await publishBtn.click();
+    await page.waitForTimeout(3000);
+    const confirmBtn = page.locator('button:has-text("Publish"), button:has-text("Got it")').last();
+    if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await confirmBtn.click();
+    }
+  }
+
+  await page.waitForTimeout(3000);
+  console.log(`✅  Medium: ${page.url()}`);
   saveMediumPosted([...posted, slug]);
+  await context.close();
 }
 
 // ─── Hackernoon (Playwright — no API, editorial review) ────────────────────
@@ -352,12 +368,11 @@ async function postToHackernoon(slug, fm, dryRun) {
     return;
   }
 
-  const { chromium } = await import("playwright");
+  const { firefox } = await import("playwright");
   const authDir = resolve(ROOT, "scripts/.auth/hackernoon");
-  const context = await chromium.launchPersistentContext(authDir, {
+  const context = await firefox.launchPersistentContext(authDir, {
     headless: false,
     viewport: { width: 1280, height: 900 },
-    args: ["--no-sandbox"],
   });
 
   const page = context.pages()[0] || await context.newPage();
@@ -439,15 +454,6 @@ async function postToHackernoon(slug, fm, dryRun) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────
-// Rate limits (verified 2026-07):
-//   dev.to:      1 post per 30s (429 after ~10 req/30s, safe at 35s)
-//   Medium:      2 posts per 24h (hard platform limit)
-//   Hackernoon:  no submission limit, but editorial review 3-4 days
-const RATE_LIMITS = {
-  devto: 35_000,       // 35 seconds between posts
-  medium: 2,           // max 2 per day
-  hackernoon: 10,      // max 10 per day (not hard limit, but spam protection)
-};
 
 const [, , slugOrAll, ...flags] = process.argv;
 
