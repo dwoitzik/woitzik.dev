@@ -1,7 +1,7 @@
 ---
 title: "NFS vs local-path: The SQLite Trap That Corrupted My S3 Metadata"
 description: "Garage S3's SQLite database corrupted because NFS file-locking semantics don't work with SQLite's WAL mode. The lesson: embedded databases and NFS are incompatible, and the fix is local-path for anything with a .db file."
-date: "2026-09-26"
+date: "2026-09-10"
 tags: ["Kubernetes", "Storage", "Homelab", "Debugging"]
 ---
 
