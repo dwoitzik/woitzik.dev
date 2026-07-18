@@ -1,0 +1,132 @@
+---
+title: "The Overcommit Guard: How a Python Script Prevents Host Freezes"
+description: "VM dedicated memory is a real reservation. LXC dedicated is a soft ceiling. Summing them together overstated pressure by 40GB — but the real risk was underestimating it. Here's the two-tier memory model that prevents a repeat of the ZFS ARC freeze."
+date: "2026-09-16"
+tags: ["Proxmox", "Homelab", "Debugging", "CI/CD"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+My Proxmox host froze three times in one week. The root cause was RAM pressure pushing ZFS into an I/O stall on a single shared NVMe. After fixing the freeze (ZFS tuning, cache=none+aio=native), I needed a way to prevent it from ever happening again — a CI guard that catches memory overcommit before it hits the host.
+
+The first version of the guard was wrong. It summed VM and LXC memory allocations together against one ceiling, and flagged 85 GB as "allocated" on a host with 62 GB of physical RAM. A live check showed only 41 GB actually in use — 21 GB available. The guard was overstating pressure by 40 GB because it treated two different memory physics as the same thing.
+
+The fix was a two-tier model that understands the difference between a VM reservation and an LXC ceiling.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Two Memory Physics
+
+### VM `dedicated` — Real Reservation
+
+When you set `dedicated = 12288` (12 GB) on a Proxmox VM, QEMU pre-allocates that memory as a host process. The moment the VM starts, 12 GB of physical RAM is gone — reserved for the QEMU process, not available for anything else. The host's `free -h` reflects this immediately.
+
+This is a hard reservation. If the sum of all VM `dedicated` values plus ZFS ARC plus host overhead exceeds physical RAM, the host is overcommitted. The kernel will start swapping, ZFS will stall waiting for I/O, and the freeze pattern repeats.
+
+### LXC `dedicated` — Soft Ceiling
+
+When you set `dedicated = 4096` (4 GB) on a Proxmox LXC, you're setting `memory.max` in the cgroup. This is a ceiling the kernel enforces *only if the container actually tries to use that much*. It reserves nothing on the host up front.
+
+A container with `dedicated = 4096` might be using 800 MB. The host sees 800 MB, not 4 GB. The remaining 3.2 GB is available for other workloads. This is why the original guard was wrong: summing LXC `dedicated` values counts memory that isn't actually consumed.
+
+A live check on the host confirmed this:
+
+```bash
+# Check actual LXC memory usage vs configured limits
+for ct in $(pct list | awk 'NR>1 {print $1}'); do
+  limit=$(pct config $ct | grep "dedicated" | awk '{print $2}')
+  actual=$(pct exec $ct -- cat /sys/fs/cgroup/memory.current 2>/dev/null)
+  echo "CT $ct: limit=${limit}MB actual=$((actual/1024/1024))MB"
+done
+# → Most CTs using 20-40% of their configured limit
+```
+
+## The Two-Tier Guard
+
+### Hard Gate (CI-Fail)
+
+The hard gate catches real overcommit risk. It sums only VM `dedicated` values (real reservations) plus ZFS ARC max plus a fixed host reserve:
+
+```python
+# Hard gate: VM reservations + ARC + host reserve
+ZFS_ARC_MAX_GB = 4       # /sys/module/zfs/parameters/zfs_arc_max
+HOST_RESERVE_GB = 6       # kernel + QEMU overhead
+HARD_GATE_CEILING_GB = 44 # safe ceiling for 62 GB physical
+
+hard_gate_mb = vm_dedicated_total + (ZFS_ARC_MAX_GB * 1024) + (HOST_RESERVE_GB * 1024)
+```
+
+If the hard gate exceeds 44 GB, the CI build fails. The PR cannot be merged. This is intentional: a VM `dedicated` change that pushes past the ceiling is exactly the kind of change that caused the original freeze.
+
+The ceiling (44 GB on a 62 GB host) leaves 18 GB of headroom for:
+- LXC actual usage (typically 8-12 GB across all containers)
+- Kernel and system overhead not captured in the reserve
+- Burst spikes from Ollama inference or Paperless OCR
+
+### Soft Check (Warn-Only)
+
+The soft check sums LXC `dedicated` values and compares against physical RAM. If it exceeds 62 GB, a warning is printed — but the build does **not** fail. LXC ceilings are soft; summing them overstates real pressure.
+
+```python
+# Soft check: LXC CT limits vs physical RAM (visibility only)
+if lxc_dedicated_total > PHYSICAL_RAM_GB * 1024:
+    print(f"WARN: LXC CT limits sum to {lxc_dedicated_total / 1024:.1f} GB, "
+          f"over physical RAM ({PHYSICAL_RAM_GB} GB). "
+          f"Check actual usage: pct exec <id> -- cat /sys/fs/cgroup/memory.current")
+```
+
+The soft check exists for visibility. If someone adds a new LXC with 32 GB `dedicated` and the sum crosses 100 GB, the warning fires — but it doesn't block the merge, because the actual usage is probably a fraction of the configured limit.
+
+## Why `floating` Is Ignored
+
+VMs can have both `dedicated` (ceiling) and `floating` (balloon-driven floor). Under host memory pressure, Proxmox can deflate the balloon down to the `floating` minimum, freeing memory for other workloads.
+
+The guard conservatively uses `dedicated`, not `floating`, because:
+1. The balloon only deflates *after* pressure is detected — it doesn't prevent the pressure
+2. A sudden allocation spike (Ollama loading a 26B model) can't wait for the balloon to deflate
+3. The guard exists to catch *pending* risk, not to model *steady-state* usage
+
+`floating` values are parsed and printed for visibility, never counted in the hard gate.
+
+## The CI Integration
+
+The script runs in pre-commit hooks and GitHub Actions CI:
+
+```yaml
+# .github/workflows/ci.yml
+- name: Memory overcommit guard
+  run: python scripts/check-host-memory-overcommit.py
+```
+
+A Terraform change that adds a new VM or increases a VM's `dedicated` value is checked against the ceiling before merge. If it pushes past 44 GB, the PR is blocked with a clear error message explaining why.
+
+```bash
+$ python scripts/check-host-memory-overcommit.py
+REL-035 memory overcommit guard (two-tier model)
+
+-- Hard gate (CI-fail): VM reservations + ARC + host reserve --
+  VM `dedicated` sum (3 VMs): 36864 MB (36.0 GB)
+  VM `floating` sum  (3 VMs): 40960 MB (40.0 GB) -- informational only, NOT counted
+  + ZFS ARC max: 4 GB
+  + host/hypervisor reserve: 6 GB
+  = hard gate total: 47104 MB (46.0 GB)
+  Ceiling: 44 GB
+
+FAIL: hard gate total (46.0 GB) exceeds the 44 GB ceiling by 2.0 GB.
+```
+
+## What It Prevents
+
+The guard exists because `mini` — the single Proxmox host running this entire homelab — has no failover. A host freeze means every service is down simultaneously: k3s, databases, DNS, monitoring, backups. The only recovery is a hard power cycle.
+
+REL-016 (the ZFS freeze) happened because RAM pressure pushed ZFS into a stall-wait state on the shared NVMe. The hard gate catches the most common path to that state: a VM `dedicated` change that leaves insufficient headroom for the kernel, ZFS, and LXC workloads.
+
+It doesn't prevent every possible freeze — a runaway process inside a VM can still consume all its allocated memory and cause host pressure. But it prevents the *planned* overcommit: the Terraform change that accidentally pushes past the ceiling because someone added a new VM without checking the math.
+
+---
+
+Memory overcommit modeling is the same problem in Azure: Reserved VM instances guarantee physical memory allocation, while Burstable VMs share host memory and can be throttled. Mixing both in the same Availability Set without understanding the difference produces the same false-sense-of-security that my original guard had. The fix is the same: separate hard reservations from soft ceilings, and never sum them together.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

@@ -1,0 +1,168 @@
+---
+title: "Postgres 16→18: Why You Can't Just Swap the Image"
+description: "CloudNativePG doesn't support in-place major version upgrades. The migration required a fresh PVC, pg_dump/pg_restore, and a role discovery bug that nearly locked me out of the database. Here's the full procedure."
+date: "2026-10-31"
+tags: ["Kubernetes", "PostgreSQL", "Homelab", "Migration"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+PostgreSQL major version upgrades are not swap-the-image operations. You can't change `postgres:16` to `postgres:18` in a Deployment and expect it to work. The data directory format changes, system catalogs are incompatible, and extensions need to be rebuilt.
+
+When CNPG (CloudNativePG) upgraded from PG16 to PG18, the procedure required a fresh PVC, a full dump and restore, and a role discovery bug that nearly locked me out of the Authelia database.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Why You Can't Swap the Image
+
+PostgreSQL stores data in a format specific to its major version. The `PG_VERSION` file in the data directory tells PostgreSQL which version created it:
+
+```bash
+cat /var/lib/postgresql/data/PG_VERSION
+# → 16
+```
+
+When PostgreSQL 18 starts and finds `PG_VERSION = 16`, it refuses to start:
+
+```
+FATAL: data directory has wrong ownership
+HINT: The data directory was initialized by PostgreSQL 16. 
+      Upgrade by running pg_upgrade.
+```
+
+`pg_upgrade` is the official tool for in-place major version upgrades. It copies data files from the old format to the new format, rewriting system catalogs and tuple headers. It works well on bare-metal PostgreSQL where you have direct filesystem access.
+
+On Kubernetes with CNPG, `pg_upgrade` is not the right approach because:
+1. CNPG manages the data directory through its operator — manual modifications are reverted
+2. The PVC is bound to the cluster definition — changing the PostgreSQL version in the CRD doesn't automatically upgrade the data
+3. CNPG's recommended migration path is dump-and-restore, not in-place upgrade
+
+## The Migration Procedure
+
+### Step 1: Dump from PG16
+
+```bash
+# Exec into the CNPG pod
+kubectl exec -n database -it postgres-authelia-0 -- bash
+
+# Dump the database
+pg_dump -U postgres -Fc authelia > /tmp/authelia.dump
+
+# Copy the dump to a temporary location
+kubectl cp database/postgres-authelia-0:/tmp/authelia.dump ./authelia.dump
+```
+
+The `-Fc` flag produces a custom-format dump that's compressed and can be restored with `pg_restore`. The dump includes all data, schemas, roles, and extensions.
+
+### Step 2: Create Fresh PG18 Cluster
+
+```yaml
+# kubernetes/system/postgres/cluster.yml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-authelia
+  namespace: database
+spec:
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.4  # temporary — will be updated
+  instances: 1
+  storage:
+    size: 2Gi
+    storageClass: local-path
+```
+
+Wait — the image is still PG16. That's intentional. CNPG creates the cluster with PG16 first, then upgrades the image to PG18 after the data is restored. This ensures the PVC and the operator agree on the initial state.
+
+### Step 3: Restore into PG18
+
+After the cluster is running with PG16, update the image to PG18:
+
+```yaml
+spec:
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.4
+```
+
+CNPG detects the image change, creates a new pod with PG18, and the old PG16 pod is terminated. The data directory is still PG16 format, so the new pod fails to start — which is expected.
+
+Now restore the dump into the fresh PG18 data directory:
+
+```bash
+# Port-forward to the CNPG service
+kubectl port-forward -n database svc/postgres-authelia 5432:5432 &
+
+# Restore the dump
+pg_restore -U postgres -d authelia --clean --if-exists ./authelia.dump
+```
+
+`pg_restore` handles the format conversion — it reads PG16-format data and writes it in PG18 format. The `--clean --if-exists` flags drop existing objects before restoring, ensuring a clean state.
+
+### Step 4: Update Authelia
+
+Update the Authelia deployment to use the new Postgres 18 connection string (same host, same port, same database — the connection string doesn't change):
+
+```yaml
+# Verify Authelia connects to the new database
+kubectl logs -n apps -l app=authelia --tail=20
+# → "Successfully connected to PostgreSQL 18.4"
+```
+
+## The Role Discovery Bug
+
+During the restore, `pg_restore` reported:
+
+```
+pg_restore: error: could not open input file "/tmp/authelia.dump": No such file or directory
+```
+
+The dump file was at a different path than expected. The real problem: the restore was running from a pod that had a different filesystem layout than the dump pod.
+
+After fixing the path, the restore completed but Authelia failed to start:
+
+```
+FATAL: role "oc_dw" does not exist
+```
+
+The `oc_dw` role was a leftover from the original CNPG cluster initialization — CNPG creates a default operator role that isn't visible in `pg_dump` output because it's a replication role, not a regular database role.
+
+The fix: create the missing role before restoring:
+
+```sql
+CREATE ROLE oc_dw WITH REPLICATION LOGIN;
+```
+
+The lesson: CNPG creates internal roles (`oc_dw`, `streaming_replica`) that aren't included in `pg_dump` output. After a dump-and-restore migration, these roles must be recreated manually.
+
+## The Fresh PVC Requirement
+
+The critical step that most tutorials skip: **you need a fresh PVC.** You can't restore a PG16 dump into a PG16 data directory and then expect PG18 to read it. The data directory must be empty — PG18 creates its own data directory format on first start, and `pg_restore` populates it.
+
+In CNPG, this means:
+1. Delete the existing PVC (data loss — you need the dump)
+2. Let CNPG create a new PVC with the PG18 image
+3. Restore the dump into the fresh cluster
+
+The PVC deletion is the scary part. If the dump is corrupted or incomplete, the data is gone. The verification before deletion:
+
+```bash
+# Verify dump is complete
+pg_restore --list ./authelia.dump | wc -l
+# → Should show hundreds of objects (tables, sequences, functions)
+
+# Verify dump integrity
+pg_restore --verbose --no-owner --no-privileges --dry-run ./authelia.dump
+# → Should complete without errors
+```
+
+## What I'd Change
+
+1. **Use CNPG's Backup/Restore instead of manual dump.** CNPG supports `pg_basebackup` and WAL archiving to S3. A CNPG backup includes the operator roles and can be restored directly without the `oc_dw` gotcha. The manual dump approach was chosen because the existing cluster wasn't configured for CNPG backups at the time of migration.
+
+2. **Test the migration on a non-production cluster first.** The `oc_dw` role discovery happened during the Authelia migration — the only SSO for every service. If the restore had failed, every service would be unreachable.
+
+---
+
+PostgreSQL major version upgrades on Kubernetes are the same challenge as Azure Database for PostgreSQL Flexible Server upgrades: Azure handles the in-place upgrade automatically, but the same data directory format incompatibility exists. The difference is that Azure abstracts the dump-and-restore behind a API call, while Kubernetes requires you to do it manually. The underlying PostgreSQL constraint is identical: major versions are not backward-compatible at the storage layer.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

@@ -1,0 +1,117 @@
+---
+title: "CPU Scheduling for etcd: Why Proxmox cpu.units Matters"
+description: "When Ollama, Minecraft, and etcd compete for CPU on the same host, the scheduler doesn't know which one is critical. Proxmox cpu.units gives etcd 2x priority — and without it, leader-election timeouts cascade into cluster instability."
+date: "2026-10-11"
+tags: ["Proxmox", "Kubernetes", "Performance", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+etcd is the brain of Kubernetes. Every API call, every configmap update, every pod scheduling decision goes through etcd. When etcd is slow, everything is slow. When etcd times out, the API server becomes unreachable.
+
+On a single Proxmox host running k3s VMs alongside Ollama LLM inference, Minecraft game servers, and Docker media workloads, etcd shares CPU with everything else. Without scheduling priority, a Minecraft player join and an Ollama model load can delay etcd's fdatasync calls enough to trigger leader-election timeouts.
+
+The fix: `cpu.units = 2048` on k3s VMs, giving them 2x the CPU scheduling priority over every other workload on the host.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## How Proxmox CPU Scheduling Works
+
+Proxmox uses the Linux CFS (Completely Fair Scheduler) with added weight controls. Each VM gets a `cpu.units` value that determines its share of CPU time when multiple VMs compete for the same physical cores.
+
+The default is `units = 1024`. When two VMs with equal units compete for a single core, they each get 50% of the CPU time. When one VM has `units = 2048` and another has `units = 1024`, the first gets 2/3 and the second gets 1/3.
+
+This is not CPU pinning (which restricts a VM to specific cores). It's CPU weighting (which determines priority when cores are shared). On a host with 16 threads and 12+ VMs/LXCs, most cores are shared between multiple workloads.
+
+## The etcd Problem
+
+etcd's performance depends on write latency. Every key-value operation (lease renewal, configmap update, secret sync) requires an fdatasync to the WAL (Write-Ahead Log) on disk. etcd's leader-election timeout is 5 seconds — if the leader can't renew its lease within that window, controller-runtime terminates the process.
+
+On a single NVMe shared by all VMs, etcd's fdatasync competes with:
+- Ollama reading model weights from disk (14GB qwen2.5 model)
+- Minecraft world writes from the DMZ game server
+- NFS serving PVC data to k3s pods
+- ZFS txg commits flushing dirty data
+
+Under normal load, this is fine — NVMe IOPS are high enough to handle all of them. But when Ollama starts loading a 26B model (Gemma 4) and Minecraft generates terrain simultaneously, the NVMe queue depth spikes, fdatasync latency increases, and etcd's lease renewal window shrinks.
+
+Without CPU priority, etcd's fdatasync also competes for CPU time with these workloads. The kernel's CFS scheduler doesn't know that etcd's fdatasync is more important than Ollama's matrix multiplication — it just sees two processes requesting CPU time and分配 equally.
+
+## The Fix
+
+```hcl
+# terraform/stacks/proxmox/vm.tf
+
+# k3s VMs — 2x scheduling priority
+resource "proxmox_virtual_machine" "vm_srv_k3s_11" {
+  cpu {
+    cores = 4
+    units = 2048  # 2x default
+  }
+}
+
+# Ollama LXC — default priority
+resource "proxmox_virtual_machine" "ct_srv_ai_01" {
+  cpu {
+    cores = 6
+    units = 1024  # default
+  }
+}
+
+# Minecraft LXC — default priority
+resource "proxmox_virtual_machine" "ct_dmz_games_01" {
+  cpu {
+    cores = 2
+    units = 1024  # default
+  }
+}
+```
+
+The k3s VMs get `units = 2048`. Everything else stays at the default `1024`. When etcd and Ollama compete for the same CPU cycle, etcd gets 2/3 of the time and Ollama gets 1/3.
+
+This doesn't reduce Ollama's throughput under normal conditions — when there's no contention, Ollama still gets 100% of the CPU it requests. The priority only kicks in when multiple workloads compete for the same cores simultaneously.
+
+## The Evidence
+
+Before `cpu.units = 2048`, the CNPG operator was restarting due to leader-election timeouts:
+
+```
+kubectl get pods -n cnpg-system
+# NAME                                    RESTARTS
+# cnpg-cloudnative-pg-5f8b9c4d6-xk2p4   310
+```
+
+310 restarts in 21 days. Each restart's log showed:
+
+```
+Leader election retry deadline exceeded
+context deadline exceeded
+```
+
+After applying `cpu.units = 2048` and the corresponding leader-election timeout increase (`--leader-renew-deadline=50`), restarts dropped to zero.
+
+The CPU priority alone didn't fix it — the leader-election timeout increase was also necessary. But the CPU priority reduced the frequency of fdatasync delays enough that the 50-second deadline is never challenged under normal load.
+
+## The RAM Priority Interaction
+
+CPU priority and memory priority are separate in Proxmox. `cpu.units` affects CPU scheduling; `memory.dedicated` and `memory.floating` affect RAM allocation.
+
+On this host, both matter:
+- etcd needs low-latency CPU for fdatasync (solved by `cpu.units`)
+- k3s control-plane needs guaranteed RAM for API server and scheduler (solved by `memory.dedicated = 12284`)
+
+The RAM allocation is a hard reservation — 12 GB is always available for the k3s-11 VM. The CPU priority is a soft weighting — it only matters when cores are shared. Both are necessary: without RAM priority, the k3s VM could be ballooned down to 4 GB under pressure; without CPU priority, etcd could lose the fdatasync race to Ollama.
+
+## What I'd Change
+
+1. **Pin etcd to specific cores.** CPU pinning would guarantee etcd always has CPU available, rather than just having priority. But pinning reduces overall CPU utilization — a pinned core can't be used by other VMs even when etcd is idle. On a 16-thread host with 12+ workloads, the utilization loss isn't worth it.
+
+2. **Monitor etcd fdatasync latency directly.** Prometheus can scrape etcd's `etcd_disk_wal_fsync_duration_seconds` metric. An alert on p99 > 100ms would catch CPU contention before it triggers leader-election timeouts.
+
+---
+
+CPU scheduling priority is the same concept as Azure VM series selection: E-series VMs are memory-optimized, F-series are compute-optimized, and Dv5-series offer balanced resources. Choosing the wrong series for etcd (a latency-sensitive, write-heavy workload) produces the same performance degradation as running it without `cpu.units` on Proxmox. The difference is that Azure makes the choice at VM creation time, while Proxmox lets you adjust it dynamically.
+
+<ProductCTA variant="end" slug="azure-firewall-enterprise" />

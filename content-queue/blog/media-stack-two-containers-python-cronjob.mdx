@@ -1,0 +1,181 @@
+---
+title: "My Media Stack Lives in Two Containers and a Python CronJob"
+description: "Jellyfin runs in a GPU-passthrough LXC for hardware transcoding. SABnzbd, Sonarr, Radarr, and Bazarr run on a separate Mullvad-wrapped LXC. A Python CronJob in k3s ties them together. Here's why the media stack left Kubernetes."
+date: "2026-10-01"
+tags: ["Homelab", "Proxmox", "Networking", "Self-Hosted"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+My media acquisition stack — SABnzbd for Usenet downloads, Sonarr for TV, Radarr for movies, Bazarr for subtitles — used to run as k3s Deployments. It worked, but three problems made it a bad fit for Kubernetes: GPU passthrough for Jellyfin transcoding, VPN routing for Usenet traffic, and the NFS file-locking trap for media libraries.
+
+The solution: move the media stack out of k3s entirely. Jellyfin runs in its own GPU-passthrough LXC. The acquisition stack runs in a Mullvad-wrapped LXC with Docker Compose. A Python CronJob in k3s bridges the two via Traefik Service+Endpoints.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Why Kubernetes Was Wrong for Media
+
+### GPU Passthrough
+
+Jellyfin needs GPU access for hardware video transcoding. The [BMAX Mini PC\*](https://amzn.to/4bv3yF1) has an AMD Radeon Vega iGPU that supports VAAPI hardware transcoding. Proxmox GPU passthrough requires IOMMU group isolation — the GPU is passed to a single container or VM exclusively.
+
+Kubernetes doesn't natively support GPU passthrough for LXCs. The `nvidia-device-plugin` works for NVIDIA GPUs on specific cloud providers, but for AMD iGPU passthrough on bare-metal Proxmox, you need a dedicated LXC with `/dev/dri/renderD128` mapped directly.
+
+Jellyfin runs in `ct-srv-jellyfin-01` with:
+
+```hcl
+# terraform/stacks/proxmox/lxc.tf
+lxc_conf {
+  desc = "Jellyfin - GPU passthrough"
+  # GPU device mapped via pct set
+}
+```
+
+The GPU is exclusive — Ollama (in the AI LXC) and Jellyfin can't share it. This is a hardware limitation of AMD iGPU passthrough, not a Kubernetes limitation. But it means Jellyfin must live outside the k3s cluster.
+
+### VPN Routing
+
+Usenet downloads should route through a VPN. The acquisition stack (SABnzbd, Sonarr, Radarr) connects to Usenet indexers and Usenet servers — traffic that shouldn't originate from the home IP directly.
+
+In Kubernetes, VPN routing requires a sidecar container or a CNI-level VPN plugin. Both add complexity. In an LXC, you set the default route to the VPN interface at the network level — Mullvad's WireGuard config applied to the LXC's network namespace.
+
+The acquisition LXC (`ct-srv-media-acq-01`) runs Mullvad's WireGuard tunnel as its primary network interface. All traffic from SABnzbd, Sonarr, Radarr, and Bazarr routes through the VPN automatically. No sidecar, no CNI plugin, no Kubernetes annotation.
+
+### NFS File Locking
+
+Media libraries (downloaded files, metadata databases) live on NFS. As I wrote about in the SQLite trap article, NFS file-locking semantics don't work with embedded databases. Sonarr and Radarr use SQLite internally for their media databases — and those databases corrupt on NFS under concurrent access.
+
+Moving the acquisition stack to a local LXC with local storage eliminates the NFS lock problem. The media files themselves (downloaded episodes, movies) still live on NFS for sharing, but the application databases stay local.
+
+## The Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│  k3s Cluster                                │
+│  ┌─────────────────────────────────────┐    │
+│  │ Python CronJob (every 10 min)       │    │
+│  │ - Checks Sonarr/Radarr queue        │    │
+│  │ - Clears stuck items                │    │
+│  │ - Triggers Jellyfin library scan    │    │
+│  └──────────┬──────────────────────────┘    │
+│             │ HTTP via Traefik              │
+│  ┌──────────▼──────────────────────────┐    │
+│  │ Traefik IngressRoutes               │    │
+│  │ - sabnzbd.woitzik.dev               │    │
+│  │ - sonarr.woitzik.dev                │    │
+│  │ - radarr.woitzik.dev                │    │
+│  │ - bazarr.woitzik.dev                │    │
+│  └─────────────────────────────────────┘    │
+└──────────────────┬──────────────────────────┘
+                   │ Traefik Service+Endpoints
+┌──────────────────▼──────────────────────────┐
+│  ct-srv-media-acq-01 (LXC, Mullvad VPN)     │
+│  ┌─────────┐ ┌────────┐ ┌────────┐         │
+│  │ SABnzbd │ │ Sonarr │ │ Radarr │         │
+│  └─────────┘ └────────┘ └────────┘         │
+│  ┌─────────┐ ┌──────────────┐              │
+│  │ Bazarr  │ │ NZBHydra2    │              │
+│  └─────────┘ └──────────────┘              │
+└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│  ct-srv-jellyfin-01 (LXC, GPU passthrough)  │
+│  ┌─────────┐ ┌──────────────┐              │
+│  │ Jellyfin│ │ /dev/dri/    │              │
+│  │         │ │ renderD128   │              │
+│  └─────────┘ └──────────────┘              │
+└─────────────────────────────────────────────┘
+```
+
+## The Traefik Bridge
+
+k3s Traefik routes external traffic to services inside the cluster. But the media stack isn't in the cluster — it's in LXCs. The bridge: Traefik IngressRoutes point at Kubernetes Services, which use `Endpoints` objects with hardcoded IP addresses pointing at the LXC containers.
+
+```yaml
+# kubernetes/apps/jellyfin/jellyfin.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin
+  namespace: apps
+spec:
+  ports:
+    - port: 8096
+      targetPort: 8096
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: jellyfin
+  namespace: apps
+subsets:
+  - addresses:
+      - ip: 10.0.20.254  # ct-srv-jellyfin-01
+    ports:
+      - port: 8096
+```
+
+This is the same pattern for all external services. The Service has no `selector` — it's a "headless" Service where the Endpoints are manually maintained. Traefik doesn't know or care that the backend is an LXC instead of a pod.
+
+The IngressRoute for Jellyfin:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: jellyfin
+  namespace: apps
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`media.woitzik.dev`)
+      kind: Rule
+      middlewares: [{name: authelia}]
+      services:
+        - name: jellyfin
+          port: 8096
+  tls:
+    secretName: wildcard-woitzik-dev-tls
+```
+
+The media stack gets Authelia protection, wildcard TLS, and Cloudflare Tunnel external access — the same as every in-cluster service. The only difference is the backend IP.
+
+## The Python CronJob
+
+A Python CronJob runs every 10 minutes inside k3s, bridging the gap between the media stack and the cluster:
+
+```yaml
+# CronJob that monitors media acquisition
+schedule: "*/10 * * * *"
+jobTemplate:
+  spec:
+    template:
+      spec:
+        containers:
+          - name: media-watchdog
+            image: python:3.12-slim
+            command:
+              - python
+              - /scripts/media-watchdog.py
+```
+
+The script:
+1. Queries Sonarr/Radarr APIs for stuck queue items (downloads stuck for >30 minutes)
+2. Clears stuck items and re-triggers the download
+3. Checks Jellyfin's library scan status
+4. Posts status to Discord via webhook
+
+Without this CronJob, stuck downloads sit indefinitely. Sonarr and Radarr don't have built-in queue monitoring — they trust the download client to report status, and SABnzbd sometimes silently fails without notifying the *arr stack.
+
+## What I'd Change
+
+1. **Use a proper service mesh for cross-boundary traffic.** The manual Endpoints pattern works but is fragile — if the LXC IP changes, the Endpoints must be updated manually. A DNS-based service discovery (Headscale DNS entries, for example) would be more resilient.
+
+2. **Move the CronJob to a native LXC cron.** The Python script runs in a k3s Pod but talks to LXC-hosted services. It has no business being in the cluster. A systemd timer on the media acquisition LXC would be simpler.
+
+---
+
+The media stack's departure from Kubernetes is the same pattern as running stateful workloads outside AKS: GPU workloads go to dedicated VMs with GPU passthrough, VPN-routed workloads go to network-isolated VMs, and file-locking workloads go to local SSDs. Kubernetes excels at stateless, horizontally-scalable workloads. Media transcoding and acquisition are neither — they're stateful, single-instance, and hardware-dependent. The right platform for them is the bare metal underneath, not the orchestration layer on top.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

@@ -1,0 +1,133 @@
+---
+title: "3-2-1 Backup in Practice: Velero + PBS + Offsite That Doesn't Work Yet"
+description: "Three backup layers, two storage media, one offsite copy — the theory. In practice: Velero's defaultVolumesToFsBackup gap, PBS restore gotchas with IP conflicts, and Google Drive API throttled to 1.6 KiB/s. Here's what actually works."
+date: "2026-10-06"
+tags: ["Kubernetes", "Backup", "Homelab", "Disaster Recovery"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+The 3-2-1 backup rule is simple: 3 copies of your data, on 2 different media types, with 1 copy offsite. My homelab implements all three layers. In theory. In practice, each layer has its own failure mode that I discovered only when I needed it.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Three Layers
+
+```
+Layer 1: Velero → Garage S3 (in-cluster, daily 05:00 UTC)
+    ↓
+Layer 2: PBS → External HDD (local, daily 03:00 UTC)
+    ↓
+Layer 3: rclone → Google Drive (offsite, DISABLED)
+```
+
+### Layer 1: Velero → Garage S3
+
+Velero backs up k3s namespaces (apps, vault, database, argocd) to Garage S3 — a self-hosted S3-compatible object store running inside the same cluster.
+
+```yaml
+# kubernetes/system/velero/schedule.yml
+spec:
+  schedule: "0 5 * * *"
+  template:
+    defaultVolumesToFsBackup: true
+    includedNamespaces: ["apps", "vault", "database", "argocd"]
+    excludedResources: ["events", "events.events.k8s.io"]
+    ttl: 720h  # 30 days
+```
+
+`defaultVolumesToFsBackup: true` was the critical fix. Without it, Velero only captured Kubernetes manifests — not the actual PVC data. The backups "completed" for weeks with zero data.
+
+After the fix, Kopia sidecars run alongside each pod, copying PVC contents to the Garage S3 `velero` bucket. Daily backups, 30-day retention.
+
+**The catch:** Garage runs inside the cluster. If the cluster dies, both Velero and Garage are gone. Layer 1 is useful for recovering individual PVCs or namespaces within a running cluster — not for full cluster recovery.
+
+### Layer 2: PBS → External HDD
+
+Proxmox Backup Server (PBS) backs up VM and LXC disk images to a [Seagate 2TB External HDD\*](https://amzn.to/4vxwLpY) connected via USB.
+
+```bash
+# PBS backup job — runs daily at 03:00 UTC
+# Backs up all VMs and LXCs to /mnt/backup (USB HDD)
+proxmox-backup-client backup \
+  --repository local:/mnt/backup \
+  --ns homelab \
+  vm/110/pct/200/pct/210/...
+```
+
+PBS handles deduplication, compression, and incremental backups. The USB HDD provides local, offline backup that survives cluster failures.
+
+**The gotcha:** PBS and the k3s VMs share the same physical host. A host-level failure (PSU, NVMe death) takes out both the primary data and the PBS backup. Layer 2 is protection against software failure (corruption, accidental deletion), not hardware failure.
+
+### Layer 3: rclone → Google Drive (DISABLED)
+
+The offsite layer was supposed to be rclone syncing from Garage S3 to Google Drive. In practice, Google's API throttled the sync to 1.6 KiB/s:
+
+```
+Transferred:   1.6 KiB / 4.2 GiB,  0.00%
+Elapsed time:  2h 30m
+Transfer rate: 1.6 KiB/s
+```
+
+Google Drive's API rate limiting for server-to-server transfers (no user interaction) is aggressive. For 4 GB of data, the sync would take days. Combined with Google's 750 GB/day upload limit for personal accounts, and the fact that the sync would need to run continuously to keep up with daily backups, the offsite layer was disabled.
+
+The replacement (Cloudflare R2) is scaffolded but not active:
+
+```yaml
+# kubernetes/system/velero/offsite-schedule.yml
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: daily-offsite
+spec:
+  schedule: "0 4 * * *"
+  template:
+    includedNamespaces: ["apps", "vault", "database", "argocd"]
+    storageLocation: r2-offsite
+    ttl: 168h  # 7 days
+```
+
+Waiting on a Cloudflare R2 account with real API credentials. R2 has no egress fees and no API rate limiting for the volume this backup produces (~4 GB/day).
+
+## The Restore Gotcha
+
+The first time I tested a full restore, PBS hit an IP/MAC conflict:
+
+```
+Error: VM 211 is running on a different node (10.0.20.11)
+Proxmox cannot start the VM because the MAC address is already in use
+```
+
+The issue: PBS restores the VM's network configuration exactly as it was, including the MAC address. If the original VM is still running (or its MAC is cached in the bridge), the restored VM can't start because Proxmox detects a MAC conflict on the virtual bridge.
+
+The fix: restore to a temporary VMID, verify the restore is complete, then shut down the original and rename the restored VM. This is a manual multi-step process — not something you want to do under time pressure during a real disaster.
+
+## What Actually Works
+
+| Layer | Protects Against | Doesn't Protect Against |
+|---|---|---|
+| Velero → Garage | PVC corruption, namespace deletion, accidental kubectl delete | Cluster-wide failure (Garage is in-cluster) |
+| PBS → USB HDD | Software corruption, accidental VM deletion, ZFS pool issues | Host hardware failure (PBS is on the same host) |
+| rclone → Google Drive | Host hardware failure, theft, fire | Nothing yet — disabled due to throttling |
+
+The honest assessment: I have two functional backup layers, both on the same physical host. True offsite backup doesn't exist yet. The 3-2-1 rule is aspirational, not achieved.
+
+## The Verification Gap
+
+The most important lesson: **a backup you haven't restored is not a backup.**
+
+Velero backups run daily, PBS runs daily, and until recently neither had been fully restored. The Velero `defaultVolumesToFsBackup` gap existed for weeks because nobody tested a restore. The PBS IP conflict was discovered during the first full restore test.
+
+After these discoveries, I added:
+
+1. **Monthly Velero restore test** — restore the `database` namespace to a temporary namespace, verify Postgres starts and contains expected data
+2. **Quarterly PBS restore test** — restore one VM to a temporary VMID, verify it boots and services are functional
+3. **Post-backup verification** — `velero backup describe --details | grep "Pod Volume Backups"` after every scheduled backup
+
+---
+
+Backup verification is the same compliance requirement in Azure: ISO 27001 and NIS2 both require documented, tested restore procedures. Azure Backup reports "Completed" for VM snapshots, but the snapshot might not include the data disk if the backup policy was misconfigured. The only way to verify is to actually restore a test VM and confirm its contents — the same monthly drill I now run against Velero and PBS.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
