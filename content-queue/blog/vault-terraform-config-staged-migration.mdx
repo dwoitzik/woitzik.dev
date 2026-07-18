@@ -1,0 +1,161 @@
+---
+title: "Vault Configuration Under Terraform: Staged Migration Without Downtime"
+description: "HashiCorp Vault OSS on Kubernetes holds secrets for 25+ services. Bringing Vault's configuration — policies, auth methods, roles — under Terraform management in 6 independently reversible stages, with zero Vault downtime."
+date: "2026-10-22"
+tags: ["Kubernetes", "Vault", "Terraform", "Security", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+Vault is the trust root for every other secret on the cluster. 25+ services depend on External Secrets Operator syncing from Vault's KV v2 engine. Authelia, databases, ArgoCD notifications, Velero credentials — all of them pull from `secret/<app>/*` paths.
+
+Vault's configuration — policies, Kubernetes auth method, roles — was managed through `vault login` and CLI commands. No version control, no audit trail, no reproducibility. If someone changed a policy by hand, nobody else knew.
+
+The goal: bring Vault's configuration (not secret values) under Terraform. Staged, low-risk, each stage independently reversible.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Scope Boundary
+
+The hardest part of Terraforming Vault is knowing what NOT to Terraform:
+
+| In scope (configuration) | Out of scope (stays manual) |
+|---|---|
+| Vault policies | Actual secret values (`secret/<app>/*`) |
+| Auth methods (Kubernetes auth) | Unseal keys, root tokens |
+| Secrets engine mount config | Vault server config (Helm, Raft) |
+| Auth roles and bindings | TLS (currently disabled) |
+
+**Secret values stay in Ansible Vault.** Terraform manages configuration, never secret data. The Ansible Vault file (`ansible/group_vars/all/vault.yml`) is the durable source. ESO syncs from Vault to Kubernetes Secrets. If Terraform state is lost, you re-import config — no secrets leak.
+
+This is the critical principle: **Terraform state describes access rules, not the secrets themselves.** Losing state means re-importing policies and roles, not exposing credentials.
+
+## The Six Stages
+
+### Stage 1: Policies (lowest risk)
+
+Import existing Vault policies into Terraform. Policies are purely declarative — they describe access rules but don't change anything about Vault's operation.
+
+```hcl
+resource "vault_policy" "eso" {
+  name   = "eso"
+  policy = file("${path.module}/policies/eso.hcl")
+}
+```
+
+One `.hcl` file per policy under `policies/`. Extracted from the live Vault instance (`vault policy read <name>`), committed to git.
+
+**Risk**: Zero. Policies are read-only from Vault's perspective. No restart, no unseal, no client disruption.
+
+**Verification**: `terraform plan` shows only `import` blocks matching live state. `vault policy list` unchanged after apply.
+
+**Rollback**: `terraform state rm vault_policy.<name>`. Vault policies are stateless — removing from TF doesn't delete them from Vault.
+
+### Stage 2: KV v2 Secrets Engine Mount
+
+Import the `secret/` KV v2 mount configuration. This configures the engine's existence and settings (version, max versions) but NOT the secret values.
+
+```hcl
+resource "vault_mount" "secret" {
+  path        = "secret"
+  type        = "kv"
+  options     = { version = "2" }
+  description = "KV v2 secrets engine — application secrets"
+}
+```
+
+**Risk**: Low. If the mount already exists with the same config, `terraform plan` shows no changes. If there's a config diff, review carefully before applying.
+
+**Verification**: `vault read sys/mounts/secret/` output matches the HCL config. `vault kv list secret/` still works — no disruption.
+
+### Stage 3: Kubernetes Auth Method
+
+Import the Kubernetes auth method — the mechanism by which Vault trusts the k8s API server to authenticate pods.
+
+```hcl
+resource "vault_auth_backend" "kubernetes" {
+  type = "kubernetes"
+  path = "kubernetes"
+}
+
+resource "vault_kubernetes_auth_backend_config" "config" {
+  backend            = vault_auth_backend.kubernetes.path
+  kubernetes_host    = "https://kubernetes.default.svc"
+  kubernetes_ca_cert = file("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+}
+```
+
+**Risk**: Medium. Auth method misconfiguration breaks every ESO sync. **Do not apply a diff here blindly** — if `terraform plan` shows changes (not just imports), stop and investigate.
+
+**Verification**: Trigger one ESO sync (`kubectl annotate externalsecret -n <ns> <name> force-sync=$(date)`). Check 3-5 apps that depend on Vault secrets — no restarts, no errors.
+
+### Stage 4: Kubernetes Auth Roles
+
+Import the roles that map Kubernetes ServiceAccounts to Vault policies. This is the binding between "which pod" and "what it can access."
+
+```hcl
+resource "vault_kubernetes_auth_backend_role" "eso" {
+  backend                          = vault_auth_backend.kubernetes.path
+  role_name                        = "eso"
+  bound_service_account_names      = ["external-secrets"]
+  bound_service_account_namespaces = ["external-secrets"]
+  token_policies                   = ["eso"]
+  token_ttl                        = 3600
+}
+```
+
+**Risk**: Medium for NEW roles (changes what pods can access). Low for importing existing ones. Least-privilege check: verify each role's `bound_service_account_names` + `token_policies` against the live config.
+
+### Stage 5: Additional Auth Methods (deferred)
+
+Userpass, OIDC, or other auth methods beyond Kubernetes. Currently only Kubernetes auth is in use (all Vault access goes through ESO). If no other auth methods exist, skip entirely.
+
+### Stage 6: App Policies (pure additive)
+
+Import the per-app policies — one per ESO-managed secret path. Each policy controls exactly which secret path an app's role can read.
+
+**Risk**: Lowest. Policies are additive, don't affect existing access until a role references them.
+
+## Why Not Just `vault write` Everything?
+
+The alternative is simpler: keep using CLI commands, document them in a runbook, hope nobody drifts.
+
+The problem with that approach:
+
+1. **No audit trail.** Who changed the `authelia` policy last week? `vault audit` logs secret access, not policy changes.
+2. **No reproducibility.** Recreating a Vault configuration from documentation is error-prone. Terraform state is the single source of truth.
+3. **No drift detection.** `terraform plan` shows you exactly what changed. Without it, drift accumulates silently until something breaks at 3 AM.
+4. **No rollback.** With CLI, undo means "remember what it was before" and `vault write` it back. With Terraform, `terraform apply` reverts to the last known-good state.
+
+The staged approach means you can stop at any stage. If Stage 3 (auth method) makes you nervous, don't apply it — Stages 1 and 2 are already valuable and carry zero risk.
+
+## The Maintenance Window
+
+Each stage takes 5-20 minutes. All stages are independently reversible. Total: ~1 hour.
+
+| Stage | Time | Impact |
+|---|---|---|
+| 1. Policies | 15 min | Zero — read-only import |
+| 2. KV mount | 5 min | Zero — config import |
+| 3. K8s auth | 10 min | Zero if import-only |
+| 4. Auth roles | 15 min | Zero if import-only |
+| 6. App policies | 20 min | Zero — additive |
+
+**If any stage shows unexpected drift**: STOP, investigate, do not apply. The diff tells you exactly what's different. Fix in git or in Vault manually, re-plan.
+
+## What Stays Manual Longest
+
+| Item | Why | When to revisit |
+|---|---|---|
+| Secret values | Ansible Vault is the durable source | Never — this is the correct pattern |
+| Vault server config | Managed by ArgoCD + Helm | When Vault moves to non-ArgoCD install |
+| Unseal keys / root tokens | Security-sensitive, manual by design | Never |
+| Vault upgrades | Renovate handles via PR | Ongoing |
+
+---
+
+Bringing Vault config under Terraform isn't about Terraform being better than CLI — it's about configuration being version-controlled, auditable, and reproducible. The staged approach means zero risk at each step: if a stage makes you nervous, don't apply it. The previous stages are already valuable. The hardest part isn't the implementation. It's drawing the scope boundary — knowing that secrets stay in Ansible Vault and Terraform only touches the access rules around them.
+
+<ProductCTA variant="end" slug="azure-firewall-enterprise" />
