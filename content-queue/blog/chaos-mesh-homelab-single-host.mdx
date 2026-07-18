@@ -1,0 +1,137 @@
+---
+title: "Chaos Mesh in a Homelab: Weekly Pod-Kills on a Single-Host Cluster"
+description: "Running scheduled chaos experiments on a non-production k3s cluster. Weekly pod-kills and latency injection — what breaks, what it teaches, and why chaos testing matters even when nobody's paying for uptime."
+date: "2026-08-27"
+tags: ["Kubernetes", "Chaos Engineering", "Homelab", "Observability"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Chaos engineering sounds like a production-only practice — inject failures, measure impact, improve resilience. But the biggest value of chaos testing isn't catching production failures. It's finding the problems you didn't know existed, in infrastructure you thought was solid, before they find you.
+
+I run two weekly chaos experiments on my single-host k3s cluster: a pod-kill every Sunday at 03:00 UTC, and a 100ms network latency injection at 03:30 UTC. Both are scoped to pods labeled `chaos-kill: enabled` in the `apps` namespace. Here's what they've taught me.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Setup
+
+Chaos Mesh runs in the `chaos-mesh` namespace, deployed via Helm chart v2.8.3:
+
+```yaml
+# kubernetes/system/chaos-mesh/application.yml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chaos-mesh
+  namespace: argocd
+spec:
+  source:
+    repoURL: https://charts.chaos-mesh.org
+    chart: chaos-mesh
+    targetRevision: 2.8.3
+    helm:
+      values:
+        chaosDaemon:
+          runtime: containerd
+          socketPath: /run/k3s/containerd/containerd.sock
+```
+
+The `socketPath` is critical: k3s uses its own containerd socket, not the standard Docker or containerd paths. If you point Chaos Mesh at the wrong socket, pod-kill experiments silently fail — the controller reports success but no pods are actually killed.
+
+The two Schedule resources:
+
+```yaml
+# Weekly pod-kill — Sunday 03:00 UTC
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: weekly-pod-kill
+  namespace: chaos-mesh
+spec:
+  schedule: "0 3 * * 0"
+  type: PodChaos
+  podChaos:
+    action: pod-kill
+    mode: one
+    selector:
+      labelSelectors:
+        chaos-kill: "enabled"
+      namespaces: ["apps"]
+    gracePeriod: 0
+---
+# Weekly network latency — Sunday 03:30 UTC
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Schedule
+metadata:
+  name: weekly-network-latency
+  namespace: chaos-mesh
+spec:
+  schedule: "30 3 * * 0"
+  type: NetworkChaos
+  networkChaos:
+    action: delay
+    mode: all
+    selector:
+      labelSelectors:
+        chaos-network: "enabled"
+      namespaces: ["apps"]
+    delay:
+      latency: "100ms"
+      jitter: "10ms"
+    duration: "5m"
+    direction: to
+```
+
+The `mode: one` on the pod-kill means exactly one pod matching the label is killed per experiment. `mode: all` on the network latency applies to all pods with the label. The `gracePeriod: 0` on pod-kill means immediate termination — no graceful shutdown, which is the realistic failure mode (a kernel panic, a power loss, a node crash).
+
+## What Broke: First Week
+
+The first pod-kill Sunday killed one Authelia pod. Expected behavior: Kubernetes reschedules it within seconds. What actually happened:
+
+1. Pod killed at 03:00:00 UTC
+2. Kubernetes schedules replacement at 03:00:02 UTC
+3. Replacement starts `wait-for-vault-secret` init container
+4. Init container polls Vault for ExternalSecret sync at 30s intervals
+5. Authelia fully ready at 03:01:30 UTC — **90 seconds of downtime**
+
+Ninety seconds for Authelia to recover from a pod-kill. The init container is the bottleneck: it waits for Vault to provide the hmac-secret, OIDC keys, and session secrets before the main container starts. During those 90 seconds, any service that checks Authelia for authentication returns 501 — the Traefik middleware can't reach Authelia's `/api/verify` endpoint.
+
+The fix wasn't to make Authelia faster. The fix was to recognize that 90 seconds of Authelia downtime is acceptable for a single-replica-killed scenario, but unacceptable for a two-replica scenario where both pods are killed simultaneously. The PDB (`minAvailable: 1`) prevents simultaneous kills — Chaos Mesh respects PodDisruptionBudgets. Without the PDB, both pods could be killed in the same experiment window.
+
+## What Broke: Network Latency
+
+The 100ms latency injection was more insidious. It didn't break anything immediately. Instead, it exposed timing-dependent behavior that was invisible under normal network conditions:
+
+**Velero backup duration increased by 40%.** Velero's Kopia sidecar communicates with the Garage S3 endpoint over the cluster network. Adding 100ms per request multiplied across thousands of file operations extended the backup window from ~12 minutes to ~20 minutes.
+
+**ArgoCD sync operations became sluggish.** ArgoCD's repo-server fetches manifests from the git repo, applies diffs, and syncs. Each step involves network calls that now had 100ms added. Syncs that normally took 5 seconds took 15-20 seconds.
+
+**Uptime Kuma monitors flickered.** Uptime Kuma's HTTP monitors expect sub-second response times. The 100ms added by Chaos Mesh pushed some monitors past their threshold, generating false-positive "service down" alerts.
+
+None of these are failures. They're performance degradation under adverse conditions. But they reveal the hidden assumption in every service's timeout and retry configuration: "the network is fast." When it isn't — because of a real network issue, a noisy neighbor, a congested switch — services that work fine under normal conditions start failing in unexpected ways.
+
+## What It Taught
+
+### 1. PDBs aren't optional
+
+Before Chaos Mesh, the PodDisruptionBudgets for Authelia and cloudflared were theoretical — "we have them because best practices say we should." After the first pod-kill confirmed that the PDB actually prevented simultaneous kills, they became load-bearing infrastructure.
+
+### 2. Init containers are single points of failure
+
+Every ExternalSecret-backed deployment has an init container that waits for Vault. If Vault is slow, sealed, or unreachable, the init container blocks the entire pod startup. The 90-second Authelia recovery time is entirely dominated by this init container. A faster health check or a cached secret fallback would reduce recovery time.
+
+### 3. Latency exposes timeout assumptions
+
+Every service has implicit assumptions about network latency. When those assumptions are violated, services don't crash — they degrade. The degradation is harder to debug than a crash because everything looks healthy in the logs. The only signal is slower response times and increased error rates that don't quite reach alerting thresholds.
+
+### 4. Chaos testing on a homelab isn't overkill
+
+The cluster has no SLA. Nobody is paying for uptime. But the same workloads (Postgres, Vault, Authelia) run in production environments everywhere. Finding that a pod-kill takes 90 seconds to recover — on a homelab where the consequence is "I can't log in for a minute and a half" — is infinitely better than finding it in production where the consequence is a customer-facing outage.
+
+---
+
+Chaos engineering at enterprise scale uses the same tools: Azure Chaos Studio for VM and AKS fault injection, Azure Load Testing for performance baseline, and Azure Monitor for measuring blast radius. The principle is identical — inject realistic failures in a controlled environment, measure the impact, fix what breaks. The only difference is that Azure Chaos Studio charges per experiment, so you want your homelab practice run to be thorough.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

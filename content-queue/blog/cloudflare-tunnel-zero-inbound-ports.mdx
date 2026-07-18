@@ -1,0 +1,160 @@
+---
+title: "Cloudflare Tunnel Without Opening a Single Firewall Port"
+description: "Zero inbound firewall rules for external service access. How Cloudflare Tunnel works with split-DNS on AdGuard, the chunked_encoding fix for large Immich uploads, and why routing Atlantis through Traefik matters for Authelia protection."
+date: "2026-08-22"
+tags: ["Kubernetes", "Networking", "Cloudflare", "Security"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Three services in my homelab need external access: Immich for family photo backup, Atlantis for Terraform webhooks, and Jellyfin for media. None of them have a single inbound firewall rule. Cloudflare Tunnel handles all external traffic through an outbound-only connection, and split-DNS on AdGuard ensures LAN clients reach services directly without leaving the network.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Architecture
+
+Cloudflare Tunnel works by running a `cloudflared` daemon inside the cluster that maintains an outbound-only connection to Cloudflare's edge. External requests hit Cloudflare, get routed through the tunnel to the origin service, and back. No inbound ports, no port forwarding, no attack surface on the WAN side.
+
+The Terraform configuration defines the tunnel ingress rules:
+
+```hcl
+# terraform/stacks/cloudflare/main.tf
+resource "cloudflare_zero_trust_tunnel_cloudflared_config" "homelab" {
+  tunnel_id = var.tunnel_id
+  account_id = var.account_id
+  config {
+    ingress {
+      hostname = "atlantis.woitzik.dev"
+      service  = "https://traefik.apps.svc.cluster.local:443"
+      origin_request {
+        origin_server_name = "atlantis.woitzik.dev"
+        no_tls_verify     = false
+      }
+    }
+    ingress {
+      hostname = "photos.woitzik.dev"
+      service  = "http://immich-server.apps.svc.cluster.local:2283"
+      origin_request {
+        no_tls_verify    = false
+        chunked_encoding = true
+      }
+    }
+    ingress {
+      hostname = "media.woitzik.dev"
+      service  = "http://ct-srv-jellyfin-01.dmz.woitzik.dev:8096"
+      origin_request {
+        no_tls_verify = false
+      }
+    }
+    ingress {
+      service = "http_status:404"
+    }
+  }
+}
+```
+
+The catch-all `http_status:404` is mandatory — Cloudflare Tunnel requires a final rule that catches unmatched hostnames.
+
+## Split-DNS on AdGuard
+
+The tunnel creates a split-brain DNS problem. External requests go through Cloudflare's anycast IPs. Internal requests (LAN) should go directly to the Traefik VIP, bypassing Cloudflare entirely. This means `photos.woitzik.dev` needs to resolve to different IPs depending on where the client is.
+
+AdGuard Home handles this with wildcard overrides:
+
+```yaml
+# AdGuard rewrites
+# Default: *.woitzik.dev → 10.0.20.200 (Traefik VIP)
+# Override: photos.woitzik.dev → Cloudflare anycast (172.67.137.91, 104.21.38.184)
+```
+
+The `*.woitzik.dev → 10.0.20.200` wildcard covers all internal services. The specific override for `photos.woitzik.dev` points to Cloudflare's anycast IPs, so mobile clients on cellular networks get routed through the tunnel while LAN clients go direct.
+
+The gotcha: AdGuard's wildcard applies to the search domain too. If the Proxmox host's search domain is `woitzik.dev`, every internal hostname query goes through the wildcard — including `pve.woitzik.dev`, `pbs.woitzik.dev`, and other services that should never leave the LAN. This was caught during initial setup: PTR queries for k3s pod IPs were being forwarded to the FritzBox because AdGuard's search domain configuration leaked DNS traffic outward.
+
+## The Chunked Encoding Fix
+
+Large photo and video uploads to Immich through Cloudflare Tunnel were failing with `ECONNRESET`. The uploads would complete 60-80% then drop the connection.
+
+The root cause: Cloudflare's proxy buffers the entire request body before forwarding to the origin. For multi-GB video uploads, this exceeds Cloudflare's buffer limit and the connection resets.
+
+The fix in the Terraform tunnel config:
+
+```hcl
+origin_request {
+  chunked_encoding     = true
+  write_timeout        = 600  # seconds
+  read_timeout         = 120  # seconds
+}
+```
+
+`chunked_encoding = true` tells `cloudflared` to stream the request body to the origin in chunks instead of buffering the entire payload. `write_timeout = 600s` gives large uploads up to 10 minutes to complete.
+
+This was the Immich-specific fix documented in CHANGELOG v0.8.0. The same issue can affect any service behind Cloudflare Tunnel that accepts large file uploads — Nextcloud, Paperless, or any service accepting multipart form data above ~100MB.
+
+## Atlantis Through Traefik
+
+Atlantis needs to receive GitHub webhooks for Terraform PR events. The naive approach: expose Atlantis directly via Cloudflare Tunnel. The problem: Atlantis has no built-in authentication — anyone who knows the URL can trigger plans and applies.
+
+The fix: route Atlantis through Traefik first, which applies the Authelia ForwardAuth middleware before the request reaches Atlantis:
+
+```hcl
+ingress {
+  hostname = "atlantis.woitzik.dev"
+  service  = "https://traefik.apps.svc.cluster.local:443"
+  origin_request {
+    origin_server_name = "atlantis.woitzik.dev"
+  }
+}
+```
+
+The Cloudflare Tunnel points at Traefik, not Atlantis. Traefik's IngressRoute for Atlantis includes the Authelia middleware:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: atlantis
+  namespace: apps
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`atlantis.woitzik.dev`)
+      kind: Rule
+      middlewares: [{name: authelia}]
+      services:
+        - name: atlantis
+          port: 4141
+  tls:
+    secretName: wildcard-woitzik-dev-tls
+```
+
+GitHub webhooks bypass Authelia because the webhook source IPs are known and can be allowlisted separately. But the Atlantis web UI — the plan output, the apply buttons — requires Authelia authentication.
+
+This pattern (Cloudflare Tunnel → Traefik → Authelia → service) is the same for every external service. The tunnel handles ingress, Traefik handles routing and TLS, Authelia handles authentication. Each layer does one thing.
+
+## DNS Record Management
+
+Cloudflare DNS records for the tunnel CNAMEs are Terraform-managed:
+
+```hcl
+resource "cloudflare_dns_record" "tunnel_photos" {
+  zone_id = var.zone_id
+  name    = "photos"
+  type    = "CNAME"
+  content = "abc123.cfargotunnel.com"
+  proxied = true
+  ttl     = 1
+}
+```
+
+The `proxied = true` means traffic goes through Cloudflare's proxy, which provides DDoS protection, rate limiting, and WAF rules. `ttl = 1` is automatic for proxied records.
+
+The `auth` DNS record (CNAME to `home.woitzik.dev`) is `proxied = false` — it's an internal-only record that doesn't need Cloudflare's proxy layer. Same for the Minecraft `playit.gg` record.
+
+---
+
+Cloudflare Tunnel's zero-inbound-port model is the same pattern as Azure Private Link and Azure Front Door: external traffic enters through a managed proxy, never touches your firewall directly, and the origin service only needs outbound connectivity. The split-DNS complexity is the same as Azure DNS Private Zones — internal resolution goes through private endpoints, external resolution through public DNS. Different tools, identical architecture.
+
+<ProductCTA variant="end" slug="azure-firewall-enterprise" />

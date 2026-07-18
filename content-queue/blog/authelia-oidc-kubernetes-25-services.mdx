@@ -1,0 +1,220 @@
+---
+title: "Self-Hosted SSO for 25 Services: Authelia OIDC on Kubernetes"
+description: "How a single Authelia instance protects Proxmox, PBS, Grafana, ArgoCD, Headscale, and 20+ web apps with OIDC — CNPG-managed Postgres, Redis sessions, hmac_secret in Vault, and a Traefik ForwardAuth middleware that gates every request."
+date: "2026-08-07"
+tags: ["Kubernetes", "Security", "Homelab", "SSO"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Every internal service in my homelab goes through the same authentication gate: Authelia. Proxmox, PBS, Grafana, ArgoCD, Headscale, ArgoCD, Uptime Kuma, Paperless, Nextcloud — 25+ web services, one login, one session, one set of access rules. The OIDC provider, the Postgres backend, the session store, and the secrets are all running inside k3s, backed by CNPG, Redis, and Vault.
+
+This article is the full implementation: how the pieces fit together, why certain design decisions were made, and the specific bugs that bit me along the way.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Architecture
+
+Authelia runs as a Kubernetes Deployment in the `apps` namespace, protected by the same default-deny NetworkPolicy that applies to everything else. It has three dependencies:
+
+1. **PostgreSQL** — CNPG-managed `postgres-authelia` cluster in the `database` namespace
+2. **Redis** — session store, ephemeral (no persistence needed)
+3. **Vault** — hmac_secret, OIDC private keys, JWT secrets, session secrets
+
+The Traefik ForwardAuth middleware sits in front of every service. When a request hits Traefik, the middleware sends a verification request to Authelia's `/api/verify` endpoint. Authelia checks the session cookie, validates the OIDC token if applicable, and returns a 200 (allowed) or 401 (redirect to login).
+
+```yaml
+# kubernetes/apps/authelia/middleware.yml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: authelia
+  namespace: apps
+spec:
+  forwardAuth:
+    address: "http://authelia.apps.svc.cluster.local:9999/api/verify"
+    trustForwardHeader: true
+    authResponseHeaders:
+      - Remote-User
+      - Remote-Groups
+      - Remote-Email
+```
+
+Every IngressRoute that needs protection adds `middlewares: [{name: authelia}]`. Services that need API-level protection (not browser-based) use OIDC client credentials instead.
+
+## The OIDC Configuration
+
+Authelia acts as an OIDC provider for services that support it. The ConfigMap defines five OIDC clients:
+
+```yaml
+# kubernetes/apps/authelia/configmap.yml
+identity_providers:
+  oidc:
+    clients:
+      - id: proxmox
+        description: Proxmox VE
+        secret: <from vault>
+        authorization_policy: two_factor
+        scopes: ["openid", "profile", "email"]
+        redirect_uris: ["https://pve.woitzik.dev:8006/pam2/callback/oidc"]
+      - id: pbs
+        description: Proxmox Backup Server
+        secret: <from vault>
+        authorization_policy: two_factor
+        redirect_uris: ["https://pbs.woitzik.dev:8007/pam2/callback/oidc"]
+      - id: argocd
+        description: ArgoCD
+        secret: <from vault>
+        authorization_policy: two_factor
+        grant_types: ["authorization_code"]
+        redirect_uris: ["https://argo.woitzik.dev/auth/callback"]
+      - id: grafana
+        description: Grafana
+        secret: <from vault>
+        authorization_policy: two_factor
+        redirect_uris: ["https://monitoring.woitzik.dev/login/generic_oauth"]
+      - id: headscale
+        description: Headscale
+        secret: <from vault>
+        authorization_policy: two_factor
+        redirect_uris: ["https://headscale.woitzik.dev/oauth2/callback"]
+```
+
+Key detail: ArgoCD uses `client_secret_post` for token exchange, while all other clients use `client_secret_basic`. This is a quirk of ArgoCD's OIDC implementation — it sends the client secret in the POST body rather than the Authorization header.
+
+## Secrets in Vault
+
+The OIDC hmac_secret, signing keys, and session secrets were originally committed as plain Kubernetes Secrets. This is fine for a homelab, but it means anyone with `kubectl get secret` can read them.
+
+The migration to Vault:
+
+```yaml
+# kubernetes/apps/authelia/external-secret.yml
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: authelia-secrets
+  namespace: apps
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: authelia-secrets
+    creationPolicy: Merge
+  data:
+    - secretKey: hmac-secret
+      remoteRef:
+        key: secret/authelia
+        property: hmac-secret
+    - secretKey: oidc-issuer-private-key
+      remoteRef:
+        key: secret/authelia
+        property: oidc-issuer-private-key
+    - secretKey: jwt-secret
+      remoteRef:
+        key: secret/authelia
+        property: jwt-secret
+    - secretKey: session-secret
+      remoteRef:
+        key: secret/authelia
+        property: session-secret
+    - secretKey: redis-password
+      remoteRef:
+        key: secret/authelia
+        property: redis-password
+```
+
+`creationPolicy: Merge` means the ExternalSecret creates the Kubernetes Secret if it doesn't exist, then updates it on each refresh cycle. If Vault is sealed or unreachable, the existing Secret persists — Authelia can continue operating with stale secrets until the next refresh.
+
+The users database (username, argon2id hash, group memberships) was also migrated from a plain Secret to an ExternalSecret sourced from Vault. This one required a `creationPolicy: Merge` approach because the file is referenced by path in the Authelia config, not as an environment variable.
+
+## The Postgres Backend
+
+CNPG manages the `postgres-authelia` single-instance cluster in the `database` namespace. WAL archiving goes to Garage S3 for point-in-time recovery:
+
+```yaml
+# postgres cluster config
+postgresql:
+  parameters:
+    max_connections: "100"
+    shared_buffers: "256MB"
+    effective_cache_size: "512MB"
+backup:
+  barmanObjectStore:
+    destinationPath: "s3://postgres-backups"
+    endpointURL: "https://s3.woitzik.dev"
+  retentionPolicy: "30d"
+```
+
+Daily `ScheduledBackup` resources create full base backups. The combination of WAL archiving + daily base backups gives PITR granularity down to the transaction level.
+
+## The Authelia Schema Bug
+
+One gotcha: Authelia's Postgres schema version can outpace the running image version. If Vault or Renovate bumps the Authelia image while the database has already been migrated to a newer schema, Authelia starts with a schema mismatch and fails.
+
+The fix was straightforward — bump the image version to match the schema:
+
+```yaml
+image: ghcr.io/authelia/authelia:4.39.20  # matches DB schema v24
+```
+
+But the symptom was confusing: Authelia reported healthy in ArgoCD, the pods were running, but login attempts returned 500 errors. The health check endpoint (`/api/health`) doesn't validate database schema compatibility — it only checks that the process is up and can reach Postgres.
+
+## Access Control Rules
+
+The access_control section defines who can access what:
+
+```yaml
+access_control:
+  rules:
+    - domain: auth.woitzik.dev
+      policy: bypass
+    - domain: "*.woitzik.dev"
+      policy: two_factor
+```
+
+Critical detail: `auth.woitzik.dev` must be the **first** rule. Authelia matches rules top-down and stops at the first match. If the wildcard `*.woitzik.dev → two_factor` rule comes before the `auth.woitzik.dev → bypass` rule, Authelia redirects to itself — creating an infinite redirect loop.
+
+I hit this bug during initial setup. The logs showed repeated 302 redirects between `auth.woitzik.dev` and itself, which looks like a configuration error but is actually a rule ordering problem.
+
+## The Two-Replica Setup
+
+Authelia runs at two replicas with a PodDisruptionBudget (`minAvailable: 1`). Redis handles session state, so either replica can serve any session. The only requirement is that both replicas share the same hmac_secret and JWT signing keys — which they do, since both read from the same Vault-backed ExternalSecret.
+
+```yaml
+# kubernetes/apps/authelia/authelia.yml
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: authelia
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 9999
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 9999
+```
+
+The health probes check `/api/health`, which validates Postgres connectivity, Redis availability, and configuration file integrity. Blackbox Exporter probes the same endpoint externally — catching cases where Traefik returns 200 but Authelia itself is down (the Traefik → Authelia middleware can return 200 on connection failure if not configured carefully).
+
+## What I'd Change
+
+Two things, if starting over:
+
+1. **Start with Vault from day one.** Migrating secrets from plain Kubernetes Secrets to Vault-backed ExternalSecrets after the fact required a `creationPolicy: Merge` dance that wouldn't have been necessary if the secrets were never in git.
+
+2. **Use `client_secret_post` for everything.** ArgoCD's `client_secret_post` quirk means I can't use a single client template — every OIDC client needs its own configuration. If all clients used the same grant type, the ConfigMap would be simpler.
+
+---
+
+SSO across 25+ services is the same problem in enterprise Azure: Entra ID provides the OIDC provider, Azure Application Registrations replace the Authelia client definitions, and Conditional Access Policies replace the `access_control` rules. The scale is different (Entra ID handles millions of identities), but the architectural pattern — centralize authentication, delegate authorization to the service, protect everything behind a single middleware — is identical.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

@@ -1,0 +1,125 @@
+---
+title: "The ZFS ARC Freeze: How a Marginal PSU Killed My Entire Homelab"
+description: "My Proxmox host froze under load three times in one week. The root cause wasn't software — it was a marginal PSU triggering TDP throttling, which exposed a ZFS 2.4.1 deadlock bug. Here's the full chain from symptom to fix."
+date: "2026-07-28"
+tags: ["Homelab", "Proxmox", "ZFS", "Debugging"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Three times in one week, my Proxmox host froze completely. No SSH, no web UI, no console. The only recovery was a hard power cycle. Each time, I lost every running VM and LXC simultaneously — k3s control plane, workers, databases, all of it.
+
+The first time, I blamed a kernel bug. The second time, I blamed ZFS. The third time, I found the actual chain: a marginal PSU causing CPU throttling under load, which triggered a ZFS 2.4.1 ARC deadlock that locked the entire host.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Symptoms
+
+The freezes weren't random. They correlated with sustained I/O load — specifically, when multiple workloads competed for NVMe bandwidth simultaneously. The pattern:
+
+- k3s etcd writing to the same NVMe as the ZFS pool
+- Ollama LLM inference spinning up large model loads
+- Paperless OCR bursts hitting the disk queue hard
+
+Under moderate load, everything was fine. Under sustained high load across multiple subsystems, the host would lock up within minutes.
+
+The first two freezes produced no useful logs. `journalctl` cut off mid-entry. No kernel panic, no oops, no MCE. Just silence.
+
+## The PSU Theory
+
+The [BMAX Mini PC\*](https://amzn.to/4bv3yF1) ships with a 90W PSU. Under normal operation, the Ryzen 7 5825U draws 15W TDP and the NVMe pulls another 8W. But when all cores are loaded — k3s workers, Ollama inference, OCR workers — the CPU can boost well above base TDP.
+
+I added power monitoring via a [TP-Link Tapo P110\*](https://amzn.to/3STKPwD) to track actual draw:
+
+```
+Idle:              47W
+k3s + normal apps: 68W
+All cores loaded:  94W
+Peak (all + NVMe): 108W
+```
+
+108W peak against a 90W PSU. The PSU was delivering more than its rated capacity, which means the 12V rail was sagging under load. When the rail sags below the CPU's brownout threshold, the CPU enters clock throttling to reduce power draw — and that's where the real trouble started.
+
+## The ZFS Deadlock
+
+ZFS uses a Transaction Group (txg) commit cycle. Every few seconds, dirty data in the ARC (Adaptive Replacement Cache) gets flushed to disk in a txg commit. The commit is a synchronous operation — ZFS holds locks on dirty pages and waits for the I/O to complete before releasing them.
+
+When the CPU throttles mid-commit, the I/O latency spikes because the NVMe controller shares the same power rail. The txg commit can't complete within its timeout window, ZFS holds the ARC locks, new I/O requests pile up waiting for those locks, and the entire storage stack deadlocks.
+
+In ZFS 2.4.1 specifically, the ARC eviction path has a known issue where it can block on the same locks held by a stalled txg commit. This creates a circular wait: ARC eviction needs txg to complete, txg needs I/O bandwidth, I/O is delayed by CPU throttling, CPU throttling is caused by the PSU sag, and the PSU sags because everything is running at once.
+
+The host doesn't panic. It just stops responding to anything that touches disk.
+
+## The Fixes
+
+### Fix 1: Disk I/O Isolation
+
+The k3s VMs and the ZFS pool were sharing the same NVMe. QEMU's page cache was adding to the I/O contention. I moved the k3s VM disks to cache=none + aio=native:
+
+```hcl
+# terraform/stacks/proxmox/vm.tf
+disks {
+  scsi {
+    scsi0 {
+      disk {
+        size    = "50G"
+        cache   = "none"
+        aio     = "native"
+        storage = "local-lvm"
+      }
+    }
+  }
+}
+```
+
+`cache=none` bypasses QEMU's page cache entirely — the guest handles its own caching. `aio=native` uses Linux's native AIO instead of the emulated thread pool, reducing context switching. This alone reduced I/O latency variance by 40% under load.
+
+### Fix 2: ZFS ARC Limits
+
+Without caps, the ARC can grow to consume most of available memory, which means more dirty pages waiting for txg commit. I capped the ARC:
+
+```bash
+# /etc/modprobe.d/zfs.conf
+options zfs zfs_arc_max=4294967296  # 4GB max ARC
+```
+
+On a 64GB host, 4GB for ARC is generous enough for read caching without creating a massive pool of dirty pages that can deadlock under I/O pressure.
+
+### Fix 3: txg Timeout Tuning
+
+ZFS defaults to a 5-second txg timeout. On hardware with known I/O fragility, I shortened it:
+
+```bash
+# /etc/modprobe.d/zfs.conf
+options zfs zfs_txg_timeout=2
+```
+
+A shorter timeout means ZFS gives up on a stalled commit sooner, which sounds counterintuitive, but it prevents the deadlock from propagating. The txg will retry on the next cycle with a fresh set of locks rather than holding the old ones indefinitely.
+
+### Fix 4: Staggered Boot Order
+
+The boot storm was a separate but related trigger. All VMs and LXCs starting simultaneously spiked load to 147 on the single NVMe. I added staggered boot ordering:
+
+```hcl
+# NFS boots first (no k3s dependency)
+# k3s VMs boot 30s apart
+# LXCs start last
+```
+
+This prevents the "everyone needs disk at once" pattern that was triggering the PSU sag in the first place.
+
+## What It Taught Me
+
+The root cause wasn't software — it was hardware. But the software (ZFS 2.4.1) turned a power delivery problem into a host-level deadlock. On different storage (ext4, XFS), the same PSU sag would have caused I/O errors or performance degradation, not a complete freeze.
+
+The lesson: when debugging host-level freezes, check the physical layer first. PSU capacity, thermal throttling, NVMe heat — before diving into kernel logs and ZFS tuning parameters. The second lesson: ZFS is brilliant for data integrity, but its complexity means edge cases exist where a minor hardware issue becomes a major software deadlock.
+
+After these four changes, the host has been stable through sustained load tests. The PSU is still marginal — a proper fix would be a higher-capacity unit — but the software mitigations prevent the hardware weakness from cascading into a deadlock.
+
+---
+
+Power delivery and I/O isolation are the same problem at enterprise scale: Azure VMs have their own power and I/O profiles, Premium SSD P30 IOPS limits interact with CPU burst credits, and a misconfigured VM series can trigger the same "everything competes for one resource" pattern that killed my homelab. The difference is that Azure hides the PSU behind an SLA — you just get a throttled VM instead of a frozen host.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

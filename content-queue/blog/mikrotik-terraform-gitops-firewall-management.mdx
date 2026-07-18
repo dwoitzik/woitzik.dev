@@ -1,0 +1,224 @@
+---
+title: "GitOps for Firewall Rules: MikroTik + Terraform + Atlantis"
+description: "Every firewall rule, VLAN, DHCP lease, and NAT port-forward on my MikroTik RB5009 is managed via Terraform and applied through Atlantis pull requests. Here's the full flow from PR to RouterOS apply, including the VLAN matrix, deterministic rule ordering, and LED night-mode scheduling."
+date: "2026-09-11"
+tags: ["Terraform", "MikroTik", "GitOps", "Networking"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+My MikroTik RB5009 has no manual RouterOS configuration. Every firewall rule, every VLAN interface, every DHCP static lease, every NAT port-forward — all of it lives in Terraform, reviewed via Atlantis pull requests, and applied through the same GitOps workflow that manages the Kubernetes cluster.
+
+This article covers the full implementation: the `locals` block that drives the VLAN matrix, the `place_before` pattern for deterministic firewall ordering, and how a router's LED schedule ended up in Terraform.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Provider Setup
+
+The `routeros` provider (v1.80+) connects to the MikroTik via the REST API:
+
+```hcl
+# terraform/stacks/network/providers.tf
+terraform {
+  required_version = ">= 1.5"
+  required_providers {
+    routeros = {
+      source  = "terraform-routeros/routeros"
+      version = "~> 1.80"
+    }
+  }
+  backend "s3" {
+    bucket = "terraform-state"
+    key    = "network/terraform.tfstate"
+    endpoints = {
+      s3 = "https://s3.woitzik.dev"
+    }
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_requesting_account_id  = true
+  }
+}
+```
+
+The S3 backend is Garage, the self-hosted S3-compatible storage running inside k3s. The Terraform state for the network stack lives on the same cluster that depends on the network — another circular dependency that's acceptable because a full cluster failure means the network is the least of your problems.
+
+## The VLAN Matrix
+
+The `locals` block is the single source of truth for the entire network:
+
+```hcl
+# terraform/stacks/network/main.tf
+locals {
+  homelab_vlans = {
+    "vlan20-srv"    = 20
+    "vlan30-dmz"    = 30
+    "vlan40-iot"    = 40
+    "vlan100-admin" = 100
+  }
+
+  rpi_port_mapping = {
+    "ether6" = 20  # RPi 4B #1 (Keepalived Node A)
+    "ether7" = 20  # RPi 4B #2 (Keepalived Node B)
+  }
+
+  proxmox_port = "ether5"
+
+  # Port mapping for all VLAN-tagged trunks
+  port_mapping = {
+    "ether1" = 1   # WAN (FritzBox)
+    "ether2" = 20  # k3s-11
+    "ether3" = 20  # k3s-12
+    "ether4" = 20  # k3s-13
+    "ether5" = 20  # Proxmox host
+    "ether6" = 20  # RPi #1
+    "ether7" = 20  # RPi #2
+    "sfp-sfpplus1" = 30  # DMZ switch
+  }
+}
+```
+
+Adding a new VLAN means one entry in `homelab_vlans`. Terraform auto-generates:
+
+- Bridge VLAN entries
+- DHCP server per VLAN
+- Firewall rules per VLAN
+- VLAN interface on the bridge
+
+Moving a device between VLANs means changing one number in `port_mapping`. The firewall rules, DHCP leases, and bridge entries update automatically.
+
+## Deterministic Firewall Ordering
+
+MikroTik evaluates firewall rules in order and stops at the first match. Terraform manages rule ordering via `place_before` references:
+
+```hcl
+# terraform/stacks/network/firewall_deterministic.tf
+
+# Final drop rule — must be last in the forward chain
+resource "routeros_ip_firewall_filter" "fwd_99_drop_all" {
+  action       = "drop"
+  chain        = "forward"
+  place_before = null  # explicit: this is the last rule
+  comment      = "99: Global - Final Drop (Zero Trust Policy)"
+}
+
+# Anti-spoofing — must come before any accept rules
+resource "routeros_ip_firewall_filter" "fwd_00b_anti_spoof" {
+  action       = "drop"
+  chain        = "forward"
+  src_address  = "10.0.0.0/8"
+  in_interface_list = "WAN"
+  place_before = routeros_ip_firewall_filter.fwd_01_established.id
+  comment      = "00b: Anti-Spoof - Drop internal src from WAN"
+}
+
+# Established/related — allows return traffic
+resource "routeros_ip_firewall_filter" "fwd_01_established" {
+  action       = "accept"
+  chain        = "forward"
+  connection_state = ["established", "related"]
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "01: Allow Established/Related"
+}
+```
+
+The `place_before` attribute creates explicit ordering dependencies. Rule 00b must come before rule 01, which must come before rule 99. Terraform resolves these dependencies during plan, so the apply order matches the intended evaluation order.
+
+Without `place_before`, Terraform would apply rules in dependency-graph order, which is not guaranteed to match the intended firewall evaluation order. A rule that should be evaluated first might be created last, allowing a broader rule to match traffic before the narrower, more specific rule is evaluated.
+
+The full ruleset in `firewall_deterministic.tf` has 22 rules with explicit ordering. The `firewall_extra.tf` file has 19 additional rules for VPN access tiers, monitoring, and application-specific port forwards — all with `place_before` references to maintain correct evaluation order.
+
+## The Atlantis Flow
+
+Every change to the network stack goes through Atlantis:
+
+1. Edit `terraform/stacks/network/*.tf`
+2. Push to a feature branch
+3. Open a PR against `main`
+4. Atlantis comments with the `terraform plan` output
+5. Review the plan
+6. Comment `atlantis apply`
+7. Atlantis applies the changes to the MikroTik
+
+The `atlantis.yaml` at the repo root defines the project:
+
+```yaml
+version: 3
+projects:
+  - name: network
+    dir: terraform/stacks/network
+    workspace: default
+    autoplan:
+      when_modified: ["*.tf", "*.tfvars"]
+      enabled: true
+```
+
+The plan output shows exactly what will change:
+
+```hcl
+# routeros_ip_firewall_filter.fwd_04a_monitoring will be updated in-place
+~ resource "routeros_ip_firewall_filter" "fwd_04a_monitoring" {
+      action      = "accept"
+      chain       = "forward"
+  ~   dst_port    = "9100" -> "9100,9090"
+      src_address = "10.0.20.0/24"
+      comment     = "04a: SRV - Prometheus scrape to MGMT"
+  }
+```
+
+No surprise changes. Every rule modification is visible in the PR before it touches the live router.
+
+## What Goes in Terraform vs. What Doesn't
+
+**In Terraform:**
+- All firewall filter rules (input + forward chains)
+- VLAN interfaces and bridge matrix
+- DHCP static leases
+- NAT port-forwards
+- QoS traffic shaping
+- SNMP community configuration
+- Power LED scheduling (yes, really)
+
+**Not in Terraform:**
+- RouterOS user management (done once, rarely changes)
+- Certificate renewals (handled by the router's own scheduler)
+- Custom scripts for monitoring (run via SNMP, not Terraform)
+
+The principle: if it affects traffic flow or network behavior, it's in Terraform. If it's one-time configuration or the router's own maintenance, it stays in RouterOS.
+
+## The LED Night-Mode
+
+The MikroTik RB5009 has a power LED that's bright enough to be annoying in a dark room. RouterOS supports LED scheduling via the system scheduler. This ended up in Terraform:
+
+```hcl
+resource "routeros_system_scheduler" "led_night_mode_off" {
+  name     = "led-off"
+  start_time = "23:00:00"
+  interval  = "00:24:00"
+  on_event = "/system led set led1 state=off"
+}
+
+resource "routeros_system_scheduler" "led_night_mode_on" {
+  name     = "led-on"
+  start_time = "07:00:00"
+  interval  = "00:24:00"
+  on_event = "/system led set led1 state=on"
+}
+```
+
+Two scheduler entries. LED off at 23:00, on at 07:00. Managed via Terraform, reviewed via PR, applied via Atlantis. It's the most trivial thing in the entire network stack, and it's also the change that made my partner the happiest.
+
+## The Anti-Patterns
+
+Two things I deliberately avoid:
+
+1. **Never create resources directly via RouterOS API.** Every resource must be created through Terraform. If I need to debug a live issue and make a direct API change, I immediately add a `moved {}` block or `import {}` block to bring that resource under Terraform management. This prevents the "77 rules, Terraform knows about 22" problem I wrote about earlier.
+
+2. **Never `terraform apply` locally.** All applies go through Atlantis PRs. This creates an audit trail, forces me to review every change, and prevents accidental modifications during debugging sessions.
+
+---
+
+Firewall-as-code via Terraform is the same pattern in Azure: NSG rules, Azure Firewall Policy rule collections, and Application Security Groups are all Terraform resources. The difference is that Azure's NSG API handles rule ordering automatically based on priority numbers, while MikroTik requires explicit `place_before` dependencies. Both approaches achieve the same goal: firewall rules that are reviewed, version-controlled, and auditable.
+
+<ProductCTA variant="end" slug="azure-firewall-enterprise" />
