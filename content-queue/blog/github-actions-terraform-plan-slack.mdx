@@ -1,0 +1,155 @@
+---
+title: "GitHub Actions + Terraform Plan: Parsing the Output for Slack Alerts"
+description: "terraform plan exits 0 even when there are changes. A GitHub Actions step that parses the plan output and posts a summary to Slack catches drift before it becomes a problem."
+date: "2026-11-08"
+tags: ["Terraform", "GitHub Actions", "GitOps", "Atlantis"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+`terraform plan` exits with code 0 whether there are changes or not. In a GitOps workflow with Atlantis, that means a plan can show 15 resources to destroy and CI still passes green. A GitHub Actions step that parses the plan output, counts additions/changes/deletions, and posts a summary to Slack gives the team visibility without checking the Atlantis dashboard.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Problem
+
+Atlantis runs `terraform plan` on every PR. The plan output is posted as a PR comment. But nobody reads PR comments consistently. A plan that shows:
+
+```
+Plan: 5 to add, 3 to change, 7 to destroy.
+```
+
+...sits uncommented for days. The PR gets approved and merged. Atlantis applies. The 7 destroyed resources include a Cloudflare DNS record and a MikroTik firewall rule.
+
+## The GitHub Actions Workflow
+
+The workflow runs on every push to `main` that touches Terraform files:
+
+```yaml
+name: Terraform Plan Alert
+on:
+  push:
+    paths:
+      - "terraform/**"
+    branches:
+      - main
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.x"
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+        working-directory: terraform/stacks/network
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan -no-color -out=tfplan 2>&1 | tee plan.txt
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+
+      - name: Parse Plan Output
+        id: parse
+        run: |
+          CHANGES=$(grep -E "Plan:|No changes" plan.txt || echo "Plan output not found")
+          ADDS=$(echo "$CHANGES" | grep -oP '\d+ to add' | grep -oP '\d+' || echo "0")
+          CHANGES_COUNT=$(echo "$CHANGES" | grep -oP '\d+ to change' | grep -oP '\d+' || echo "0")
+          DESTROYS=$(echo "$CHANGES" | grep -oP '\d+ to destroy' | grep -oP '\d+' || echo "0")
+          echo "adds=$ADDS" >> $GITHUB_OUTPUT
+          echo "changes=$CHANGES_COUNT" >> $GITHUB_OUTPUT
+          echo "destroys=$DESTROYS" >> $GITHUB_OUTPUT
+          echo "summary=$CHANGES" >> $GITHUB_OUTPUT
+
+      - name: Slack Alert
+        if: steps.parse.outputs.destroys != '0' || steps.parse.outputs.adds != '0'
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          payload: |
+            {
+              "text": "Terraform Plan: ${{ steps.parse.outputs.summary }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Terraform Plan*\nRepo: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nPlan: ${{ steps.parse.outputs.summary }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+```
+
+## Why This Matters
+
+The Slack alert fires on every plan that has changes. A plan with "No changes" is silent. A plan with "7 to destroy" gets a Slack message with the summary. The team sees it immediately.
+
+The `SLACK_WEBHOOK_URL` is stored as a GitHub secret. The webhook URL comes from Slack's Incoming Webhooks app.
+
+## The Terraform Output Format
+
+Terraform plan output looks like this:
+
+```
+Terraform will perform the following actions:
+
+  # azurerm_resource_group.example will be updated in-place
+  ~ resource "azurerm_resource_group" "example" {
+      ~ tags = {
+          ~ environment = "staging" -> "production"
+        }
+    }
+
+  # azurerm_subnet.new will be created
+  + resource "azurerm_subnet" "new" {
+      + name                 = "new-subnet"
+      + resource_group_name  = "example-rg"
+    }
+
+  # azurerm_network_security_rule.old will be destroyed
+  - resource "azurerm_network_security_rule" "old" {
+      - name = "old-rule" -> null
+    }
+
+Plan: 1 to add, 1 to change, 1 to destroy.
+```
+
+The parsing script extracts the summary line. For complex plans with 100+ resources, the summary is the only thing that matters in the Slack message.
+
+## Extending to PR Comments
+
+The same parsing logic works for PR comments. Add a step that posts the plan summary as a PR comment:
+
+```yaml
+- name: Comment on PR
+  if: github.event_name == 'pull_request'
+  uses: actions/github-script@v7
+  with:
+    script: |
+      github.rest.issues.createComment({
+        issue_number: context.issue.number,
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        body: `## Terraform Plan\n\n${process.env.PLAN_SUMMARY}`
+      })
+    env:
+      PLAN_SUMMARY: ${{ steps.parse.outputs.summary }}
+```
+
+This gives PR reviewers the plan summary without scrolling through the full diff.
+
+## The Atlantis Alternative
+
+If you're using Atlantis (like the homelab-infrastructure repo), the same parsing works on Atlantis plan output. Atlantis posts the plan as a PR comment with a specific format. A GitHub Action that watches for Atlantis comments and extracts the plan summary is more reliable than running `terraform plan` twice.
+
+The key difference: Atlantis runs the plan on a server with state access. The GitHub Actions workflow runs with `-backend=false` (no state). For alerting purposes, `-backend=false` is fine — you only need the plan output format, not the actual state.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

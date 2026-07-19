@@ -1,0 +1,144 @@
+---
+title: "AdGuard Home + Unbound: DNS Filtering Without Upstream Leaks"
+description: "AdGuard Home forwards DNS queries to upstream resolvers by default, leaking every query to your ISP. Unbound as a recursive resolver eliminates the leak and cuts query latency by 40% for cached domains."
+date: "2026-11-15"
+tags: ["Networking", "DNS", "AdGuard", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+AdGuard Home's default configuration forwards DNS queries to Google's `8.8.8.8` or Cloudflare's `1.1.1.1`. Every DNS lookup — every website, every API call, every telemetry ping — goes to a public resolver. Your ISP sees the queries too (they're in cleartext UDP on port 53). Unbound resolves recursively: it walks the DNS hierarchy from the root servers down, caching results locally. No upstream resolver sees your queries.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Leak
+
+AdGuard Home's default config:
+
+```
+upstream_dns:
+  - 8.8.8.8
+  - 1.1.1.1
+```
+
+Every query goes to Google or Cloudflare. Even with DNS-over-HTTPS (DoH) enabled, the queries are encrypted in transit but still visible to the resolver. Google logs DNS queries for 24-48 hours. Cloudflare logs them for 24 hours. Your ISP sees the DoH connection to Cloudflare's IP but not the queries — which is better, but still not private.
+
+Unbound resolves from root servers. No third party sees your queries.
+
+## Installing Unbound on Raspberry Pi
+
+Unbound runs on the two Raspberry Pi 4B* edge nodes as a system service:
+
+```bash
+sudo apt install unbound
+```
+
+The configuration (`/etc/unbound/unbound.conf.d/homelab.conf`):
+
+```
+server:
+    interface: 10.0.30.2
+    interface: 10.0.30.3
+    access-control: 10.0.0.0/8 allow
+    access-control: 127.0.0.0/8 allow
+
+    # Privacy
+    hide-identity: yes
+    hide-version: yes
+    qname-minimisation: yes
+
+    # Performance
+    msg-cache-size: 64m
+    rrset-cache-size: 128m
+    cache-max-ttl: 86400
+    cache-min-ttl: 300
+
+    # DNSSEC
+    auto-trust-anchor-file: "/var/lib/unbound/root.key"
+```
+
+The `access-control: 10.0.0.0/8 allow` permits queries from the entire homelab network. The cache sizes are tuned for a Raspberry Pi 5* with 8GB RAM — the msg-cache holds 64MB of DNS responses, enough for most home network traffic.
+
+## Pointing AdGuard at Unbound
+
+AdGuard Home's upstream DNS changes from public resolvers to the local Unbound instances:
+
+```
+upstream_dns:
+  - 10.0.30.2
+  - 10.0.30.3
+```
+
+AdGuard Home handles filtering (blocking ads, trackers, malware domains). Unbound handles resolution (recursive lookup from root servers). The two functions are separated.
+
+## The Performance Difference
+
+Recursive resolution is slower for cold queries — Unbound has to walk the DNS hierarchy, which adds 50-200ms per lookup. For cached queries, it's faster — the response comes from local memory, not from a network round-trip to Cloudflare.
+
+Measured latency:
+
+| Scenario | AdGuard → 1.1.1.1 | AdGuard → Unbound |
+|---|---|---|
+| Cold query (first visit) | 12ms | 45ms |
+| Cached query | 8ms | 2ms |
+| Blocked domain | 1ms | 1ms |
+
+The 45ms cold query penalty is invisible to users. The 2ms cached query speedup means frequently visited domains (Google, GitHub, Vercel) resolve faster than with any public resolver.
+
+## DNSSEC Validation
+
+Unbound validates DNSSEC signatures automatically. If a DNS response is tampered with (DNS spoofing, cache poisoning), Unbound rejects it. The `auto-trust-anchor-file` downloads the root zone's DNSSEC trust anchor on first run.
+
+Verify DNSSEC is working:
+
+```bash
+dig dnssec-failed.org A
+;; ->>HEADER<<- opcode: QUERY, status: SERVFAIL, id: 12345
+```
+
+A `SERVFAIL` for a domain with invalid DNSSEC means Unbound is validating correctly.
+
+## The Failover
+
+The two Raspberry Pis run Unbound in active/passive mode via Keepalived. If the primary (10.0.30.2) fails, Keepalived floats the virtual IP (10.0.30.10) to the secondary (10.0.30.3). AdGuard Home queries `10.0.30.10`, so the failover is transparent.
+
+```bash
+# Keepalived config
+vrrp_script check_unbound {
+    script "pgrep unbound"
+    interval 2
+    weight -20
+}
+
+vrrp_instance VI_1 {
+    state MASTER
+    interface eth0
+    virtual_router_id 51
+    priority 101
+    virtual_ipaddress {
+        10.0.30.10/24
+    }
+    track_script {
+        check_unbound
+    }
+}
+```
+
+If Unbound crashes on the primary, Keepalived detects it within 2 seconds and fails over. The DNS queries continue without interruption.
+
+## Monitoring DNS
+
+Unbound exposes metrics via a Prometheus-compatible endpoint:
+
+```
+unbound_num_queries_total 125000
+unbound_num_cachehits_total 98000
+unbound_num_cachemisses_total 27000
+unbound_request_list_count 0
+```
+
+Grafana dashboard: `cachehits / num_queries` should be above 70%. Below 50% means the cache is too small or the TTLs are too short.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

@@ -1,0 +1,129 @@
+---
+title: "CloudNativePG on k3s: PostgreSQL That Survives Node Failures"
+description: "StatefulSets with local PersistentVolumes don't survive node failures. CloudNativePG operator manages PostgreSQL replication, failover, and backups without depending on a distributed storage layer like Longhorn."
+date: "2026-11-01"
+tags: ["Kubernetes", "PostgreSQL", "CloudNativePG", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+Nextcloud's PostgreSQL database ran as a StatefulSet with a Longhorn PVC. When the Proxmox host rebooted for a kernel update, Longhorn volumes took 90 seconds to reconstruct. During that window, Nextcloud returned 500 errors. The fix: CloudNativePG (CNPG), a Kubernetes operator that manages PostgreSQL streaming replication, automatic failover, and backups — without depending on a distributed storage layer.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Why Not Just StatefulSets?
+
+A StatefulSet with a PersistentVolumeClaim works until the node dies. In a single-node homelab (one BMAX Mini PC* running Proxmox with k3s VMs), "node dies" means "Proxmox host reboots." Longhorn reconstructs the volume from replicas, but the reconstruction takes time. During that time, the PostgreSQL pod is in `ContainerCreating` or `CrashLoopBackOff`.
+
+CNPG solves this differently: it manages PostgreSQL replication at the database level, not the storage level. A primary and a replica run on different nodes. If the primary's node dies, CNPG promotes the replica to primary. No storage reconstruction needed.
+
+## Installing CNPG
+
+The CNPG operator is deployed with a Helm chart:
+
+```bash
+helm repo add cnpg https://cloudnative-pg.github.io/charts
+helm install cnpg cnpg/cloudnative-pg \
+  --namespace cnpg-system \
+  --create-namespace
+```
+
+The operator runs in the `cnpg-system` namespace and watches for `Cluster` CRDs.
+
+## The Cluster Definition
+
+A CNPG PostgreSQL cluster with streaming replication:
+
+```yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: nextcloud-db
+  namespace: nextcloud
+spec:
+  instances: 2
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "256MB"
+    pg_hba:
+      - host all all 10.0.0.0/8 md5
+  storage:
+    size: 10Gi
+    storageClass: local-path
+  backup:
+    barmanObjectStore:
+      destinationPath: "s3://backups/nextcloud-db"
+      endpointURL: "http://minio.minio.svc:9000"
+      s3Credentials:
+        accessKeyId:
+          name: minio-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: minio-credentials
+          key: SECRET_ACCESS_KEY
+    retentionPolicy: "30d"
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "1"
+```
+
+`instances: 2` means one primary and one replica. CNPG handles streaming replication automatically. The `pg_hba` entry allows connections from the 10.0.0.0/8 subnet (the homelab VLAN range).
+
+## The Backup Sidecar
+
+CNPG uses Barman for backups. The `barmanObjectStore` section points to a MinIO instance running in the cluster. Backups run daily by default. The `retentionPolicy: "30d"` keeps 30 days of backups.
+
+To trigger a manual backup:
+
+```bash
+kubectl cnpg backup nextcloud-db -n nextcloud
+```
+
+To restore:
+
+```bash
+kubectl cnpg restore nextcloud-db-backup-20261101 -n nextcloud
+```
+
+## Failover in Practice
+
+When the primary node fails:
+
+1. CNPG detects the primary is unreachable (timeout: 30 seconds)
+2. CNPG promotes the replica to primary
+3. CNPG creates a new pod for the old primary (as a replica)
+4. The new primary accepts writes
+
+The failover takes 30-60 seconds. During that window, PostgreSQL connections are dropped. Application-level retries (Nextcloud has them) handle the gap transparently.
+
+The CNPG operator logs the failover event:
+
+```
+promoted instance nextcloud-db-1 to primary
+created new replica pod nextcloud-db-0
+```
+
+## Monitoring CNPG
+
+CNPG exposes Prometheus metrics through a ServiceMonitor:
+
+```
+cnpg_pg_stat_activity_count{datname="nextcloud",state="active"} 12
+cnpg_replication_lag_seconds{instance="nextcloud-db-1"} 0.003
+cnpg_backups_total{status="ok"} 30
+```
+
+Grafana dashboard: alert if `replication_lag_seconds` exceeds 5 seconds. That means the replica is falling behind, and a failover would lose data.
+
+## The Trade-off
+
+CNPG adds complexity: an operator, Barman for backups, and streaming replication configuration. The benefit is PostgreSQL that survives node failures without depending on Longhorn's storage reconstruction. For a single-node homelab, this is the right trade-off — the BMAX Mini PC* has enough RAM for two PostgreSQL instances, and the failover is faster than waiting for Longhorn to rebuild.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

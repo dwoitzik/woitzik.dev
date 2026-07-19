@@ -1,0 +1,170 @@
+---
+title: "Gitea Actions on k3s: Self-Hosted CI Without GitHub"
+description: "Gitea 1.22+ includes a built-in CI runner compatible with GitHub Actions YAML. Running Gitea Actions on k3s gives you full control over CI pipelines, runner resources, and artifact storage."
+date: "2026-11-12"
+tags: ["Kubernetes", "Gitea", "CI/CD", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+GitHub Actions is free for public repos. For private repos, you get 2,000 minutes/month on the free tier. A homelab infrastructure repo that runs Terraform plan, Ansible lint, and container builds on every PR burns through 2,000 minutes in about a week. Gitea Actions runs the same YAML workflows on your own hardware — the BMAX Mini PC* with 64GB RAM has more than enough for a Gitea instance and a handful of action runners.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Gitea Actions: The GitHub Actions Clone
+
+Gitea 1.22 introduced Actions, a CI system that reads `.gitea/workflows/*.yml` files — the same YAML format as GitHub Actions. The key differences:
+
+- Workflows live in `.gitea/workflows/` instead of `.github/workflows/`
+- The runner is a separate binary (`act_runner`) that polls Gitea for jobs
+- Artifacts and logs are stored in Gitea's database, not S3
+- Secrets are managed in the Gitea UI
+
+The YAML syntax is identical. Most GitHub Actions workflows work in Gitea with minimal changes.
+
+## Deploying Gitea on k3s
+
+Gitea runs as a StatefulSet with PostgreSQL:
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitea
+  namespace: gitea
+spec:
+  replicas: 1
+  serviceName: gitea
+  selector:
+    matchLabels:
+      app: gitea
+  template:
+    metadata:
+      labels:
+        app: gitea
+    spec:
+      containers:
+        - name: gitea
+          image: gitea/gitea:1.22
+          ports:
+            - containerPort: 3000
+            - containerPort: 22
+          env:
+            - name: GITEA__DATABASE__DB_TYPE
+              value: "postgres"
+            - name: GITEA__DATABASE__HOST
+              value: "gitea-db.gitea.svc:5432"
+            - name: GITEA__DATABASE__NAME
+              value: "gitea"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+```
+
+## The Action Runner
+
+The `act_runner` binary runs as a Deployment, polling Gitea for jobs:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea-runner
+  namespace: gitea
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gitea-runner
+  template:
+    metadata:
+      labels:
+        app: gitea-runner
+    spec:
+      containers:
+        - name: runner
+          image: gitea/act_runner:latest
+          env:
+            - name: GITEA_INSTANCE_URL
+              value: "http://gitea.gitea.svc:3000"
+            - name: GITEA_RUNNER_REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-runner-token
+                  key: token
+            - name: GITEA_RUNNER_NAME
+              value: "k3s-runner"
+            - name: GITEA_RUNNER_LABELS
+              value: "ubuntu-latest:docker://node:20-bookworm"
+```
+
+The runner registration token is generated in the Gitea UI under Site Administration → Runners → Create New Runner.
+
+## Workflow Migration
+
+A GitHub Actions workflow migrates to Gitea by moving the file:
+
+```
+.github/workflows/ci.yml  →  .gitea/workflows/ci.yml
+```
+
+The YAML content stays the same. The only change: if the workflow references `github.event_name` or `github.repository`, those context variables are `gitea.event_name` and `gitea.repository` in Gitea. Most workflows don't reference these directly.
+
+## Docker-in-Docker
+
+Many CI workflows need Docker (building images, running containers). The Gitea runner supports Docker-in-Docker via the `--privileged` flag or by mounting the Docker socket:
+
+```yaml
+# .gitea/workflows/docker-build.yml
+name: Build and Push
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t myapp:${{ github.sha }} .
+      - name: Push
+        run: |
+          echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+          docker push myapp:${{ github.sha }}
+```
+
+The runner label `ubuntu-latest:docker://node:20-bookworm` tells the runner to execute jobs inside a Docker container. For Docker-in-Docker, change the runner label to include `--privileged`:
+
+```yaml
+GITEA_RUNNER_LABELS: "ubuntu-latest:docker://ghcr.io/catthehacker/ubuntu:act-latest"
+```
+
+## Resource Limits
+
+On a homelab BMAX Mini PC*, the Gitea runner shouldn't consume all resources. Set resource limits on the runner Deployment:
+
+```yaml
+resources:
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+  limits:
+    cpu: "2"
+    memory: "2Gi"
+```
+
+Two runners with 2GB each = 4GB. On a 64GB machine, that's negligible. The runners share the CPU with k3s workloads, so `cpu: "2"` is a request, not a reservation.
+
+## The Trade-off
+
+Gitea Actions is not as mature as GitHub Actions. Missing features: matrix builds, reusable workflows, and the marketplace of pre-built actions. For a homelab infrastructure repo that runs Terraform, Ansible, and container builds, these missing features don't matter. The YAML syntax is the same, the runner runs on your hardware, and there's no minute limit.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

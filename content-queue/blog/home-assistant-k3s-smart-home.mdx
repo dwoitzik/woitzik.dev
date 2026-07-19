@@ -1,0 +1,208 @@
+---
+title: "Home Assistant on k3s: Smart Home Without the Cloud"
+description: "Home Assistant runs as a Kubernetes Deployment with Zigbee2MQTT for device communication. The k3s cluster handles high availability, backups, and TLS — everything Home Assistant OS does, but under your control."
+date: "2026-11-22"
+tags: ["Kubernetes", "Home Assistant", "IoT", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+Home Assistant OS is the easiest way to run Home Assistant. It's also the hardest to customize. The OS manages everything — Zigbee sticks, Bluetooth, network config — and gives you a UI to configure it. The trade-off: you can't run other workloads on the same machine, backups are Home Assistant's responsibility, and TLS is handled by the Nabu Casa cloud service. Running Home Assistant on k3s means it shares the cluster with everything else, gets Velero backups, cert-manager TLS, and ArgoCD GitOps management.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Architecture
+
+Home Assistant on k3s needs three components:
+
+1. **Home Assistant Core** — the main application
+2. **Zigbee2MQTT** — bridges Zigbee devices to MQTT
+3. **Mosquitto** — MQTT broker for device communication
+
+All three run as Deployments in a `home-assistant` namespace.
+
+## Home Assistant Deployment
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: home-assistant
+  namespace: home-assistant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: home-assistant
+  template:
+    metadata:
+      labels:
+        app: home-assistant
+    spec:
+      containers:
+        - name: home-assistant
+          image: ghcr.io/home-assistant/home-assistant:stable
+          ports:
+            - containerPort: 8123
+          volumeMounts:
+            - name: config
+              mountPath: /config
+          env:
+            - name: TZ
+              value: "Europe/Berlin"
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: home-assistant-config
+```
+
+The `/config` volume stores Home Assistant's configuration, automations, and database. It's a PersistentVolumeClaim backed by Longhorn for replication.
+
+## Zigbee2MQTT
+
+Zigbee2MQTT bridges Zigbee devices to MQTT. It needs access to a Zigbee USB stick. On a k3s node with a USB Zigbee coordinator:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zigbee2mqtt
+  namespace: home-assistant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zigbee2mqtt
+  template:
+    metadata:
+      labels:
+        app: zigbee2mqtt
+    spec:
+      nodeSelector:
+        homelab/zigbee: "true"
+      containers:
+        - name: zigbee2mqtt
+          image: koenkk/zigbee2mqtt
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: usb
+              mountPath: /dev/ttyUSB0
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: zigbee2mqtt-data
+        - name: usb
+          hostPath:
+            path: /dev/ttyUSB0
+```
+
+The `nodeSelector: homelab/zigbee: "true"` ensures the pod runs on the node with the Zigbee USB stick. The `hostPath` mount passes the USB device through to the container.
+
+Label the node:
+
+```bash
+kubectl label node k3s-node-1 homelab/zigbee=true
+```
+
+## Mosquitto MQTT Broker
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mosquitto
+  namespace: home-assistant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mosquitto
+  template:
+    spec:
+      containers:
+        - name: mosquitto
+          image: eclipse-mosquitto
+          ports:
+            - containerPort: 1883
+          volumeMounts:
+            - name: config
+              mountPath: /mosquitto/config
+      volumes:
+        - name: config
+          configMap:
+            name: mosquitto-config
+```
+
+The Mosquitto config allows anonymous connections from the home-assistant namespace (internal traffic only):
+
+```
+listener 1883
+allow_anonymous true
+```
+
+For production, add authentication. For a homelab where only internal pods connect, anonymous is fine.
+
+## TLS with Traefik
+
+Home Assistant's UI gets TLS via a Traefik IngressRoute:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: home-assistant
+  namespace: home-assistant
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`ha.lab.woitzik.dev`)
+      kind: Rule
+      services:
+        - name: home-assistant
+          port: 8123
+  tls:
+    secretName: lab-wildcard-tls
+```
+
+No Nabu Casa cloud needed. The wildcard certificate from cert-manager handles TLS.
+
+## Database: PostgreSQL
+
+Home Assistant's default database is SQLite. On k3s, switch to PostgreSQL for better performance:
+
+```yaml
+# configuration.yaml
+homeassistant:
+  db_url: postgresql://homeassistant:password@home-assistant-db.home-assistant.svc:5432/homeassistant
+```
+
+The PostgreSQL instance is managed by CNPG (CloudNativePG) with daily backups to MinIO.
+
+## Backup with Velero
+
+Velero backs up the home-assistant namespace including PVCs:
+
+```bash
+velero backup create home-assistant-daily \
+  --include-namespaces home-assistant \
+  --schedule "0 2 * * *" \
+  --ttl 720h
+```
+
+Daily backups at 2am, retained for 30 days. If Home Assistant breaks after a configuration change, restore from Velero:
+
+```bash
+velero restore create --from-backup home-assistant-daily-20261122
+```
+
+## The Trade-off
+
+Running Home Assistant on k3s means you lose the one-click add-on store and the managed Zigbee/Bluetooth stack. You gain: GitOps-managed configuration, Velero backups, cert-manager TLS, and the ability to run Home Assistant alongside 20 other workloads on the same cluster. For a homelab that already runs k3s, this is the right architecture.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

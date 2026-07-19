@@ -1,0 +1,134 @@
+---
+title: "Traefik Rate Limiting That Actually Works on k3s"
+description: "A single misconfigured rate limit took down my Grafana dashboard during a Prometheus scrape storm. Here's the Traefik RateLimit middleware config that protects services without blocking legitimate traffic."
+date: "2026-10-29"
+tags: ["Kubernetes", "Traefik", "Security", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+Prometheus scraped Grafana 30 times in 10 seconds. Grafana's API returned 429s. The dashboard went blank. The root cause: a misconfigured Prometheus service monitor with a 1-second scrape interval. The fix: Traefik's RateLimit middleware, correctly configured to protect against scrape storms without blocking normal dashboard access.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Scrape Storm
+
+Grafana runs on k3s behind Traefik. The Prometheus Operator's ServiceMonitor for Grafana had a `scrapeInterval: 1s` — a copy-paste error from a debug session. Prometheus fired 30 requests per second at Grafana's `/api/datasources` endpoint. Grafana's Go runtime couldn't handle the concurrent connections, started returning 503s, and the dashboard went blank.
+
+Without rate limiting, any misconfigured scraper — or any user refreshing aggressively — can DoS a service behind Traefik.
+
+## The RateLimit Middleware
+
+Traefik's RateLimit middleware uses a token bucket algorithm. It's configured per-entrypoint or per-route:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rate-limit
+  namespace: traefik
+spec:
+  rateLimit:
+    average: 100
+    burst: 200
+    period: 1s
+    sourceCriterion:
+      ipStrategy:
+        depth: 1
+```
+
+- `average: 100` — 100 requests per second per source IP
+- `burst: 200` — allow bursts up to 200 requests
+- `period: 1s` — the averaging window
+- `sourceCriterion.ipStrategy.depth: 1` — trust the first X-Forwarded-For header (correct behind one proxy)
+
+The `depth: 1` is critical. Without it, Traefik uses the raw TCP connection IP, which is always the Traefik pod's IP in a Kubernetes cluster. Every client gets the same rate limit bucket. With `depth: 1`, Traefik reads the real client IP from X-Forwarded-For.
+
+## Applying It Per Service
+
+Not every service needs the same rate limit. Grafana's dashboard needs a higher burst than the API:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: grafana-rate-limit
+  namespace: monitoring
+spec:
+  rateLimit:
+    average: 50
+    burst: 100
+    period: 1s
+    sourceCriterion:
+      ipStrategy:
+        depth: 1
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`grafana.lab.woitzik.dev`)
+      kind: Rule
+      middlewares:
+        - name: grafana-rate-limit
+          namespace: monitoring
+      services:
+        - name: grafana
+          port: 3000
+  tls:
+    secretName: lab-wildcard-tls
+```
+
+## Whitelisting Internal Traffic
+
+Prometheus, ArgoCD, and other internal services shouldn't be rate-limited. Traefik's RateLimit middleware supports `requestHost` and `requestHeaders` as source criteria, but the cleanest approach is a separate middleware for internal services:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: internal-rate-limit
+  namespace: traefik
+spec:
+  rateLimit:
+    average: 500
+    burst: 1000
+    period: 1s
+    sourceCriterion:
+      requestHost: {}
+```
+
+Internal services use `requestHost` (the Host header) as the source instead of IP. Since internal services all share the same cluster IP, IP-based rate limiting would bucket them all together.
+
+## The 429 Response
+
+When a rate limit is hit, Traefik returns a `429 Too Many Requests` with a `Retry-After` header. The client should respect this. Most HTTP clients don't. The Grafana dashboard showed a blank page because the browser retried immediately. Adding a client-side backoff in the Prometheus scraper config fixed the retry behavior:
+
+```yaml
+scrapeConfig:
+  - scrapeInterval: 30s
+    scrapeTimeout: 10s
+    metricsPath: /metrics
+```
+
+The real fix was the scrape interval. The rate limit was the safety net.
+
+## Monitoring Rate Limits
+
+Traefik exposes rate limit metrics in Prometheus format:
+
+```
+traefikmiddleware_ratelimit_requests_total{middleware="monitoring-grafana-rate-limit"} 42
+traefikmiddleware_ratelimit_rejected_total{middleware="monitoring-grafana-rate-limit"} 3
+```
+
+Grafana alert: if `rejected_total` increases by more than 10 per minute, something is hammering the service. This is the early warning for scrape storms, bot attacks, or misconfigured clients.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

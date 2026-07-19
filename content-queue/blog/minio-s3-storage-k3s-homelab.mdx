@@ -1,0 +1,166 @@
+---
+title: "MinIO on k3s: S3-Compatible Storage Without the Cloud"
+description: "MinIO runs as a single-pod S3-compatible object store on k3s, backing Velero backups, CNPG archives, and Gitea artifacts. The trade-offs of single-node object storage vs distributed mode."
+date: "2026-11-26"
+tags: ["Kubernetes", "MinIO", "Storage", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+Velero needs an S3-compatible backend. CNPG needs WAL archiving to object storage. Gitea needs artifact storage. The options: AWS S3 (recurring cost), Backblaze B2 (egress fees), or MinIO (self-hosted, no recurring cost). MinIO on k3s runs as a single pod with a local PersistentVolume, exposing an S3 API on port 9000. It's not distributed, not redundant, and not production-grade. For a homelab, it's exactly right.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Why MinIO
+
+AWS S3 costs money. Backblaze B2 is cheap for storage but charges for egress. For a homelab where backups go to local disk and the only S3 consumers are Velero, CNPG, and Gitea, MinIO eliminates the external dependency entirely.
+
+The downside: MinIO on a single node has no redundancy. If the PVC is lost (disk failure, Proxmox host crash), all S3 data is gone. Velero handles this by keeping a local copy of the last backup. CNPG handles it by keeping WAL archives on local disk as a fallback.
+
+## Deployment
+
+MinIO runs as a StatefulSet with a single PersistentVolume:
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: minio
+spec:
+  replicas: 1
+  serviceName: minio
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio
+          command: ["minio", "server", "/data"]
+          ports:
+            - containerPort: 9000
+            - containerPort: 9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: root-password
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 100Gi
+```
+
+The 100Gi PVC is backed by local-path storage (no Longhorn replication — MinIO handles its own data durability).
+
+## The Console
+
+MinIO's web console runs on port 9001. Access it via Traefik:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: minio-console
+  namespace: minio
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`minio.lab.woitzik.dev`)
+      kind: Rule
+      services:
+        - name: minio
+          port: 9001
+  tls:
+    secretName: lab-wildcard-tls
+```
+
+The console lets you create buckets, upload files, and manage access policies.
+
+## Bucket Configuration
+
+Three buckets for three consumers:
+
+```bash
+# Velero backups
+mc mb minio/velero-backups
+
+# CNPG WAL archives
+mc mb minio/cnpg-wal
+
+# Gitea artifacts
+mc mb minio/gitea-artifacts
+```
+
+Each consumer gets its own access key with limited permissions:
+
+```bash
+# Create Velero user with read/write on velero-backups only
+mc admin user add minio velero-user velero-password
+mc admin policy attach minio readwrite velero-backups --user velero-user
+```
+
+## Integrating with Velero
+
+Velero's server-side encryption and backup storage location:
+
+```yaml
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: default
+  namespace: velero
+spec:
+  provider: aws
+  objectStorage:
+    bucket: velero-backups
+    prefix: backups
+  config:
+    region: minio
+    s3ForcePathStyle: "true"
+    s3Url: "http://minio.minio.svc:9000"
+    publicUrl: "https://minio.lab.woitzik.dev"
+```
+
+Velero stores backups in MinIO. When the PVC is lost, Velero can restore from the last backup. The `s3ForcePathStyle: true` is required for MinIO (it uses path-style S3, not virtual-hosted-style).
+
+## The Storage Reality
+
+MinIO on a single node with local-path storage is not HA. If the disk dies, the data is gone. The mitigation: Velero's schedule keeps a local backup on a separate PVC. CNPG's WAL archiving writes to MinIO and to local disk simultaneously. Gitea's artifacts are reconstructible from Git.
+
+The real risk is the 100Gi PVC. On a BMAX Mini PC* with a 512GB NVMe, 100Gi is 20% of the disk. That's acceptable for a homelab where the alternative is paying for S3.
+
+## Monitoring
+
+MinIO exposes Prometheus metrics:
+
+```
+minio_cluster_disk_free_bytes 42949672960
+minio_cluster_disk_total_bytes 107374182400
+minio_s3_requests_total{bucket="velero-backups"} 1250
+```
+
+Alert: if `disk_free_bytes` drops below 10GB, something is filling up the bucket. Usually a Velero backup that wasn't cleaned up.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

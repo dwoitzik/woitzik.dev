@@ -1,0 +1,147 @@
+---
+title: "Proxmox Backup Server: The 3-2-1 Rule on a Budget"
+description: "PBS runs as a VM on Proxmox, backing up LXC containers and VMs to a local HDD and offsite via Rclone to Garage (S3-compatible). The 3-2-1 backup strategy without paying for cloud storage."
+date: "2026-11-29"
+tags: ["Proxmox", "Backup", "PBS", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+The 3-2-1 rule: 3 copies of your data, on 2 different media, with 1 offsite. Proxmox Backup Server (PBS) handles the first two — it deduplicates, compresses, and verifies backups of Proxmox VMs and LXC containers. The offsite copy goes to Garage, a self-hosted S3-compatible object store running on a remote server. The whole setup costs a BMAX Mini PC*, a 2TB Seagate External HDD*, and a Garage instance on a €5/month VPS.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## PBS Installation
+
+PBS runs as a dedicated VM on Proxmox:
+
+```
+VM ID: 900
+CPU: 2 cores
+RAM: 2GB
+Disk: 32GB (OS + database)
+Storage: passed through to local ZFS
+```
+
+The PBS ISO is downloaded from the Proxmox website and installed like any VM. After installation, PBS is accessible via `https://pbs.lab.woitzik.dev:8007`.
+
+## Backup Jobs
+
+PBS backup jobs are configured in the web UI or via the API:
+
+```bash
+# Add a Proxmox target
+proxmox-backup-client add-target \
+  --name homelab \
+  --host pve.lab.woitzik.dev \
+  --fingerprint "XX:XX:XX:XX"
+
+# Create a backup job for all VMs and containers
+proxmox-backup-client backup \
+  --repository homelab \
+  --namespace / \
+  --all
+```
+
+The backup job runs daily at 3am via a Proxmox cron job:
+
+```
+0 3 * * * /usr/bin/proxmox-backup-client backup --repository homelab --namespace / --all
+```
+
+## The Local Disk
+
+The Seagate 2TB External HDD* connects via USB 3.0 to the BMAX Mini PC*. PBS stores the primary backup repository on this disk:
+
+```
+/mnt/backup/pbs/
+├── ns/
+│   └── root/
+│       ├── ct-100/
+│       ├── ct-101/
+│       └── vm-200/
+└── chunks/
+    └── (deduplicated chunks)
+```
+
+PBS's deduplication means a full backup of 5 VMs and 8 containers uses only 15GB of disk space — not the 200GB+ that uncompressed copies would need. The deduplication ratio for a homelab is typically 10:1 to 20:1.
+
+## Offsite via Rclone
+
+The offsite copy uses Rclone to sync PBS data to Garage:
+
+```bash
+# Install Rclone
+apt install rclone
+
+# Configure Rclone for Garage
+cat > /etc/rclone.conf << 'EOF'
+[garage]
+type = s3
+provider = Other
+endpoint = https://garage.example.com
+access_key_id = GXXXXXXX
+secret_access_key = XXXXXXXX
+EOF
+
+# Sync backup repository to Garage
+rclone sync /mnt/backup/pbs garage:pbs-backup \
+  --bwlimit "07:00-23:00,5M" \
+  --bwlimit "23:00-07:00,off" \
+  --transfers 4
+```
+
+The `--bwlimit` limits upload speed during the day (5MB/s) and removes the limit at night. This prevents the backup from saturating the homelab's upload bandwidth during working hours.
+
+## Verification
+
+PBS verifies backup integrity automatically:
+
+```bash
+# Check repository integrity
+proxmox-backup-client verify --repository homelab
+
+# Check specific datastore
+proxmox-backup-client verify --repository homelab --namespace /datastore
+```
+
+The verification checks every chunk's SHA-256 hash. If a chunk is corrupted (disk bit-rot, incomplete write), PBS flags it and the next backup rewrites the corrupted chunk.
+
+Schedule weekly verification:
+
+```
+0 4 * * 0 /usr/bin/proxmox-backup-client verify --repository homelab
+```
+
+## Restore
+
+Restore a VM or container from PBS:
+
+```bash
+# List available backups
+proxmox-backup-client list --repository homelab
+
+# Restore a container
+proxmox-backup-client restore \
+  --repository homelab \
+  --archive-name ct-100 \
+  --target /var/lib/vz/template/cache/
+```
+
+In the Proxmox web UI, go to the VM/Container → Backup → Restore. Select the PBS backup and click Restore. The restore takes 2-5 minutes for a typical container.
+
+## The Cost Breakdown
+
+| Component | Cost |
+|---|---|
+| BMAX Mini PC* (host) | ~€180 (one-time) |
+| Seagate 2TB External HDD* | ~€60 (one-time) |
+| Garage VPS (5TB storage) | ~€5/month |
+| **Total first year** | ~€300 |
+| **Total ongoing** | ~€60/year |
+
+Compare this to Backblaze B2: 2TB would cost ~€10/month. The self-hosted Garage approach saves €5/month and gives you full control over the offsite copy.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

@@ -1,0 +1,139 @@
+---
+title: "Prometheus Sizing for Homelab: When 2GB RAM Isn't Enough"
+description: "kube-prometheus-stack on a 64GB BMAX Mini PC with 200+ targets consumed 4GB RAM within a week. How to right-size retention, scrape intervals, and recording rules without losing visibility."
+date: "2026-11-05"
+tags: ["Kubernetes", "Prometheus", "Monitoring", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+Prometheus started at 1.2GB RAM. A week later, it was at 4GB. The OOMKill threshold was 6GB. At the current growth rate, Prometheus would hit the limit in 10 days. The problem wasn't the number of targets — it was the combination of default retention (15 days), 15-second scrape intervals, and recording rules that pre-computed expensive queries.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Memory Growth
+
+Prometheus stores time-series data in memory and on disk. The memory footprint is proportional to:
+
+- **Active series count**: every unique label combination is a series
+- **Scrape interval**: shorter intervals = more data points = more series
+- **Retention**: longer retention = more data on disk, but also more cached data
+- **Recording rules**: pre-computed queries create new series
+
+On a homelab with 200+ scrape targets (node-exporters, kube-state-metrics, cAdvisor, Traefik, CoreDNS, etcd), the active series count was 45,000. At 15-second scrape intervals, that's 3 million data points per retention window.
+
+## Right-Scraping Intervals
+
+Not every target needs 15-second scraping. The kube-prometheus-stack defaults to 30 seconds, but many tutorials override this to 15 seconds for "better granularity." The reality: 15-second intervals double the data volume for marginal visibility improvement.
+
+The fix: differentiate scrape intervals by target type:
+
+```yaml
+# prometheus-stack values
+additionalScrapeConfigs:
+  - job_name: kubernetes-nodes
+    scrape_interval: 60s
+    scrape_timeout: 30s
+    kubernetes_sd_configs:
+      - role: node
+  - job_name: kubernetes-pods
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    kubernetes_sd_configs:
+      - role: pod
+  - job_name: traefik
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    static_configs:
+      - targets: ["traefik.traefik.svc:8080"]
+```
+
+Node metrics change slowly — 60 seconds is fine. Pod metrics (HTTP requests, latency) benefit from 30 seconds. Traefik metrics need 15 seconds for accurate rate calculations.
+
+## Reducing Retention
+
+15 days of retention on a homelab is overkill. Most dashboards show the last 24 hours. Alerts need at most 7 days of history. The fix:
+
+```yaml
+# prometheus values
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    retentionSize: "10GB"
+    resources:
+      requests:
+        memory: "2Gi"
+      limits:
+        memory: "4Gi"
+```
+
+`retentionSize: "10GB"` is a hard cap. When the WAL (Write-Ahead Log) exceeds 10GB, Prometheus starts deleting the oldest data regardless of retention days. This prevents unbounded disk usage.
+
+## Recording Rules: The Hidden Cost
+
+Recording rules pre-compute expensive PromQL queries into new time series. They're useful for dashboards that query complex expressions on every refresh. But each recording rule creates a new series, and those series consume memory.
+
+The biggest offender in kube-prometheus-stack:
+
+```yaml
+groups:
+  - name: k8s.rules
+    rules:
+      - record: node:node_cpu_utilization:ratio
+        expr: |
+          1 - avg without(cpu) (
+            rate(node_cpu_seconds_total{mode="idle"}[5m])
+          )
+```
+
+This rule runs on every node, every 15 seconds, creating one series per CPU core. On a system with 16 cores, that's 16 new series per node. Across 5 nodes, that's 80 additional series — just for one recording rule.
+
+The fix: disable recording rules you don't use. In the kube-prometheus-stack Helm values:
+
+```yaml
+additionalPrometheusRulesMap:
+  custom-rules: {}
+# Disable default recording rules you don't need
+defaultRules:
+  create: true
+  rules:
+    etcd: false
+    configReloaders: false
+    general: true
+    k8s: false  # disable k8s.rules if not using them
+    node: false
+    nodeExporterAlerting: false
+    nodeExporterRecording: false
+    prometheus: false
+    prometheusOperator: false
+```
+
+## The WAL Compaction Problem
+
+Prometheus uses a WAL for crash recovery. The WAL grows until a compaction happens. On a homelab with limited I/O (SATA SSD on the BMAX Mini PC*), WAL compaction can take minutes and consume significant I/O. During compaction, Prometheus's memory usage spikes.
+
+The fix: set `walCompression: enabled` in the Prometheus spec:
+
+```yaml
+prometheusSpec:
+  walCompression: enabled
+```
+
+WAL compression reduces disk usage by 50-70% at the cost of slightly more CPU during compaction. On a homelab where disk I/O is the bottleneck, this is the right trade-off.
+
+## The Result
+
+After applying these changes:
+
+| Metric | Before | After |
+|---|---|---|
+| Active series | 45,000 | 28,000 |
+| RAM usage | 4GB (growing) | 1.8GB (stable) |
+| Disk usage | 12GB | 6GB |
+| Scrape targets | 200+ | 200+ (unchanged) |
+
+The visibility didn't change — the same dashboards show the same data. The difference is that Prometheus isn't burning RAM on series nobody looks at.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

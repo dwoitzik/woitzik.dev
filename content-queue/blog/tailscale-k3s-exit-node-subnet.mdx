@@ -1,0 +1,125 @@
+---
+title: "Tailscale on k3s: Exit Nodes, Subnet Routes, and ACLs"
+description: "Tailscale replaces WireGuard VPN with mesh networking and NAT traversal. Running an exit node on the MikroTik RB5009 gives every device in the homelab VPN access without installing clients."
+date: "2026-11-19"
+tags: ["Networking", "VPN", "Tailscale", "Homelab"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+WireGuard on MikroTik works. The Terraform-managed firewall rules handle the UDP port forwarding, the peer configurations are in the RouterOS config, and the VPN tunnel comes up in under a second. The problem: every device needs a WireGuard client configured with the correct peer, allowed IPs, and DNS. Tailscale builds on WireGuard but adds NAT traversal, key exchange, and an ACL system — and it can run as an exit node on the RB5009* so every device on the network gets VPN access automatically.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Exit Node Pattern
+
+A Tailscale exit node routes all internet traffic through a specific machine. When a device connects to the exit node, its traffic exits from that machine's IP address. On the RB5009, this means:
+
+1. The RB5009 runs Tailscale as an exit node
+2. Every device on the VLANs routes traffic through the RB5009
+3. The RB5009's public IP (behind the FritzBox CGN) is the exit point
+4. No Tailscale client needed on individual devices
+
+The catch: the FritzBox does CGN (Carrier-Grade NAT). Tailscale's NAT traversal handles this — it uses STUN to discover the external IP and sets up a direct connection if possible. If CGN blocks direct connections, Tailscale falls back to a relay (DERP server).
+
+## Installing Tailscale on MikroTik
+
+MikroTik RouterOS 7.13+ includes a Tailscale package. Install it:
+
+```routeros
+/package/install
+/name: tailscale
+```
+
+Enable and configure:
+
+```routeros
+/tailscale/enable
+/tailscale/set auth-key="tskey-auth-xxxxx"
+/tailscale/set advertise-exit-node=yes
+/tailscale/set advertise-routes=10.0.0.0/8
+```
+
+The `advertise-routes=10.0.0.0/8` advertises the entire homelab network (VLANs 10, 20, 30, 40, 100) to the Tailscale network. The `advertise-exit-node=yes` makes the RB5009 an exit node.
+
+## ACL Configuration
+
+Tailscale ACLs control who can access what. The ACL file (in the Tailscale admin console):
+
+```json
+{
+  "acls": [
+    {
+      // Allow all devices to use the RB5009 as exit node
+      "action": "accept",
+      "src": ["group:homelab"],
+      "dst": ["autogroup:internet:*"]
+    },
+    {
+      // Allow access to all homelab subnets
+      "action": "accept",
+      "src": ["group:homelab"],
+      "dst": ["10.0.0.0/8:*"]
+    },
+    {
+      // Allow access to k8s services
+      "action": "accept",
+      "src": ["group:homelab"],
+      "dst": ["k3s-node-1:22,443,6443,80,3000,9090"]
+    }
+  ],
+  "groups": {
+    "group:homelab": ["david@woitzik.dev"]
+  },
+  "tagOwners": {
+    "tag:k3s": ["group:homelab"],
+    "tag:raspberry-pi": ["group:homelab"]
+  }
+}
+```
+
+The first rule allows exit node usage. The second allows subnet access. The third allows SSH and HTTP access to specific k3s services.
+
+## Subnet Routes vs Exit Nodes
+
+There are two modes:
+
+**Subnet routes**: Route traffic to a specific subnet (e.g., `10.0.20.0/24` for the server VLAN). Devices connected to Tailscale can reach servers on that subnet, but internet traffic goes through the device's normal gateway.
+
+**Exit nodes**: Route ALL traffic through the exit node. This includes internet traffic, which means the device's public IP changes to the exit node's IP.
+
+For a homelab, subnet routes are usually sufficient. Exit nodes are useful when you want to route all traffic through the homelab's internet connection (for filtering, logging, or accessing geo-restricted content).
+
+## The Failover Problem
+
+Tailscale exit nodes don't failover automatically. If the RB5009 goes down, the exit node is unreachable. The device's traffic falls back to its normal gateway.
+
+For automatic failover, advertise two exit nodes:
+
+```routeros
+# On the RB5009
+/tailscale/set advertise-exit-node=yes
+
+# On a Raspberry Pi 5*
+/tailscale set advertise-exit-node=yes
+```
+
+Tailscale clients automatically switch to the available exit node. The switch takes 5-10 seconds.
+
+## Monitoring Tailscale
+
+Tailscale exposes metrics via `tailscale status --json`:
+
+```bash
+tailscale status --json | jq '.Peer[] | {Name: .HostName, Online: .Online, RX: .TxBytes, TX: .RxBytes}'
+```
+
+The Tailscale admin console shows a real-time map of connections, latency, and bandwidth. For Prometheus integration, use the `tailscale_exporter` community project.
+
+## The Trade-off
+
+Tailscale is a third-party service. Your network topology, device IPs, and connection metadata are visible to Tailscale's coordination server. For a homelab, this is usually acceptable — the benefit of NAT traversal and zero-config mesh networking outweighs the privacy cost. If you need full control, WireGuard on MikroTik (managed via Terraform) is the alternative.
+
+<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
