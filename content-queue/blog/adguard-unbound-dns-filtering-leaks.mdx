@@ -29,7 +29,7 @@ Unbound resolves from root servers. No third party sees your queries.
 
 ## Installing Unbound on Raspberry Pi
 
-Unbound runs on the two Raspberry Pi 4B* edge nodes as a system service:
+Unbound runs on the two [Raspberry Pi 4B*](https://amzn.to/4wNS0oI) edge nodes as a system service:
 
 ```bash
 sudo apt install unbound
@@ -59,7 +59,7 @@ server:
     auto-trust-anchor-file: "/var/lib/unbound/root.key"
 ```
 
-The `access-control: 10.0.0.0/8 allow` permits queries from the entire homelab network. The cache sizes are tuned for a Raspberry Pi 5* with 8GB RAM — the msg-cache holds 64MB of DNS responses, enough for most home network traffic.
+The `access-control: 10.0.0.0/8 allow` permits queries from the entire homelab network. The cache sizes are tuned for a [Raspberry Pi 5*](https://amzn.to/4wETNfv) with 8GB RAM — the msg-cache holds 64MB of DNS responses, enough for most home network traffic.
 
 ## Pointing AdGuard at Unbound
 

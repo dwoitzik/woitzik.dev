@@ -149,7 +149,7 @@ Velero stores backups in MinIO. When the PVC is lost, Velero can restore from th
 
 MinIO on a single node with local-path storage is not HA. If the disk dies, the data is gone. The mitigation: Velero's schedule keeps a local backup on a separate PVC. CNPG's WAL archiving writes to MinIO and to local disk simultaneously. Gitea's artifacts are reconstructible from Git.
 
-The real risk is the 100Gi PVC. On a BMAX Mini PC* with a 512GB NVMe, 100Gi is 20% of the disk. That's acceptable for a homelab where the alternative is paying for S3.
+The real risk is the 100Gi PVC. On a [BMAX Mini PC*](https://amzn.to/4bv3yF1) with a 512GB NVMe, 100Gi is 20% of the disk. That's acceptable for a homelab where the alternative is paying for S3.
 
 ## Monitoring
 

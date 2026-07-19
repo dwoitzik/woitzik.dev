@@ -9,7 +9,7 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-"Zero trust" is the kind of term that sounds like marketing until you implement it. The principle is simple: never trust, always verify. Every connection is authenticated and authorized, regardless of where it originates. On a MikroTik RB5009*, this means default-deny firewall chains, explicit allow rules per service, and VLAN-based microsegmentation. The same architecture that protects enterprise networks, running on a router that costs less than a single Azure VM.
+"Zero trust" is the kind of term that sounds like marketing until you implement it. The principle is simple: never trust, always verify. Every connection is authenticated and authorized, regardless of where it originates. On a [MikroTik RB5009*](https://amzn.to/4w08b21), this means default-deny firewall chains, explicit allow rules per service, and VLAN-based microsegmentation. The same architecture that protects enterprise networks, running on a router that costs less than a single Azure VM.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -159,6 +159,6 @@ The log prefix `DROP-FWD:` makes it easy to grep in the system log. For Promethe
 
 ## The Result
 
-Zero-trust on a MikroTik RB5009* is not a buzzword — it's a default-deny firewall chain with explicit allow rules, managed via Terraform, logged for monitoring, and tested from each VLAN. The same principles that protect enterprise networks, running on a €200 router in a 10-inch rack.
+Zero-trust on a [MikroTik RB5009*](https://amzn.to/4w08b21) is not a buzzword — it's a default-deny firewall chain with explicit allow rules, managed via Terraform, logged for monitoring, and tested from each VLAN. The same principles that protect enterprise networks, running on a €200 router in a 10-inch rack.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

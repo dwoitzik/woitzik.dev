@@ -9,7 +9,7 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-GitHub Actions is free for public repos. For private repos, you get 2,000 minutes/month on the free tier. A homelab infrastructure repo that runs Terraform plan, Ansible lint, and container builds on every PR burns through 2,000 minutes in about a week. Gitea Actions runs the same YAML workflows on your own hardware — the BMAX Mini PC* with 64GB RAM has more than enough for a Gitea instance and a handful of action runners.
+GitHub Actions is free for public repos. For private repos, you get 2,000 minutes/month on the free tier. A homelab infrastructure repo that runs Terraform plan, Ansible lint, and container builds on every PR burns through 2,000 minutes in about a week. Gitea Actions runs the same YAML workflows on your own hardware — the [BMAX Mini PC*](https://amzn.to/4bv3yF1) with 64GB RAM has more than enough for a Gitea instance and a handful of action runners.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -149,7 +149,7 @@ GITEA_RUNNER_LABELS: "ubuntu-latest:docker://ghcr.io/catthehacker/ubuntu:act-lat
 
 ## Resource Limits
 
-On a homelab BMAX Mini PC*, the Gitea runner shouldn't consume all resources. Set resource limits on the runner Deployment:
+On a homelab [BMAX Mini PC*](https://amzn.to/4bv3yF1), the Gitea runner shouldn't consume all resources. Set resource limits on the runner Deployment:
 
 ```yaml
 resources:

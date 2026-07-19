@@ -9,7 +9,7 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-WireGuard on MikroTik works. The Terraform-managed firewall rules handle the UDP port forwarding, the peer configurations are in the RouterOS config, and the VPN tunnel comes up in under a second. The problem: every device needs a WireGuard client configured with the correct peer, allowed IPs, and DNS. Tailscale builds on WireGuard but adds NAT traversal, key exchange, and an ACL system — and it can run as an exit node on the RB5009* so every device on the network gets VPN access automatically.
+WireGuard on MikroTik works. The Terraform-managed firewall rules handle the UDP port forwarding, the peer configurations are in the RouterOS config, and the VPN tunnel comes up in under a second. The problem: every device needs a WireGuard client configured with the correct peer, allowed IPs, and DNS. Tailscale builds on WireGuard but adds NAT traversal, key exchange, and an ACL system — and it can run as an exit node on the [RB5009*](https://amzn.to/4w08b21) so every device on the network gets VPN access automatically.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -102,7 +102,7 @@ For automatic failover, advertise two exit nodes:
 # On the RB5009
 /tailscale/set advertise-exit-node=yes
 
-# On a Raspberry Pi 5*
+# On a [Raspberry Pi 5*](https://amzn.to/4wETNfv)
 /tailscale set advertise-exit-node=yes
 ```
 

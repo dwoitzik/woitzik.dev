@@ -9,7 +9,7 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-Let's Encrypt's HTTP-01 challenge requires port 80 to be reachable from the internet. Behind a MikroTik RB5009* with default-deny firewall rules and no public IP on the k3s nodes, that's a non-starter. DNS-01 validation solves this: the cert-manager solver proves domain ownership by creating a TXT record in Cloudflare, and Let's Encrypt verifies the record exists. No port forwarding, no inbound traffic.
+Let's Encrypt's HTTP-01 challenge requires port 80 to be reachable from the internet. Behind a [MikroTik RB5009*](https://amzn.to/4w08b21) with default-deny firewall rules and no public IP on the k3s nodes, that's a non-starter. DNS-01 validation solves this: the cert-manager solver proves domain ownership by creating a TXT record in Cloudflare, and Let's Encrypt verifies the record exists. No port forwarding, no inbound traffic.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 

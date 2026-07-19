@@ -9,7 +9,7 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-The 3-2-1 rule: 3 copies of your data, on 2 different media, with 1 offsite. Proxmox Backup Server (PBS) handles the first two — it deduplicates, compresses, and verifies backups of Proxmox VMs and LXC containers. The offsite copy goes to Garage, a self-hosted S3-compatible object store running on a remote server. The whole setup costs a BMAX Mini PC*, a 2TB Seagate External HDD*, and a Garage instance on a €5/month VPS.
+The 3-2-1 rule: 3 copies of your data, on 2 different media, with 1 offsite. Proxmox Backup Server (PBS) handles the first two — it deduplicates, compresses, and verifies backups of Proxmox VMs and LXC containers. The offsite copy goes to Garage, a self-hosted S3-compatible object store running on a remote server. The whole setup costs a [BMAX Mini PC*](https://amzn.to/4bv3yF1), a [2TB Seagate External HDD*](https://amzn.to/4vxwLpY), and a Garage instance on a €5/month VPS.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -53,7 +53,7 @@ The backup job runs daily at 3am via a Proxmox cron job:
 
 ## The Local Disk
 
-The Seagate 2TB External HDD* connects via USB 3.0 to the BMAX Mini PC*. PBS stores the primary backup repository on this disk:
+The [Seagate 2TB External HDD*](https://amzn.to/4vxwLpY) connects via USB 3.0 to the [BMAX Mini PC*](https://amzn.to/4bv3yF1). PBS stores the primary backup repository on this disk:
 
 ```
 /mnt/backup/pbs/
@@ -136,8 +136,8 @@ In the Proxmox web UI, go to the VM/Container → Backup → Restore. Select the
 
 | Component | Cost |
 |---|---|
-| BMAX Mini PC* (host) | ~€180 (one-time) |
-| Seagate 2TB External HDD* | ~€60 (one-time) |
+| [BMAX Mini PC*](https://amzn.to/4bv3yF1) (host) | ~€180 (one-time) |
+| [Seagate 2TB External HDD*](https://amzn.to/4vxwLpY) | ~€60 (one-time) |
 | Garage VPS (5TB storage) | ~€5/month |
 | **Total first year** | ~€300 |
 | **Total ongoing** | ~€60/year |

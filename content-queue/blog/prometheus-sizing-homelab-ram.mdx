@@ -112,7 +112,7 @@ defaultRules:
 
 ## The WAL Compaction Problem
 
-Prometheus uses a WAL for crash recovery. The WAL grows until a compaction happens. On a homelab with limited I/O (SATA SSD on the BMAX Mini PC*), WAL compaction can take minutes and consume significant I/O. During compaction, Prometheus's memory usage spikes.
+Prometheus uses a WAL for crash recovery. The WAL grows until a compaction happens. On a homelab with limited I/O (SATA SSD on the [BMAX Mini PC*](https://amzn.to/4bv3yF1)), WAL compaction can take minutes and consume significant I/O. During compaction, Prometheus's memory usage spikes.
 
 The fix: set `walCompression: enabled` in the Prometheus spec:
 
