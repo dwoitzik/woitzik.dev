@@ -163,7 +163,7 @@ You simply change the `20` to `30` in the `local.rpi_port_mapping` at the top of
 
 ## Conclusion
 
-By treating network infrastructure as code, we transform a fragile, click-heavy configuration into a robust, auditable state. Proxmox gets its tagged trunks, hardware edge devices get their native access ports, and the router maintains secure L2 isolation.
+By treating network infrastructure as code, we transform a fragile, click-heavy configuration into a robust, auditable state. Proxmox gets its tagged trunks, hardware edge devices get their native access ports, and the router maintains secure L2 isolation. With the VLAN layer in place, the next step is building [L3 firewall rules on top](/blog/mikrotik-zero-trust-firewall-terraform/) — default-deny forward chains, micro-segmented allow rules, and NAT for public-facing services.
 
 The same declarative approach - define the desired state, let the provider calculate the diff - scales directly to enterprise Azure environments.
 

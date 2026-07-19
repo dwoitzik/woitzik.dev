@@ -6,6 +6,7 @@ tags: ["Homelab", "Networking", "DNS"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -166,6 +167,8 @@ AdGuard runs in `network_mode: host` so it can bind to port 53 directly on the P
 
 In the AdGuard UI, set the upstream DNS to `127.0.0.1:5335` (Unbound). All filtered queries that pass through AdGuard's blocklists are forwarded to Unbound for recursive resolution.
 
+<NewsletterCTA />
+
 ## Step 3: Config Sync to the Replica
 
 AdGuard doesn't natively replicate configuration between instances. The role uses [adguardhome-sync](https://github.com/bakito/adguardhome-sync) on the backup node to pull config from the primary:
@@ -310,6 +313,6 @@ The entire stack is idempotent Ansible - running the playbook again changes noth
 
 ---
 
-DNS control is the foundation of any Zero-Trust network - on-premises or in the cloud. In Azure, the equivalent of this setup is Azure Private DNS Zones with Private Link resolvers.
+DNS control is the foundation of any Zero-Trust network - on-premises or in the cloud. The same internal DNS infrastructure that serves client queries also drives TLS certificate automation — [cert-manager on k3s uses DNS validation](/blog/cert-manager-wildcard-k3s-cloudflare/) for wildcard Let's Encrypt certificates, making DNS reliability a prerequisite for both connectivity and encryption. In Azure, the equivalent of this setup is Azure Private DNS Zones with Private Link resolvers.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

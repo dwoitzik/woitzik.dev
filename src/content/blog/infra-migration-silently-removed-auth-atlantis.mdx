@@ -7,6 +7,8 @@ tags: ["Security", "Kubernetes", "Homelab"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
 SEC-008 was a finding from an earlier security audit: Atlantis was accessible without authentication. The fix was straightforward - put an Authelia `ForwardAuth` middleware in front of the Traefik `IngressRoute`, gating the UI and all endpoints except the GitHub webhook path (which uses its own HMAC-based authentication).
 
 That fix held for months. It was reopened by a completely unrelated infrastructure migration that nobody checked against the auth model.

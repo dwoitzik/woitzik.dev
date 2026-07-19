@@ -6,6 +6,7 @@ tags: ["Kubernetes", "Homelab", "Security", "Networking"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -161,6 +162,8 @@ spec:
 ```
 
 `strategy: Recreate` is critical. With SQLite, two pods writing simultaneously would corrupt the database. Recreate kills the old pod before starting the new one - no rolling update.
+
+<NewsletterCTA />
 
 ## Step 4: Service and IngressRoute
 

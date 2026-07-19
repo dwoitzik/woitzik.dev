@@ -7,6 +7,8 @@ tags: ["Kubernetes", "GitOps", "Homelab"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
 GitOps makes a specific promise: the cluster matches git. When a change is merged, it deploys. When a resource is deleted from git, it's deleted from the cluster. Merge = deploy is the core guarantee the entire workflow rests on.
 
 It's not always true. This is a story about finding three cases where it wasn't - two discovered during a drift audit, one that would have been inert even if ArgoCD had synced it correctly.

@@ -68,7 +68,7 @@ resource "routeros_ip_firewall_filter" "in_03_mgmt" {
 
 ## 2. Segmenting the Network (The Forward Chain)
 
-This is where the actual routing happens. In my setup, I have dedicated VLANs for Management (`vlan10`), Servers (`vlan20`), and a DMZ (`vlan30`).
+This is where the actual routing happens. In my setup, I have dedicated VLANs for Management (`vlan10`), Servers (`vlan20`), and a DMZ (`vlan30`). The underlying L2 VLAN matrix — bridge ports, tagged/untagged assignments, and the Proxmox trunk — is [automated separately with Terraform](/blog/mikrotik-vlan-filtering-terraform-proxmox/).
 
 Because of our `fwd_99_drop_all` rule, a compromised Docker container in `vlan20` cannot blindly scan the management interface of the Proxmox node in `vlan10`. We must explicitly drill micro-segmentation holes for required traffic.
 ```hcl

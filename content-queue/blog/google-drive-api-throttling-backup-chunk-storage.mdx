@@ -7,6 +7,8 @@ tags: ["Backup", "Homelab", "Ansible"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
 A systematic `ansible-playbook --check --diff` sweep across every host group turned up a stale Vault credential and a cron job that appeared to have simply stopped running. The initial read was a straightforward drift problem: fix the credential, restore the cron schedule, move on. That read was wrong on both the diagnosis and, as it turned out one PR later, the intended fix.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**

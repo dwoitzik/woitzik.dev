@@ -6,6 +6,7 @@ tags: ["Kubernetes", "Homelab", "Security"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -171,6 +172,8 @@ source:
 ```
 
 The Traefik dashboard is disabled - it exposes too much information to be left on in a production-adjacent setup. Access it via `kubectl port-forward` if you need it.
+
+<NewsletterCTA />
 
 ## Mistake 3: Authelia's Five Failure Modes
 
@@ -362,6 +365,8 @@ After navigating Docker Hub rate limits, iSCSI daemons, Kubernetes service link 
 - GitOps-managed via ArgoCD - every change is a Git commit
 - Wildcard TLS via cert-manager and Traefik
 - Zero manual `kubectl apply` in steady state
+
+For remote access to this stack, I later added [Headscale as a self-hosted Tailscale control plane](/blog/headscale-oidc-k3s-authelia/) — it uses the same Authelia instance for OIDC authentication, so VPN access and service SSO share one identity layer.
 
 The entire infrastructure - from bare metal to running pods - is reproducible from a `terraform apply` and a Git repository.
 

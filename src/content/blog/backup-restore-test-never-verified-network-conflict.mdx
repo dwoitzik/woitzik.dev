@@ -72,7 +72,7 @@ Documenting "this doesn't work" is a strictly better outcome than documenting a 
 
 ## Why "Documented" and "Tested" Are Different Claims
 
-The instinct after writing a recovery procedure is to consider the job done - the steps are correct, they were reviewed, they match how the backup tool is supposed to work. But "the steps are theoretically correct" and "these steps, run against a real host, actually produce a working restore" are different claims, and only the second one matters during an actual incident.
+The instinct after writing a recovery procedure is to consider the job done - the steps are correct, they were reviewed, they match how the backup tool is supposed to work. But "the steps are theoretically correct" and "these steps, run against a real host, actually produce a working restore" are different claims, and only the second one matters during an actual incident. The same applies to Kubernetes-level backups - a [Velero + Garage backup architecture](/blog/velero-garage-k3s-backup/) is only as trustworthy as its last verified restore.
 
 The IP/MAC conflict specifically would only ever be discovered by running the restore against infrastructure that has other live devices on the same network - which is exactly the situation a real disaster recovery event is in. A test performed in isolation (a lab VLAN with nothing else running) wouldn't have found it either.
 
