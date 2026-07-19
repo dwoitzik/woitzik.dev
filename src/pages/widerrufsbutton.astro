@@ -1,0 +1,231 @@
+---
+import Container from "@components/Container.astro";
+import PageLayout from "@layouts/PageLayout.astro";
+---
+
+<PageLayout
+  title="Widerruf — Vertrag widerrufen"
+  description="Widerrufsformular für digitale Produkte von woitzik.dev"
+>
+  <Container>
+    <div class="space-y-10 animate">
+      <section>
+        <h1
+          class="text-3xl font-black text-black dark:text-white tracking-tighter mb-6"
+        >
+          Vertrag widerrufen
+        </h1>
+        <div
+          class="space-y-4 text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed"
+        >
+          <p>
+            Nutzen Sie dieses Formular, um einen Vertrag über ein digitales
+            Produkt zu widerrufen. Füllen Sie die Felder aus und klicken Sie auf
+            „Widerruf bestätigen". Es wird eine E-Mail an
+            <strong>david@woitzik.dev</strong> erstellt, die Sie nur noch absenden
+            müssen.
+          </p>
+
+          <div
+            id="step1"
+            class="border border-neutral-200 dark:border-neutral-700 rounded-lg p-6 space-y-4"
+          >
+            <h2
+              class="text-lg font-bold text-black dark:text-white tracking-tight"
+            >
+              Schritt 1: Angaben ausfüllen
+            </h2>
+
+            <div class="space-y-3">
+              <div>
+                <label
+                  for="name"
+                  class="block text-sm font-medium text-black dark:text-white mb-1"
+                  >Name *</label
+                >
+                <input
+                  type="text"
+                  id="name"
+                  name="name"
+                  required
+                  class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-black dark:text-white text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                  placeholder="Max Mustermann"
+                />
+              </div>
+
+              <div>
+                <label
+                  for="email"
+                  class="block text-sm font-medium text-black dark:text-white mb-1"
+                  >E-Mail-Adresse *</label
+                >
+                <input
+                  type="email"
+                  id="email"
+                  name="email"
+                  required
+                  class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-black dark:text-white text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                  placeholder="max@beispiel.de"
+                />
+              </div>
+
+              <div>
+                <label
+                  for="order"
+                  class="block text-sm font-medium text-black dark:text-white mb-1"
+                  >Bestellnummer / Vertragsreferenz *</label
+                >
+                <input
+                  type="text"
+                  id="order"
+                  name="order"
+                  required
+                  class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-black dark:text-white text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                  placeholder="z.B. Bestellung vom 19.07.2026"
+                />
+              </div>
+
+              <div>
+                <label
+                  for="product"
+                  class="block text-sm font-medium text-black dark:text-white mb-1"
+                  >Produktname</label
+                >
+                <input
+                  type="text"
+                  id="product"
+                  name="product"
+                  class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-black dark:text-white text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                  placeholder="z.B. Azure Hub & Spoke Enterprise"
+                />
+              </div>
+
+              <div>
+                <label
+                  for="reason"
+                  class="block text-sm font-medium text-black dark:text-white mb-1"
+                  >Grund (optional)</label
+                >
+                <textarea
+                  id="reason"
+                  name="reason"
+                  rows="3"
+                  class="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-black dark:text-white text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                  placeholder="Sie müssen keinen Grund angeben."></textarea>
+              </div>
+            </div>
+
+            <p class="text-xs text-neutral-500 dark:text-neutral-400">
+              Pflichtfelder mit * gekennzeichnet. Die Angaben werden nur zur
+              Bearbeitung Ihres Widerrufs verwendet.
+            </p>
+
+            <button
+              id="confirm-btn"
+              type="button"
+              class="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-medium rounded-lg text-sm transition-colors"
+            >
+              Widerruf bestätigen
+            </button>
+          </div>
+
+          <div
+            id="step2"
+            class="hidden border border-neutral-200 dark:border-neutral-700 rounded-lg p-6 space-y-4"
+          >
+            <h2
+              class="text-lg font-bold text-black dark:text-white tracking-tight"
+            >
+              Schritt 2: Widerruf absenden
+            </h2>
+            <p>
+              Bitte überprüfen Sie Ihre Angaben. Klicken Sie auf „E-Mail
+              erstellen", um Ihr Widerrufsformular per E-Mail an uns zu senden.
+            </p>
+            <div
+              id="summary"
+              class="bg-neutral-50 dark:bg-neutral-800/50 rounded-lg p-4 text-sm space-y-1"
+            >
+            </div>
+            <div class="flex gap-3">
+              <a
+                id="mailto-link"
+                href="#"
+                class="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-medium rounded-lg text-sm transition-colors inline-block"
+              >
+                E-Mail erstellen
+              </a>
+              <button
+                id="back-btn"
+                type="button"
+                class="px-6 py-2.5 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 font-medium rounded-lg text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              >
+                Zurück
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </Container>
+</PageLayout>
+
+<script>
+  const step1 = document.getElementById("step1")!;
+  const step2 = document.getElementById("step2")!;
+  const confirmBtn = document.getElementById("confirm-btn")!;
+  const backBtn = document.getElementById("back-btn")!;
+  const mailtoLink = document.getElementById(
+    "mailto-link",
+  ) as HTMLAnchorElement;
+  const summary = document.getElementById("summary")!;
+
+  function getVal(id: string) {
+    return (
+      document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement
+    ).value.trim();
+  }
+
+  confirmBtn.addEventListener("click", () => {
+    const name = getVal("name");
+    const email = getVal("email");
+    const order = getVal("order");
+    const product = getVal("product");
+    const reason = getVal("reason");
+
+    if (!name || !email || !order) {
+      alert("Bitte füllen Sie alle Pflichtfelder aus.");
+      return;
+    }
+
+    summary.innerHTML = `
+      <p><strong>Name:</strong> ${name}</p>
+      <p><strong>E-Mail:</strong> ${email}</p>
+      <p><strong>Bestellnummer:</strong> ${order}</p>
+      ${product ? `<p><strong>Produkt:</strong> ${product}</p>` : ""}
+      ${reason ? `<p><strong>Grund:</strong> ${reason}</p>` : ""}
+    `;
+
+    const subject = encodeURIComponent("Widerruf — Bestellung " + order);
+    const body = encodeURIComponent(
+      `Widerrufsformular\n\n` +
+        `Name: ${name}\n` +
+        `E-Mail: ${email}\n` +
+        `Bestellnummer/Referenz: ${order}\n` +
+        (product ? `Produkt: ${product}\n` : "") +
+        (reason ? `Grund: ${reason}\n` : "") +
+        `\n---\n` +
+        `Hiermit widerrufe ich den oben genannten Vertrag.\n`,
+    );
+
+    mailtoLink.href = `mailto:david@woitzik.dev?subject=${subject}&body=${body}`;
+
+    step1.classList.add("hidden");
+    step2.classList.remove("hidden");
+  });
+
+  backBtn.addEventListener("click", () => {
+    step2.classList.add("hidden");
+    step1.classList.remove("hidden");
+  });
+</script>
