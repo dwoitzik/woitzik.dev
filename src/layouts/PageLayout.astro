@@ -62,6 +62,33 @@ const { title, description, image, type, publishedTime, tags } = Astro.props;
       </svg>
     </button>
     <script is:inline>
+      document.addEventListener("click", function (e) {
+        var link = e.target.closest("a");
+        if (!link) return;
+        var href = link.getAttribute("href") || "";
+        if (
+          href.indexOf("amzn.to") !== -1 ||
+          href.indexOf("amazon.") !== -1 ||
+          href.indexOf("/go/") !== -1
+        ) {
+          var slug = href.split("/").pop() || "unknown";
+          if (typeof window.va === "function") {
+            window.va("event", {
+              name: "affiliate_click",
+              data: { url: href, slug: slug, page: location.pathname },
+            });
+          }
+          if (typeof window.gtag === "function") {
+            window.gtag("event", "affiliate_click", {
+              url: href,
+              slug: slug,
+              page_path: location.pathname,
+            });
+          }
+        }
+      });
+    </script>
+    <script is:inline>
       function handleBackToTop() {
         document.documentElement.classList.toggle(
           "scrolled",

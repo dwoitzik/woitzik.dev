@@ -1,0 +1,225 @@
+---
+title: "Best Mini PC for Homelab 2026"
+description: "A hands-on comparison of the 5 best mini PCs for homelab use in 2026 — covering Intel N100, Ryzen 5, and Ryzen 7 platforms for Proxmox, K3s, and always-on workloads."
+date: "2026-07-25"
+tags: ["Hardware", "Homelab", "Review"]
+---
+
+import ProductCTA from "@components/ProductCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+After cycling through more mini PCs than I care to admit in my homelab — some running 24/7, others retired after a single disappointing week — I have settled on a clear ranking for 2026. The mini PC market has matured significantly: Intel's N100 still dominates the efficiency tier, AMD's Ryzen mobile chips crush multi-threaded workloads, and even the budget options no longer feel like compromise.
+
+This comparison is based on real deployment experience. My lab runs Proxmox, K3s, Terraform-managed VMs, and local LLM inference. Every machine on this list has been tested under those workloads.
+
+## TL;DR — The Picks
+
+| Model | CPU | RAM | Price (approx.) | Best For |
+|---|---|---|---|---|
+| [BMAX B1 Pro*](https://amzn.to/4XXXXXX) | Intel N100 | 16GB | ~€180 | Best Overall |
+| [Beelink SER5*](https://amzn.to/4XXXXXX) | Ryzen 5 5560U | 16GB | ~€230 | Best Performance |
+| [GMKTec NucBox K6*](https://amzn.to/4XXXXXX) | Ryzen 7 6800H | 32GB | ~€350 | Best for Heavy Workloads |
+| [Intel NUC 13 Pro*](https://amzn.to/4XXXXXX) | i5-1340P | 16GB | ~€400 | Best Build Quality |
+| [Trigkey Speed S5*](https://amzn.to/4XXXXXX) | Intel N100 | 16GB | ~€150 | Best Budget |
+
+If you want the short version: the **BMAX B1 Pro** is the best all-rounder for a homelab that needs to run Proxmox, containers, or lightweight VMs 24/7. If you need more compute for local LLM inference or heavy compilation, the **GMKTec NucBox K6** with its 6800H and 32GB RAM is worth the premium.
+
+## Selection Criteria — What Matters in a Homelab Mini PC
+
+Buying a mini PC for a homelab is fundamentally different from buying one as a desktop replacement. The priorities shift entirely:
+
+**Idle power draw** — This machine runs 24/7. A 5W difference in idle consumption is €40+ per year. Intel N100 platforms consistently win here, idling at 6-10W versus 15-25W for Ryzen alternatives.
+
+**Thermal management under sustained load** — Mini PCs live in racks or shelves with limited airflow. A chip that throttles after 20 minutes of sustained compilation is useless for building container images or running batch jobs.
+
+**RAM expandability** — 16GB is the minimum for a serious Proxmox host running multiple VMs. Prefer models that accept SO-DIMM upgrades to 32GB or 64GB, not soldered memory.
+
+**Network interfaces** — A single 1GbE port is a bottleneck for any hypervisor. Dual NICs or at least a 2.5GbE port makes the machine viable as a Proxmox node without USB Ethernet dongles.
+
+**Storage options** — M.2 NVMe is table stakes. A second drive bay (2.5" SATA or a second M.2 slot) for Proxmox local storage or TrueNAS is a major advantage.
+
+**Noise** — If this thing sits in your office, fan noise at load matters. Some N100 boxes are fanless; most Ryzen units need active cooling under load.
+
+## Individual Reviews
+
+### 1. BMAX B1 Pro — Best Overall
+
+Intel N100 · 16GB DDR5 · 500GB NVMe · ~€180
+
+The BMAX B1 Pro hits the sweet spot for a homelab node. The Intel N100 is a 6W TDP chip that idles around 7-8W wall draw, making it nearly invisible on your electricity bill when running 24/7. It has a single M.2 NVMe slot and a 2.5" SATA bay, giving you enough storage for Proxmox OS plus a reasonable local datastore.
+
+Where it really shines is reliability. I have had BMAX units running in my lab for over a year with zero hardware failures. The DDR5 memory is a nice upgrade from the DDR4 N100 boxes — not because N100 needs the bandwidth, but because DDR5 SO-DIMMs are easier to source at higher capacities for future upgrades.
+
+The 2.5GbE Realtek NIC is the one weak point. Realtek drivers on Linux work, but they lack the kernel support depth of Intel i225/i226 NICs. For a Proxmox node running Terraform-managed VMs, it works fine. For serious packet inspection or high-throughput bridging, you will notice the difference.
+
+**Pros:**
+- Excellent idle efficiency (7-8W)
+- DDR5 + SATA expansion bay
+- Compact, quiet under light load
+- Proven reliability over 12+ months
+
+**Cons:**
+- Realtek 2.5GbE NIC (not Intel)
+- Only 1x M.2 slot + 1x SATA
+- Single-channel memory
+
+### 2. Beelink SER5 — Best Performance
+
+Ryzen 5 5560U · 16GB DDR4 · 500GB NVMe · ~€230
+
+The Beelink SER5 is the performance-per-euro champion. The Ryzen 5 5560U offers 6 cores / 12 threads with a 15W TDP, delivering roughly 2.5x the multi-threaded performance of the N100 while only costing €50 more. For containerized workloads — building Docker images, running Kubernetes operators, or hosting development databases — the extra cores translate directly into faster builds and lower latency.
+
+The tradeoff is power. Idle draw sits around 18-22W, which over a year adds up. If this machine is your primary Proxmox host running 10+ containers, the performance justifies the extra power. If it is just running Pi-hole and a couple of lightweight services, the N100 is the smarter buy.
+
+The SER5 has a single M.2 NVMe slot and a 2.5" SATA bay, plus dual USB 3.2 ports for external storage. The dual 2.5GbE ports (Realtek on some revisions, Intel on newer batches — check before buying) make it viable as a multi-VLAN Proxmox trunk node.
+
+**Pros:**
+- Strong multi-threaded performance for the price
+- Dual 2.5GbE (Intel NIC on newer revisions)
+- Upgradeable to 64GB DDR4
+- Good build quality for the price tier
+
+**Cons:**
+- Higher idle power (18-22W)
+- Fan audible under sustained load
+- DDR4 not DDR5 (less future-proof)
+
+### 3. GMKTec NucBox K6 — Best for Heavy Workloads
+
+Ryzen 7 6800H · 32GB DDR5 · 1TB NVMe · ~€350
+
+If you need raw compute in a small box, the GMKTec K6 is the answer. The 6800H is a 45W class chip — significantly more powerful than anything else on this list — and it comes with 32GB of DDR5 RAM out of the box. That is enough to run Proxmox with several VMs, a K3s cluster, and still have headroom for local LLM inference with Ollama.
+
+The power draw reflects the performance: idle around 20-28W, and under full load it can hit 55-65W. This is not a machine you deploy for Pi-hole. This is a machine you deploy when you need one box to replace three lesser ones.
+
+The cooling system on the K6 is beefier than the BMAX or Beelink — dual copper heat pipes and a larger fan. Under sustained compilation loads (building a K3s cluster from source, for example), temperatures stay below 80°C, which is impressive for this form factor. The fan is audible but not obnoxious; I would not put it on a desk next to my ear, but in a rack shelf it disappears.
+
+Storage is generous: 2x M.2 NVMe slots (one PCIe 4.0, one PCIe 3.0) plus a 2.5" SATA bay. This makes it viable as a small Proxmox + local storage server without needing a separate NAS for warm data.
+
+**Pros:**
+- Serious multi-thread performance (8 cores / 16 threads)
+- 32GB DDR5 included
+- Dual M.2 NVMe + SATA
+- Good thermal design for sustained loads
+
+**Cons:**
+- High idle power for a mini PC (20-28W)
+- Larger and heavier than competitors
+- Fan noise at load — not suitable for a quiet office shelf
+- Price premium over N100/Ryzen 5 alternatives
+
+### 4. Intel NUC 13 Pro — Best Build Quality
+
+Intel Core i5-1340P · 16GB DDR5 · 500GB NVMe · ~€400
+
+The Intel NUC 13 Pro is the premium choice, and the price reflects it. Intel's own NUC line (now maintained by ASUS after the brand transfer) has the best build quality in this category: the chassis is solid aluminum, the thermal design is refined, and the component selection — particularly the Intel i226-V 2.5GbE NIC — is the best you will find.
+
+The i5-1340P is a 12-core / 16-thread chip that sits between the Ryzen 5 5560U and the 6800H in performance. Intel's hybrid architecture (P-cores + E-cores) works well for heterogeneous workloads: the P-cores handle bursty compilation tasks while the E-cores absorb background services without burning power.
+
+The i226-V NIC deserves special mention. Intel's 2.5GbE controllers have the best Linux driver support of any vendor. If you are running Proxmox with VLAN bridging, OVS (Open vSwitch), or any kind of advanced networking, the Intel NIC eliminates a whole category of troubleshooting. I have spent enough time debugging Realtek driver issues on N100 boxes that this alone justifies the premium for a production homelab node.
+
+The downside is pure cost. At €400, you are paying more than double the BMAX B1 Pro for a machine that, in raw compute benchmarks, is only marginally faster than the Beelink SER5 at €230. You are paying for build quality, the Intel NIC, and NUC reliability — which matters when this machine runs your production K3s cluster.
+
+**Pros:**
+- Best-in-class build quality and thermal design
+- Intel i226-V 2.5GbE NIC (best Linux driver support)
+- VPro/AMT for remote out-of-band management
+- Excellent idle efficiency for a 12-core chip (~12-15W)
+
+**Cons:**
+- Significant price premium
+- Only 1x M.2 + 1x 2.5" SATA
+- Performance gap vs. cheaper options is marginal
+- ASUS NUC availability can be inconsistent in EU
+
+### 5. Trigkey Speed S5 — Best Budget
+
+Intel N100 · 16GB DDR4 · 500GB NVMe · ~€150
+
+The Trigkey Speed S5 is the BMAX B1 Pro's budget cousin. Same Intel N100 chip, same 16GB RAM, same basic form factor — but at €150 it undercuts the BMAX by €30. For a first homelab node or a dedicated Pi-hole/AdGuard Home box, this is the price-to-performance king.
+
+The tradeoffs are predictable: the chassis feels cheaper (more plastic, less metal), the thermal solution is more basic (the fan ramps up more aggressively under load), and the expansion options are limited — single M.2 NVMe only, no SATA bay. The NIC is Realtek 2.5GbE, same as the BMAX.
+
+For a dedicated role — running a single service like DNS, a reverse proxy, or a lightweight monitoring stack — these compromises are irrelevant. The N100 chip is identical, and the performance is identical. You just get a slightly noisier box with less upgrade potential.
+
+**Pros:**
+- Lowest price for N100 + 16GB platform
+- Same N100 performance as more expensive options
+- Adequate for single-purpose homelab roles
+
+**Cons:**
+- No SATA expansion bay
+- Cheaper chassis and thermal solution
+- Fan more aggressive under load
+- Limited brand support/longevity compared to BMAX or Beelink
+
+## Head-to-Head Comparison
+
+| Feature | BMAX B1 Pro | Beelink SER5 | GMKTec K6 | Intel NUC 13 | Trigkey S5 |
+|---|---|---|---|---|---|
+| CPU | N100 (4C/4T) | 5560U (6C/12T) | 6800H (8C/16T) | i5-1340P (12C/16T) | N100 (4C/4T) |
+| RAM | 16GB DDR5 | 16GB DDR4 | 32GB DDR5 | 16GB DDR5 | 16GB DDR4 |
+| Max RAM | 32GB | 64GB | 64GB | 64GB | 32GB |
+| M.2 Slots | 1 | 1 | 2 | 1 | 1 |
+| SATA Bay | Yes | Yes | Yes | Yes | No |
+| NIC | 1x 2.5GbE (RTL) | 2x 2.5GbE | 2x 2.5GbE (Intel) | 1x 2.5GbE (Intel i226) | 1x 2.5GbE (RTL) |
+| Idle Power | ~7-8W | ~18-22W | ~20-28W | ~12-15W | ~7-8W |
+| Fanless Option | No (very quiet) | No | No | No | No |
+| Price | ~€180 | ~€230 | ~€350 | ~€400 | ~€150 |
+
+## Buyer's Guide
+
+**Buy the BMAX B1 Pro if:** You want a reliable, efficient all-rounder that sips power and handles Proxmox, containers, and lightweight VMs without fuss. This is the default recommendation.
+
+**Buy the Beelink SER5 if:** You need more CPU power than the N100 but want to keep costs under €250. Ideal for a primary Proxmox host running a mix of containerized and VM workloads.
+
+**Buy the GMKTec K6 if:** You want one box to rule them all. The 32GB RAM and 6800H handle local LLM inference, heavy compilation, and multi-VM Proxmox without breaking a sweat. Accept the higher power draw.
+
+**Buy the Intel NUC 13 Pro if:** Build quality and NIC reliability matter more than price. The i226-V NIC and VPro/AMT remote management make this the "set and forget" choice for a production homelab that you do not want to babysit.
+
+**Buy the Trigkey S5 if:** Budget is the primary constraint, or you need a dedicated single-purpose node (DNS, monitoring, reverse proxy) where the N100 is more than enough.
+
+**If you are starting from scratch:** Buy two BMAX B1 Pro units. Run Proxmox with a VM or container failover strategy. The total cost (€360) is less than a single Intel NUC, and you get hardware redundancy that no single mini PC can provide regardless of its specs.
+
+## Frequently Asked Questions
+
+### How much RAM do I need for a homelab mini PC?
+
+16GB is the practical minimum if you are running Proxmox with more than one VM or container stack. For K3s with a few worker pods and monitoring (Prometheus, Grafana), 32GB gives you breathing room. 64GB only makes sense if you are running local LLM inference or multiple heavy databases. The N100 platforms max out at 32GB; Ryzen and Intel i5 platforms support 64GB.
+
+### Should I care about DDR4 vs DDR5 in a mini PC?
+
+For N100 chips, the difference is negligible — the N100's memory bandwidth ceiling is low enough that DDR4 and DDR5 perform identically in practice. DDR5 matters on the Ryzen 7 and Intel i5 platforms where the memory controller can actually use the extra bandwidth. The real DDR5 advantage is availability: DDR5 SO-DIMMs are easier to find at 32GB and 48GB capacities now, making future upgrades simpler.
+
+### Can a mini PC replace a full-size server for homelab use?
+
+For 80% of homelab use cases, yes. A single Ryzen 7 mini PC with 32GB RAM can run Proxmox with 5-8 VMs, a K3s cluster, monitoring, and local storage — enough for most self-hosting setups. What it cannot replace: high-storage NAS (you still need separate disks), GPU-accelerated workloads (no discrete GPU), and high-availability clusters (you need at least 2-3 nodes for proper failover).
+
+### What about noise levels?
+
+N100 boxes (BMAX, Trigkey) are nearly silent at idle and quiet under moderate load — you will not hear them from a meter away. The Beelink SER5 and GMKTec K6 have audible fans under sustained load; the K6 is the loudest of the group. If noise is a primary concern, the BMAX B1 Pro or Intel NUC 13 Pro are the quietest options with meaningful compute.
+
+### Should I buy one powerful mini PC or multiple cheaper ones?
+
+Multiple cheaper ones, almost always. A single point of failure is a single point of failure, regardless of how powerful it is. Two BMAX B1 Pro units (€360 total) give you hardware redundancy and the ability to migrate VMs between hosts during maintenance. The only exception: if you need GPU compute for local LLMs, in which case a single GMKTec K6 with its Radeon 680M is the minimum viable platform.
+
+### Do these mini PCs support Proxmox well?
+
+All of them work with Proxmox. The Intel NUC 13 Pro has the smoothest experience thanks to the Intel i226-V NIC and full kernel support. The N100 boxes work fine with Proxmox but may need the `r8169` driver tuned for the Realtek NIC under heavy bridged traffic. Ryzen platforms (Beelink, GMKTec) work well out of the box. I have personally run Proxmox on all five of these platforms without blocking issues.
+
+### What about the Raspberry Pi 5 as a homelab node?
+
+The Raspberry Pi 5 is a legitimate homelab option — I run two in my own lab for edge DNS and Keepalived — but it does not compete with mini PCs for compute-intensive workloads. The Pi 5's ARM Cortex-A76 cores are roughly 40% slower than an N100 in single-threaded work and lack the x86 instruction set compatibility that Proxmox and many Docker images assume. For lightweight services, the Pi 5 wins on power efficiency (idle ~3-4W). For anything beyond DNS, reverse proxy, and monitoring, a mini PC is the better investment.
+
+## Conclusion
+
+The mini PC market for homelab use in 2026 is excellent. There has never been a better time to buy: even the €150 budget option gives you enough compute to run a serious self-hosted stack. The choice comes down to your workload profile and how much you value power efficiency versus raw performance.
+
+For my money, the BMAX B1 Pro at €180 is the default answer. It runs 24/7, sips power, and handles everything I throw at it. But if you are building a serious lab with local AI, multiple VM clusters, and heavy CI workloads, the GMKTec K6 at €350 is the machine that grows with you.
+
+Whatever you pick: buy two. Redundancy beats raw performance every time in a homelab.
+
+<ProductCTA slug="azure-zero-trust-starter-pack" variant="end" />
