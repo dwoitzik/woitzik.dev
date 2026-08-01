@@ -102,6 +102,6 @@ The fix for both was the same: stop relying on defaults and assumptions, manage 
 
 ---
 
-Configuring operators for real hardware, not the idealized environment the defaults assume, is the same problem in enterprise Azure: AKS node pools have their own I/O profiles, managed PostgreSQL has its own failover timing, and the defaults are tuned for average cases, not your specific failure modes.
+One scoping note: the leader-election tuning applies to self-hosted control planes. The renewal is a call to the API server, and here the API server shares the same hardware as the failing disk. On a managed control plane like AKS, EKS, or GKE, the API server lives off the node, so local disk I/O can't delay the renewal. Raising the renew deadline there buys nothing — it just adds up to 50 seconds before another instance can take over during a real leader election failure. Keep the default deadlines, or apply this fix only where the control plane runs on the hardware you're actually tuning for.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
