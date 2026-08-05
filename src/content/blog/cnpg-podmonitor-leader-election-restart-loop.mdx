@@ -5,7 +5,7 @@ date: "2026-07-17"
 tags: ["Kubernetes", "Homelab", "Debugging"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -104,4 +104,4 @@ The fix for both was the same: stop relying on defaults and assumptions, manage 
 
 One scoping note: the leader-election tuning applies to self-hosted control planes. The renewal is a call to the API server, and here the API server shares the same hardware as the failing disk. On a managed control plane like AKS, EKS, or GKE, the API server lives off the node, so local disk I/O can't delay the renewal. Raising the renew deadline there buys nothing — it just adds up to 50 seconds before another instance can take over during a real leader election failure. Keep the default deadlines, or apply this fix only where the control plane runs on the hardware you're actually tuning for.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

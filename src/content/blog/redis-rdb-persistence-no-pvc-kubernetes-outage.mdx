@@ -5,7 +5,7 @@ date: "2026-07-01"
 tags: ["Kubernetes", "Redis", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -114,4 +114,4 @@ In that sense, the security hardening exposed a pre-existing misconfiguration th
 
 The same scenario applies to any Redis instance in Kubernetes where sessions, cache, or ephemeral data don't need to survive a pod restart - which, in a cluster with properly-sized application replicas, is most of them. If the Redis deployment doesn't have a PVC, it should have `--save "" --appendonly no` as explicit arguments rather than inheriting defaults designed for a server with durable storage.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

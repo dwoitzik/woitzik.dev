@@ -5,7 +5,7 @@ date: "2026-07-30"
 tags: ["Homelab", "Proxmox", "ZFS", "Debugging"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -122,4 +122,4 @@ After these four changes, the host has been stable through sustained load tests.
 
 Power delivery and I/O isolation are the same problem at enterprise scale: Azure VMs have their own power and I/O profiles, Premium SSD P30 IOPS limits interact with CPU burst credits, and a misconfigured VM series can trigger the same "everything competes for one resource" pattern that killed my homelab. The difference is that Azure hides the PSU behind an SLA — you just get a throttled VM instead of a frozen host.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

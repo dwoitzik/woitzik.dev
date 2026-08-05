@@ -5,7 +5,7 @@ date: "2026-07-11"
 tags: ["Backup", "Proxmox", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -82,4 +82,4 @@ The IP/MAC conflict specifically would only ever be discovered by running the re
 
 The same gap shows up in Azure disaster recovery plans built around ASR (Azure Site Recovery) or storage account geo-redundancy: the failover procedure is documented, the RTO/RPO numbers are in the compliance doc, and nobody has actually triggered a failover drill against a resource with the same network topology as production. The IP/MAC duplication issue here has a direct Azure analogue - a failed-over VM retaining its original NIC configuration can conflict with resources still running in the primary region during a partial failover test. Test the actual failover, not just the plan for one.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

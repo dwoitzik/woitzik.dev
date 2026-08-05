@@ -35,14 +35,18 @@ const ctaHref = withUTM(product.href, Astro.url.pathname);
           <p class="cta-hook">
             Skip the trial-and-error - get the production-ready module.
           </p>
-          <a
-            href={ctaHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="cta-button"
-          >
-            Get {product.title} &rarr;
-          </a>
+          {product.available ? (
+            <a
+              href={ctaHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="cta-button"
+            >
+              Get {product.title} &rarr;
+            </a>
+          ) : (
+            <span class="cta-button cta-button-disabled">Coming soon</span>
+          )}
         </div>
       </div>
     </aside>
@@ -82,14 +86,18 @@ const ctaHref = withUTM(product.href, Astro.url.pathname);
         <div class="cta-end-right">
           <div class="cta-price">{product.price}</div>
           <div class="cta-price-note">{product.priceNote}</div>
-          <a
-            href={ctaHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="cta-button-lg"
-          >
-            Buy Now &rarr;
-          </a>
+          {product.available ? (
+            <a
+              href={ctaHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="cta-button-lg"
+            >
+              Buy Now &rarr;
+            </a>
+          ) : (
+            <span class="cta-button-lg cta-button-disabled">Coming soon</span>
+          )}
           <p class="cta-sub">Full source · no subscription</p>
         </div>
       </div>
@@ -288,6 +296,23 @@ const ctaHref = withUTM(product.href, Astro.url.pathname);
   }
   :global(.dark) .cta-button-lg:hover {
     background: oklch(1 0 0);
+  }
+  .cta-button-disabled,
+  .cta-button-lg.cta-button-disabled {
+    background: oklch(0.65 0 0);
+    cursor: not-allowed;
+  }
+  .cta-button-disabled:hover,
+  .cta-button-lg.cta-button-disabled:hover {
+    background: oklch(0.65 0 0);
+    transform: none;
+  }
+  :global(.dark) .cta-button-disabled,
+  :global(.dark) .cta-button-disabled:hover,
+  :global(.dark) .cta-button-lg.cta-button-disabled,
+  :global(.dark) .cta-button-lg.cta-button-disabled:hover {
+    background: oklch(0.32 0 0);
+    color: oklch(0.65 0 0);
   }
   .cta-sub {
     font-size: 0.68rem;

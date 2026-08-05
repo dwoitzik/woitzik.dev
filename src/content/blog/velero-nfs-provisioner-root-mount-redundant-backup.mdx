@@ -5,7 +5,7 @@ date: "2026-07-26"
 tags: ["Kubernetes", "Backup", "NFS", "Velero"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
@@ -98,6 +98,6 @@ If one volume is disproportionately large and its data is already covered by ind
 
 ---
 
-<ProductCTA slug="azure-firewall-enterprise" variant="end" />
+<NewsletterCTA />
 
 *Velero's `defaultVolumesToFsBackup: true` is convenient but dangerous with NFS provisioners. The root mount contains everything, and Velero doesn't know it's redundant. Check your PodVolumeBackup stats — if one volume is 65% of your total, you're backing up the same data twice.*

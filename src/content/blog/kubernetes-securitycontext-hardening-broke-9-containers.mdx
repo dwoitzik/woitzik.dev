@@ -5,7 +5,7 @@ date: "2026-06-25"
 tags: ["Kubernetes", "Security", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -178,4 +178,4 @@ This is the better fix for every one of the five images this incident's follow-u
 
 The same blast-radius problem exists in Azure - a blanket Pod Security Standard or Azure Policy applied across an AKS cluster's namespaces can break exactly this class of container for exactly this reason, just with `kubectl apply` replaced by a policy assignment that enforces on the next pod restart instead of immediately. Verify per-workload before enforcing cluster-wide, not after.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

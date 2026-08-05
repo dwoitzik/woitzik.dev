@@ -5,7 +5,7 @@ date: "2026-06-25"
 tags: ["Kubernetes", "Networking", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -123,4 +123,4 @@ Both failures share the same shape: `kubectl` (or any direct API inspection) con
 
 The Traefik EndpointSlice/Endpoints gap specifically is worth checking against your own ingress controller version before relying on it - provider compatibility for newer Kubernetes APIs varies and changes between releases. For Azure environments running AKS with an external service (an on-prem system, a VM outside the cluster), the same external-IP-backed-Service pattern applies, and the same "check what your specific ingress controller actually supports" caveat applies just as directly.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

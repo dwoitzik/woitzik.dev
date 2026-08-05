@@ -5,7 +5,7 @@ date: "2026-07-14"
 tags: ["Security", "Kubernetes", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
@@ -105,4 +105,4 @@ That's the property worth building a habit around: after any infrastructure migr
 
 The same failure mode applies directly to Azure. Migrating a workload from AKS to a VM (or from a VMSS behind an Application Gateway to a standalone VM) can silently remove WAF rules, identity-based authentication, or Private Endpoint network restrictions that were provided by the original deployment layer. The migration itself succeeds. The traffic flows. The security controls evaporate quietly. The right time to check is during the migration, not after a security review flags it.
 
-<ProductCTA variant="end" slug="azure-firewall-enterprise" />
+<NewsletterCTA />

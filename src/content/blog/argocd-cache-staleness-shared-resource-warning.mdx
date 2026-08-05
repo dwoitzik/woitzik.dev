@@ -5,7 +5,7 @@ date: "2026-06-22"
 tags: ["Kubernetes", "GitOps", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -111,4 +111,4 @@ The diagnostic tell: cache staleness is *temporal* - the same Application revert
 
 The cache-staleness pattern is specific to ArgoCD's repo-server architecture, but the ownership-conflict pattern is universal to any GitOps tool managing Kubernetes resources - Flux has the same failure mode if two Kustomizations or HelmReleases both define a resource with the same identity. Checking `.status.conditions` before assuming a sync or cache problem saves a lot of time chasing the wrong fix.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

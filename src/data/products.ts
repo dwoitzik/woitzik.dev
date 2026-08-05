@@ -18,5 +18,11 @@ export type Product = {
 export const products: Product[] = productsData as Product[];
 
 export function getProduct(slug: string): Product {
-  return products.find((p) => p.slug === slug) ?? products[0];
+  const product = products.find((p) => p.slug === slug);
+  if (!product) {
+    throw new Error(
+      `Product "${slug}" not found in products.json - fix the ProductCTA slug`,
+    );
+  }
+  return product;
 }
