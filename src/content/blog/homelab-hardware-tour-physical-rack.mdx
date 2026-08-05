@@ -83,7 +83,7 @@ locals {
 
 This `locals` block is the single source of truth. Add a VLAN here, and Terraform auto-generates the interfaces, DHCP servers, bridge matrix entries, and firewall rules. Move a Raspberry Pi between VLANs by changing one number. That's the power of treating network infrastructure as code, and it's all in the [MikroTik VLAN Filtering article](/blog/mikrotik-vlan-filtering-terraform-proxmox/).
 
-The same default-deny logic that drives the MikroTik firewall applies at enterprise scale in Azure, just implemented through NSGs, Azure Firewall, and Private Link instead of RouterOS rules.
+That firewall posture scales without adaptation: Azure expresses the same default-deny via NSGs, Azure Firewall, and Private Link — RouterOS rule chains map onto them one-to-one.
 
 ## The Workbench & Bookshelves (Tools & Tech I Recommend)
 
@@ -122,6 +122,6 @@ Three things, in reverse order of importance:
 
 If you want to see the Terraform and Ansible code that turns this physical hardware into the K3s cluster, Proxmox VMs, and network segmentation covered across this blog, the full [homelab-infrastructure repo](https://github.com/dwoitzik/homelab-infrastructure) is public on GitHub.
 
-The same IaC patterns, Terraform for provisioning, Ansible for configuration, GitOps via Atlantis, apply directly to enterprise Azure environments. The Hub & Spoke topology, the NSG micro-segmentation, the forced tunneling, all of it starts with the same mental model you build managing a MikroTik and a few Proxmox nodes.
+None of this is homelab-only: Terraform + Ansible + Atlantis is the same control loop enterprises run on Azure, and the Hub & Spoke topology, NSG micro-segmentation, and forced tunneling all grow out of the mental model you build managing a MikroTik and a few Proxmox nodes.
 
 <NewsletterCTA />

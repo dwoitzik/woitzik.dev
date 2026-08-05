@@ -383,6 +383,6 @@ For a homelab Velero target, Garage does everything MinIO does at a fraction of 
 
 With this setup, a complete cluster rebuild from scratch - fresh k3s installation, ArgoCD, and a `velero restore` - takes under 30 minutes. That's the practical test for whether your backup strategy actually works. I [ran that exact test](/blog/backup-restore-test-never-verified-network-conflict/) against a scratch VM and found a network conflict the documentation never mentioned.
 
-The same backup-first mindset applies in enterprise Azure environments - where the equivalent is Azure Backup, geo-redundant storage, and immutable blob policies.
+Backup-first is the default posture on Azure too: Azure Backup, geo-redundant storage, and immutable blob policies exist because the same failure modes you see in a homelab scale to enterprise data.
 
 <NewsletterCTA />
