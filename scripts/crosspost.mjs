@@ -66,7 +66,7 @@ function mdxToMarkdown(raw, slug) {
           "",
           p.bullets.map((b) => `- ${b}`).join("\n"),
           "",
-          `**[Get the enterprise module →](${p.href})**`,
+          `**[Get the Enterprise Module →](${p.href})**`,
           "",
           "_Full source code · one-time payment · instant download_",
           "",

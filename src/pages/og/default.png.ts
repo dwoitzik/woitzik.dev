@@ -6,7 +6,9 @@ import { resolve } from "path";
 
 export const GET: APIRoute = async () => {
   const fontBold = readFileSync(resolve("public/fonts/atkinson-bold.woff"));
-  const fontRegular = readFileSync(resolve("public/fonts/atkinson-regular.woff"));
+  const fontRegular = readFileSync(
+    resolve("public/fonts/atkinson-regular.woff"),
+  );
 
   const svg = await satori(
     {
@@ -66,7 +68,8 @@ export const GET: APIRoute = async () => {
                       color: "#737373",
                       lineHeight: 1.5,
                     },
-                    children: "Hybrid Cloud Engineer — Azure · Terraform · Zero-Trust",
+                    children:
+                      "Hybrid Cloud Engineer — Azure · Terraform · Zero-Trust",
                   },
                 },
               ],
@@ -89,7 +92,7 @@ export const GET: APIRoute = async () => {
                       fontWeight: 400,
                       letterSpacing: "0.08em",
                     },
-                    children: "ENTERPRISE INFRASTRUCTURE BLUEPRINTS",
+                    children: "ENTERPRISE MODULES",
                   },
                 },
               ],
@@ -105,7 +108,7 @@ export const GET: APIRoute = async () => {
         { name: "Atkinson", data: fontBold, weight: 700, style: "normal" },
         { name: "Atkinson", data: fontRegular, weight: 400, style: "normal" },
       ],
-    }
+    },
   );
 
   const png = await sharp(Buffer.from(svg)).png().toBuffer();

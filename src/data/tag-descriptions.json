@@ -1,6 +1,6 @@
 {
   "Azure": "Azure cloud architecture, networking, and compliance — Hub & Spoke, Firewall, Private Link, and zero-trust patterns.",
-  "Terraform": "Infrastructure as Code with Terraform — from MikroTik VLANs to enterprise Azure modules.",
+  "Terraform": "Infrastructure as Code with Terraform — from MikroTik VLANs to production-grade Enterprise Modules.",
   "Kubernetes": "Running production workloads on K3s — ArgoCD GitOps, Velero backups, network policies, and troubleshooting.",
   "Security": "Security findings, secret scanning, firewall hardening, and incident post-mortems from a real homelab.",
   "Homelab": "Physical hardware, Proxmox LXC, Raspberry Pi clusters, and the infrastructure behind this blog.",
