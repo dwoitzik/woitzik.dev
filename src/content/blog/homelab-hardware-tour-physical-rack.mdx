@@ -25,18 +25,7 @@ Everything lives in a compact 10-inch rack, not the full 19-inch server racks yo
 
 **Power Delivery:** Everything is powered by a [DIGITUS 4-Way 10-Inch PDU\*](https://amzn.to/3RiBttM) mounted at the very bottom. It fits perfectly in the 10" profile and keeps the cable clutter to a minimum.
 
-```hcl
-# Power monitoring via Terraform — TP-Link Tapo P110
-# Tracks idle draw vs. load for capacity planning
-# See terraform/stacks/network/power.tf in the repo
-resource "routeros_ip_firewall_filter" "fwd_99_drop_all" {
-  action  = "drop"
-  chain   = "forward"
-  comment = "99: Global - Final Drop (Zero Trust Policy)"
-}
-```
-
-The power monitoring is critical for planning: knowing the idle draw of the entire rack (47W) versus under load (120W) tells you exactly how much UPS capacity you need and whether a given mini PC upgrade is worth the thermal cost.
+Knowing the idle draw of the entire rack (47W) versus under load (120W) tells you exactly how much UPS capacity you need and whether a given mini PC upgrade is worth the thermal cost.
 
 ## Compute
 
