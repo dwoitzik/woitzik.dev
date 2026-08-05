@@ -9,7 +9,6 @@ import TableOfContents from "@components/TableOfContents.astro";
 import EmailCapture from "@components/EmailCapture.astro";
 import ShareButtons from "@components/ShareButtons.astro";
 import AuthorBio from "@components/AuthorBio.astro";
-import Giscus from "@components/Giscus.astro";
 import FeedbackWidget from "@components/FeedbackWidget.astro";
 
 export async function getStaticPaths() {
@@ -224,10 +223,6 @@ const jsonLd = {
             title="More like this in your inbox"
             description="New enterprise modules and deep dives — straight to your inbox. No spam."
           />
-        </div>
-
-        <div class="animate">
-          <Giscus />
         </div>
 
         {
