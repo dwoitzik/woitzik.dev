@@ -3,12 +3,14 @@ interface Props {
   title?: string;
   description?: string;
   buttonText?: string;
+  successMessage?: string;
 }
 
 const {
   title = "Stay in the loop",
   description = "New enterprise modules and deep dives - straight to your inbox. No spam.",
   buttonText = "Subscribe",
+  successMessage = "Check your inbox for the welcome email.",
 } = Astro.props;
 ---
 
@@ -22,7 +24,11 @@ const {
     </p>
   </div>
 
-  <form id="email-capture-form" class="flex flex-col sm:flex-row gap-2">
+  <form
+    id="email-capture-form"
+    class="flex flex-col sm:flex-row gap-2"
+    data-success-message={successMessage}
+  >
     <input
       type="email"
       name="email"
@@ -81,7 +87,8 @@ const {
         if (res.ok && data.success) {
           form.classList.add("hidden");
           message.textContent =
-            "Check your inbox - the cheat sheet is on its way.";
+            form.dataset.successMessage ??
+            "Check your inbox for the welcome email.";
           message.className = "text-sm mt-3 text-green-600 dark:text-green-400";
         } else {
           message.textContent =
