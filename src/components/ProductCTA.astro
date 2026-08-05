@@ -41,6 +41,7 @@ const ctaHref = withUTM(product.href, Astro.url.pathname);
               target="_blank"
               rel="noopener noreferrer"
               class="cta-button"
+              data-product={product.slug}
             >
               Get {product.title} &rarr;
             </a>
@@ -92,6 +93,7 @@ const ctaHref = withUTM(product.href, Astro.url.pathname);
               target="_blank"
               rel="noopener noreferrer"
               class="cta-button-lg"
+              data-product={product.slug}
             >
               Buy Now &rarr;
             </a>
@@ -336,3 +338,39 @@ const ctaHref = withUTM(product.href, Astro.url.pathname);
     }
   }
 </style>
+
+<script>
+  // Same astro:page-load pattern as EmailCapture: module scripts run once per
+  // session, but ClientRouter keeps the page alive between navigations.
+  function trackProductClick() {
+    const links = Array.from(document.querySelectorAll("a[data-product]"));
+    links.forEach((link) => {
+      const el = link as HTMLAnchorElement;
+      if (el.dataset.tracking) return;
+      el.dataset.tracking = "1";
+      el.addEventListener("click", () => {
+        const product = el.dataset.product;
+        const postSlug = location.pathname
+          .replace(/^\/blog\//, "")
+          .replace(/\/$/, "");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const analytics = window as any;
+        if (typeof analytics.va === "function") {
+          analytics.va("event", {
+            name: "product_click",
+            data: { product, page: location.pathname, postSlug },
+          });
+        }
+        if (typeof analytics.gtag === "function") {
+          analytics.gtag("event", "product_click", {
+            product,
+            post_slug: postSlug,
+            page_path: location.pathname,
+          });
+        }
+      });
+    });
+  }
+
+  document.addEventListener("astro:page-load", trackProductClick);
+</script>
