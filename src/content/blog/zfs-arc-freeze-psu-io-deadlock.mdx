@@ -1,6 +1,6 @@
 ---
 title: "The ZFS ARC Freeze: How a Marginal PSU Killed My Entire Homelab"
-description: "My Proxmox host froze under load three times in one week. The root cause wasn't software — it was a marginal PSU triggering TDP throttling, which exposed a ZFS 2.4.1 deadlock bug. Here's the full chain from symptom to fix."
+description: "My Proxmox host froze under load three times in one week. The root cause wasn't software — it was a marginal PSU triggering TDP throttling, which exposed a ZFS ARC deadlock. Here's the full chain from symptom to fix."
 date: "2026-07-30"
 tags: ["Homelab", "Proxmox", "ZFS", "Debugging"]
 ---
@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 Three times in one week, my Proxmox host froze completely. No SSH, no web UI, no console. The only recovery was a hard power cycle. Each time, I lost every running VM and LXC simultaneously — k3s control plane, workers, databases, all of it.
 
-The first time, I blamed a kernel bug. The second time, I blamed ZFS. The third time, I found the actual chain: a marginal PSU causing CPU throttling under load, which triggered a ZFS 2.4.1 ARC deadlock that locked the entire host.
+The first time, I blamed a kernel bug. The second time, I blamed ZFS. The third time, I found the actual chain: a marginal PSU causing CPU throttling under load, which triggered a ZFS ARC deadlock that locked the entire host.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -48,7 +48,7 @@ ZFS uses a Transaction Group (txg) commit cycle. Every few seconds, dirty data i
 
 When the CPU throttles mid-commit, the I/O latency spikes because the NVMe controller shares the same power rail. The txg commit can't complete within its timeout window, ZFS holds the ARC locks, new I/O requests pile up waiting for those locks, and the entire storage stack deadlocks.
 
-In ZFS 2.4.1 specifically, the ARC eviction path has a known issue where it can block on the same locks held by a stalled txg commit. This creates a circular wait: ARC eviction needs txg to complete, txg needs I/O bandwidth, I/O is delayed by CPU throttling, CPU throttling is caused by the PSU sag, and the PSU sags because everything is running at once.
+In ZFS 2.4.1, the version running on this host, the ARC eviction path can block on locks held by a stalled txg commit — a deadlock class OpenZFS has documented before under memory pressure ([txg_sync hung task when shrinking ARC, openzfs/zfs#4319](https://github.com/openzfs/zfs/issues/4319), [ARC eviction thread blocking on allocations, openzfs/zfs#12985](https://github.com/openzfs/zfs/pull/12985)). This creates a circular wait: ARC eviction needs txg to complete, txg needs I/O bandwidth, I/O is delayed by CPU throttling, CPU throttling is caused by the PSU sag, and the PSU sags because everything is running at once.
 
 The host doesn't panic. It just stops responding to anything that touches disk.
 
