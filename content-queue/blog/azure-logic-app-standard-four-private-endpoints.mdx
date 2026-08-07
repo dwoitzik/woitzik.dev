@@ -1,0 +1,202 @@
+---
+title: "Azure Logic App Standard: Private Storage Needs Four Private Endpoints"
+description: "A Logic App Standard booted into an HTTP 403 at every restart, and the portal designer only showed a generic error. Root cause: a private Storage Account needs four Private Endpoints - blob, file, queue, and table - not just the two that look obvious. Here's the postmortem and the Terraform that prevents it."
+date: "2026-08-11"
+tags: ["Azure", "Terraform", "Logic Apps", "Private Link", "Networking"]
+---
+
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
+Logic App Standard is the go-to hosting model when your workflows need VNet integration and a predictable App Service Plan. In a hardened Azure landing zone, that means one thing: a Storage Account that is not reachable from the public internet, fronted by Private Endpoints.
+
+The deployment succeeded. The Resource Group, the Storage Account, the private endpoints, the DNS zones - everything planned cleanly and applied without a single error. Then the workflow host refused to start. Every single boot ended in the same `403 Forbidden`, roughly 600 milliseconds after the host registered its blob webhook endpoint.
+
+This is the postmortem: why it happened, why four plausible fixes did not help, and how the generic rebuild now bakes the correct configuration in by default.
+
+**[View the base source code on GitHub 🐙](https://github.com/dwoitzik/azure-logic-app-standard-network)**
+
+## The Symptom
+
+The portal designer showed a generic failure - `renderComponentIntoRoot`, `Workflow validation failed` - none of which pointed anywhere useful. A direct API call against the host runtime revealed the real error:
+
+```
+Encountered an error (ServiceUnavailable) from host runtime.
+```
+
+The Kudu host status endpoint (`/hostruntime/admin/host/status`) confirmed the host was not just having a bad moment:
+
+```json
+{
+  "state": "Error",
+  "errors": [
+    "Microsoft.WindowsAzure.ResourceStack: Unexpected HTTP status code 'Forbidden'. The remote server returned an error: (403) Forbidden."
+  ]
+}
+```
+
+The `Forbidden` came from Storage itself, and it came back fast. That timing was the first real clue: no timeout, no firewall blackhole, no DNS hang - a prompt, deliberate rejection.
+
+## The Root Cause
+
+A Logic App Standard is a Functions host under the hood - a `functions` app hosting `workflow` apps. Its internal host runtime does not just need Storage for your workflow content. It consumes **four** Storage subresources during normal operation:
+
+| Subresource | Used for |
+|---|---|
+| **File** | Content share - `host.json`, `connections.json`, workflow definitions |
+| **Blob** | Extension-bundle cache, application logs |
+| **Queue** | Internal WebJobs coordination - scale controller, trigger bookkeeping |
+| **Table** | Internal WebJobs metadata |
+
+Our wrapper built private endpoints for **Blob** and **File** - the two that look obviously necessary, because the File share literally holds the content and Blob holds the bundle cache. Queue and Table were forgotten.
+
+The consequence is subtle and nasty. DNS for `*.queue.core.windows.net` and `*.table.core.windows.net` resolved to the **public** IP - there is no private endpoint, so no private DNS record. But the Storage Account had `publicNetworkAccess` disabled. Every request the host made to Queue or Table over the public IP was rejected by Storage itself with `403 Forbidden` - instantly. That is why the failure appeared exactly ~600 ms after boot: Storage denies fast, it does not hang.
+
+## Why Four Plausible Fixes Failed
+
+Each attempt was reasonable, and each targeted the wrong layer:
+
+1. **RG Contributor for the Managed Identity.** RBAC was never the problem. The Storage network firewall does not consult RBAC roles - it only evaluates network origin plus keys/auth. Adding permissions changed nothing.
+
+2. **`vnet_route_all_enabled = false`.** This flag only controls whether outbound internet traffic is routed through the VNet. Queue/Table calls never went through the VNet in the first place - they were direct public calls caused by wrong DNS resolution. The flag was for a different layer of the problem.
+
+3. **Storage data-plane RBAC (Blob/Queue/Table Data Contributor).** Permission is useless when the request is rejected at the network layer before RBAC is even evaluated.
+
+4. **Finally, Application Insights.** The Kudu logs showed only the short error with no stack trace. Attaching App Insights temporarily revealed the full exception stack and the exact failing method (`WorkflowExtensionProvider.Initialize`). Only then was the real dependency visible.
+
+The lesson from the four failed fixes: when a private Storage Account rejects a request with `403`, the problem is almost never identity. It is reachability - specifically, which DNS name resolves to which IP.
+
+## The Fix
+
+Two additional Private Endpoints on the same Storage Account, plus their Private DNS zone integration:
+
+- `pe-st-queue` → `privatelink.queue.core.windows.net`
+- `pe-st-table` → `privatelink.table.core.windows.net`
+
+The private DNS zones already existed centrally; they just were not attached to this Storage Account. Once Queue and Table resolved to private IPs, the host booted cleanly on the next restart.
+
+The memory anchor for next time: **a Logic App Standard or Function App with private Storage needs all four Storage subresources behind Private Endpoints** - not just the ones that look content-related. Queue and Table are pure host-internal infrastructure. They show up in no obvious configuration, which is exactly why they get forgotten.
+
+## The Generic Rebuild
+
+Instead of leaving the fix in a wrapper module, the generic template now creates all four by default. The private endpoints are a single `for_each` over the subresource list:
+
+```hcl
+locals {
+  storage_subresources = ["blob", "file", "queue", "table"]
+}
+
+resource "azurerm_private_endpoint" "storage" {
+  for_each            = toset(local.storage_subresources)
+  name                = "pe-${local.storage_name}-${each.key}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  subnet_id           = azurerm_subnet.private_endpoints.id
+
+  private_service_connection {
+    name                           = "psc-${local.storage_name}-${each.key}"
+    private_connection_resource_id = azurerm_storage_account.main.id
+    subresource_names              = [each.key]
+    is_manual_connection           = false
+  }
+
+  private_dns_zone_group {
+    name                 = "dns-${each.key}"
+    private_dns_zone_ids = [azurerm_private_dns_zone.main[each.key].id]
+  }
+}
+```
+
+Adding a sixth subresource (e.g. `dfs` for Data Lake) is now one list entry instead of a copy-pasted resource block.
+
+The DNS zones are created and linked to the VNet in the same pass, so `*.queue.core.windows.net` resolves privately without touching your DNS infrastructure:
+
+```hcl
+locals {
+  private_dns_zones = {
+    blob  = "privatelink.blob.core.windows.net"
+    file  = "privatelink.file.core.windows.net"
+    queue = "privatelink.queue.core.windows.net"
+    table = "privatelink.table.core.windows.net"
+    sites = "privatelink.azurewebsites.net"
+  }
+}
+
+resource "azurerm_private_dns_zone" "main" {
+  for_each            = local.private_dns_zones
+  name                = each.value
+  resource_group_name = azurerm_resource_group.main.name
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "main" {
+  for_each              = local.private_dns_zones
+  name                  = "link-${azurerm_virtual_network.main.name}"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = azurerm_private_dns_zone.main[each.key].name
+  virtual_network_id    = azurerm_virtual_network.main.id
+}
+```
+
+Two further details worth stealing from the fix:
+
+**1. Order the dependency.** The Logic App must not boot before its private endpoints exist, otherwise the first scale-up races the network configuration:
+
+```hcl
+resource "azurerm_logic_app_standard" "main" {
+  # ...
+
+  public_network_access     = "Disabled"
+  virtual_network_subnet_id = azurerm_subnet.integration.id
+
+  app_settings = merge(
+    {
+      "WEBSITE_CONTENTOVERVNET" = "1"
+      "WEBSITE_VNET_ROUTE_ALL"  = "1"
+    },
+    var.app_settings
+  )
+
+  depends_on = [
+    azurerm_private_endpoint.storage["blob"],
+    azurerm_private_endpoint.storage["file"],
+    azurerm_private_endpoint.storage["queue"],
+    azurerm_private_endpoint.storage["table"],
+  ]
+}
+```
+
+`WEBSITE_CONTENTOVERVNET = 1` tells the host to serve its own content share over the VNet instead of the public file endpoint.
+
+**2. Bootstrap the file share.** A freshly deployed Standard Logic App boots against an empty share, and the workflow host and the portal designer both trip over that. The template uploads a minimal `host.json` / `connections.json` into `site/wwwroot` during the first apply - empty definition, but a valid host contract:
+
+```hcl
+resource "local_file" "host_json" {
+  filename = "${path.module}/.bootstrap-content/host.json"
+  content = jsonencode({
+    version = "2.0"
+    extensionBundle = {
+      id      = "Microsoft.Azure.Functions.ExtensionBundle.Workflows"
+      version = "[1.*, 2.0.0)"
+    }
+  })
+}
+```
+
+## The Checklist
+
+When you wire a Logic App Standard or Function App to a private Storage Account:
+
+1. **File** private endpoint - content share
+2. **Blob** private endpoint - bundle cache and logs
+3. **Queue** private endpoint - host-internal coordination
+4. **Table** private endpoint - host-internal metadata
+5. **Sites** private endpoint on the Logic App itself (`privatelink.azurewebsites.net`)
+6. Private DNS zones for all five, linked to the VNet
+7. `public_network_access = "Disabled"` on the Storage Account and the Logic App
+8. `WEBSITE_CONTENTOVERVNET = 1` so content is served over the VNet
+9. `depends_on` from the Logic App to the private endpoints
+
+## The Takeaway
+
+A private endpoint per Storage subresource is not a nice-to-have for Logic Apps Standard - it is a hard requirement of the host runtime. The trap is that Queue and Table are invisible in every configuration file and every blog tutorial, so they get skipped until a `403 Forbidden` starts appearing in Kudu logs at every boot.
+
+The good news: the fix is deterministic, and it is now encoded in the template rather than remembered by an engineer who already paid the price once.
