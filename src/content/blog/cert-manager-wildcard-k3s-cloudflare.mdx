@@ -1,7 +1,8 @@
 ---
-title: "Wildcard TLS Certificates on K3s with cert-manager and Cloudflare DNS"
-description: "How to automate wildcard Let's Encrypt certificates on a bare-metal K3s cluster using cert-manager's DNS-01 challenge with Cloudflare - and why HTTP-01 won't work for internal services."
+title: "Wildcard TLS on K3s with cert-manager and Cloudflare DNS01"
+description: "HTTP-01 challenges fail behind a default-deny firewall. Switching cert-manager to Cloudflare DNS01 wildcard validation gives every Traefik IngressRoute a *.yourdomain.com certificate without opening port 80 to the internet."
 date: "2026-05-22"
+updated: "2026-08-08"
 tags: ["Kubernetes", "Homelab", "Security"]
 ---
 
@@ -19,7 +20,7 @@ This article documents how to automate wildcard certificates for an entire domai
 
 ## Why DNS-01 and Not HTTP-01
 
-HTTP-01 requires Let's Encrypt to make an HTTP request to `http://yourdomain.com/.well-known/acme-challenge/...`. For publicly reachable services this is fine. For a homelab cluster on `10.0.20.x` behind a NAT or firewall, Let's Encrypt simply can't reach it.
+HTTP-01 requires Let's Encrypt to make an HTTP request to `http://yourdomain.com/.well-known/acme-challenge/...`. For publicly reachable services this is fine. For a homelab cluster on `10.0.20.x` behind a NAT or firewall - or behind an ISP that puts you on CGN with no public IPv4 at all - Let's Encrypt simply can't reach it.
 
 DNS-01 works differently:
 1. cert-manager creates a `_acme-challenge.yourdomain.com` TXT record via the Cloudflare API
@@ -103,6 +104,8 @@ kubectl create secret generic cloudflare-api-token-secret \
 
 Use a scoped token, not the Global API Key. The token should only have permission to edit DNS records - nothing else.
 
+In production, this Secret should come from Vault via the External Secrets Operator rather than a YAML file applied with `kubectl apply` - the [External Secrets Operator + Vault](/blog/external-secrets-operator-vault-kubernetes/) pattern keeps the token out of Git entirely.
+
 ## Step 3: Create the ClusterIssuer
 
 The `ClusterIssuer` is the cert-manager resource that defines how to obtain certificates. It's cluster-scoped (not namespace-scoped), so any `Certificate` resource in any namespace can reference it:
@@ -124,7 +127,12 @@ spec:
           apiTokenSecretRef:
             name: cloudflare-api-token-secret
             key: api-token
+        selector:
+          dnsZones:
+            - "yourdomain.com"
 ```
+
+The `selector` scopes the solver to the exact DNS zone where the TXT records will be created. A token with permissions on multiple zones can pin the solver to the right one - without it, cert-manager may try the wrong zone and fail with a silent 403.
 
 The `privateKeySecretRef` stores the ACME account private key - cert-manager creates this automatically on first use. Don't delete it - if you lose it, you'll need to re-register with Let's Encrypt.
 
@@ -159,6 +167,27 @@ tlsStore:
       secretName: wildcard-yourdomain-tls
 ```
 
+With the default certificate set, an individual IngressRoute only references the Secret by name - every service behind Traefik gets HTTPS automatically:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`grafana.yourdomain.com`)
+      kind: Rule
+      services:
+        - name: grafana
+          port: 3000
+  tls:
+    secretName: wildcard-yourdomain-tls
+```
+
 ## Verifying the Certificate
 
 Check the certificate status:
@@ -181,6 +210,25 @@ kubectl describe order -n cert-manager
 ```
 
 The most common failure: the Cloudflare API token doesn't have DNS edit permissions on the correct zone.
+
+## The Timing Problem
+
+DNS-01 challenges take longer than HTTP-01. TXT record propagation alone can take 30-60 seconds, Let's Encrypt verification adds another lookup, and the whole challenge typically completes in 2-5 minutes. If you're used to HTTP-01 finishing in 30 seconds, this feels slow - it's normal.
+
+The cert-manager logs show the flow:
+
+```
+Waiting for DNS01 challenge propagation...
+Successfully created record "_acme-challenge.yourdomain.com"
+Verifying the DNS01 challenge...
+Challenge verified - DNS01 record found
+```
+
+The certificate renews automatically 30 days before expiry, so the DNS-01 dance happens about once every 60 days. You won't notice it unless you're watching the cert-manager logs.
+
+## Gotcha: Cloudflare Proxy Mode
+
+If the Cloudflare proxy (orange cloud) is enabled for the zone, DNS-01 still works - the proxy only affects HTTP traffic, not DNS TXT records. What does break: an API token scoped to the wrong zone. The Cloudflare API returns a silent 403, and cert-manager logs a cryptic `urn:ietf:params:acme:error:unauthorized` error that takes an hour to debug. Scope the token to the exact zone where the TXT records will be created.
 
 ## The Result
 
