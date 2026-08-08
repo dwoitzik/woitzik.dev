@@ -99,7 +99,7 @@ The tradeoff: UniFi's IDS/IPS is a black box. You cannot customize the signature
 
 Both platforms support WireGuard and OpenVPN. The implementation differences matter.
 
-**MikroTik RB5009** runs WireGuard natively in RouterOS 7. The WireGuard implementation supports multiple peers, fine-grained allowed IPs, and persistent keepalive — everything you need for site-to-site or remote access VPN. I run WireGuard on my RB5009 for remote access to the homelab, and the Terraform code for it is in the repo:
+**MikroTik RB5009** runs WireGuard natively in RouterOS 7. The WireGuard implementation supports multiple peers, fine-grained allowed IPs, and persistent keepalive — everything you need for site-to-site or remote access VPN. I run WireGuard on my RB5009 for [remote access to the homelab](/blog/mikrotik-wireguard-vpn-terraform/), and the Terraform code for it is in the repo:
 
 ```hcl
 resource "routeros_interface_wireguard" "wg0" {

@@ -31,7 +31,7 @@ Knowing the idle draw of the entire rack (47W) versus under load (120W) tells yo
 
 ### Primary Proxmox Host
 
-This is the workhorse of the entire lab. Everything from the local AI stack running Ollama to the bulk of my K3s worker nodes lives here.
+This is the workhorse of the entire lab. Everything from the [local AI stack running Ollama](/blog/deploying-gemma-proxmox-iac/) to the bulk of my K3s worker nodes lives here.
 
 I run an older BMAX B5A Pro (Ryzen 7 5825U), but if you are buying one today, the upgraded [BMAX Ryzen 7 8745HS Mini PC\*](https://amzn.to/4bv3yF1) is the direct successor with a much faster Radeon 780M GPU and DDR5 support.
 
@@ -120,7 +120,7 @@ Three things, in reverse order of importance:
 
 ---
 
-If you want to see the Terraform and Ansible code that turns this physical hardware into the K3s cluster, Proxmox VMs, and network segmentation covered across this blog, the full [homelab-infrastructure repo](https://github.com/dwoitzik/homelab-infrastructure) is public on GitHub.
+If you want to see the Terraform and Ansible code that turns this physical hardware into the K3s cluster, Proxmox VMs, and network segmentation covered across this blog, the full [homelab-infrastructure repo](https://github.com/dwoitzik/homelab-infrastructure) is public on GitHub. The Ansible layer that orchestrates the whole stack is broken down in my [enterprise-grade homelab architecture post](/blog/enterprise-homelab-architecture-ansible/).
 
 None of this is homelab-only: Terraform + Ansible + Atlantis is the same control loop enterprises run on Azure, and the Hub & Spoke topology, NSG micro-segmentation, and forced tunneling all grow out of the mental model you build managing a MikroTik and a few Proxmox nodes.
 

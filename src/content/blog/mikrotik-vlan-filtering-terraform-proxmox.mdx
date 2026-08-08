@@ -13,7 +13,7 @@ If you have ever tried to configure VLANs on a MikroTik router, you know the pai
 
 When you add a virtualization host like Proxmox into the mix-which requires a trunk port passing multiple tagged VLANs-the complexity multiplies. Label your cables early, a [Brother Labelmaker\*](https://amzn.to/4wcr4PG) saved me hours tracing connections during a VLAN migration. Doing this via the WinBox GUI is a recipe for configuration drift and late-night network outages.
 
-In this deep dive, I will show you how to tame MikroTik VLANs using Infrastructure as Code (Terraform). We will build a dynamic, scalable L2 network architecture that includes a Proxmox trunk port, dedicated management access, and hardware-offloaded access ports for edge devices (like Raspberry Pis).
+In this deep dive, I will show you how to tame MikroTik VLANs using Infrastructure as Code (Terraform). We will build a dynamic, scalable L2 network architecture that includes a Proxmox trunk port, dedicated management access, and hardware-offloaded access ports for [edge nodes like the Raspberry Pis](/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables/).
 
 **[View the complete MikroTik IaC source code on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 

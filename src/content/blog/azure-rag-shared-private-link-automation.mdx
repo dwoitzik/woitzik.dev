@@ -145,7 +145,7 @@ resource "azurerm_role_assignment" "search_to_openai" {
 }
 ```
 
-`Cognitive Services OpenAI User` is the least-privileged role for this use case - it allows AI Search to submit inference requests but cannot modify the OpenAI account configuration. Least-privilege RBAC is a hard requirement under ISO 27001 Annex A.8 and NIS2 Article 21.
+`Cognitive Services OpenAI User` is the least-privileged role for this use case - it allows AI Search to submit inference requests but cannot modify the OpenAI account configuration. Least-privilege RBAC is a hard requirement under ISO 27001 Annex A.8 and [NIS2 Article 21](/blog/nis2-article-21-azure-terraform/).
 
 When the AI Search instance is deleted, its Entra ID identity and all associated role assignments are automatically destroyed. No credential rotation. No secret management. No audit findings.
 
@@ -183,7 +183,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "search_vnet_link" {
 }
 ```
 
-`registration_enabled = false` is intentional - automatic DNS registration conflicts with centralized Private DNS Zone management in Hub & Spoke environments. If you are running this inside an existing Hub & Spoke topology, the DNS zones should live in the Hub and be linked cross-subscription, not deployed per-workload.
+`registration_enabled = false` is intentional - automatic DNS registration conflicts with centralized Private DNS Zone management in [Hub & Spoke](/blog/azure-terraform-hub-spoke-zero-trust/) environments. If you are running this inside an existing Hub & Spoke topology, the DNS zones should live in the Hub and be linked cross-subscription, not deployed per-workload.
 
 ## The Result
 

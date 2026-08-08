@@ -165,7 +165,7 @@ Three deliberate decisions here:
 
 **`web.redirectTo: websecure`** - all HTTP traffic is immediately redirected to HTTPS at the ingress level. No application needs to handle this itself.
 
-**`tlsStore.default.defaultCertificate`** - sets the wildcard certificate as the default TLS certificate for all Ingress resources that don't specify their own. Every service behind Traefik gets HTTPS automatically.
+**`tlsStore.default.defaultCertificate`** - sets the [wildcard certificate](/blog/cert-manager-wildcard-k3s-cloudflare/) as the default TLS certificate for all Ingress resources that don't specify their own. Every service behind Traefik gets HTTPS automatically.
 
 **`dashboard.enabled: false`** - the Traefik dashboard exposes routing configuration and middleware details. Disabled in production-adjacent setups; access it via `kubectl port-forward` when needed.
 

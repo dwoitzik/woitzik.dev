@@ -147,7 +147,7 @@ spec:
 
 ## Traefik: TLS Termination at the Edge
 
-Traefik runs in `kube-system` managed by ArgoCD, with HTTP-to-HTTPS redirect enforced at the ingress level and a wildcard certificate from cert-manager as the default TLS store:
+Traefik runs in `kube-system` managed by ArgoCD, with HTTP-to-HTTPS redirect enforced at the ingress level and a [wildcard certificate from cert-manager](/blog/cert-manager-wildcard-k3s-cloudflare/) as the default TLS store:
 
 ```yaml
 source:

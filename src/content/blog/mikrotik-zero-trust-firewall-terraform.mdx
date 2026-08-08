@@ -44,7 +44,7 @@ By placing these rules at the very end of their respective chains, anything that
 
 ## 1. Securing the Router (The Input Chain)
 
-The `input` chain protects the MikroTik device itself. We only want established connections, our WireGuard VPN handshakes, and strict management access to reach the router's CPU.
+The `input` chain protects the MikroTik device itself. We only want established connections, our [WireGuard VPN handshakes](/blog/mikrotik-wireguard-vpn-terraform/), and strict management access to reach the router's CPU.
 ```hcl
 resource "routeros_ip_firewall_filter" "in_01_established" {
   action           = "accept"

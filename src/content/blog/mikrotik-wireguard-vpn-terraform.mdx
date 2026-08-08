@@ -80,7 +80,7 @@ resource "routeros_wireguard_peer" "laptop_dw" {
 
 ## 4. Enforcing Role-Based Access (The Firewall)
 
-The VPN is up, but without firewall rules, traffic won't go anywhere (assuming you have a strict default-deny firewall in place, as discussed in my previous architecture posts). 
+The VPN is up, but without firewall rules, traffic won't go anywhere (assuming you have a strict default-deny firewall in place, as discussed in my [Zero-Trust MikroTik firewall post](/blog/mikrotik-zero-trust-firewall-terraform/)). 
 
 We use the Forward chain to explicitly define what each device is allowed to access.
 
@@ -102,7 +102,7 @@ resource "routeros_ip_firewall_filter" "fwd_06_vpn_laptop" {
 ```
 
 ### The Mobile Phone (Split-Tunnel / Limited Access)
-Mobile phones are inherently less secure. They connect to public WiFis and are easily lost. We restrict the phone strictly to specific internal service subnets (like the `vlan20` server network and the DMZ proxy). It has absolutely no access to the Proxmox management VLAN or internal infrastructure backends.
+Mobile phones are inherently less secure. They connect to public WiFis and are easily lost. We restrict the phone strictly to specific internal service subnets (like the [`vlan20` server network](/blog/mikrotik-vlan-filtering-terraform-proxmox/) and the DMZ proxy). It has absolutely no access to the Proxmox management VLAN or internal infrastructure backends.
 ```hcl
 resource "routeros_ip_firewall_filter" "fwd_07_vpn_handy_srv" {
   action       = "accept"
