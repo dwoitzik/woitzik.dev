@@ -49,8 +49,11 @@
     "puppeteer-core": "^25.1.0"
   },
   "lint-staged": {
-    "*.{js,ts,astro,md}": [
+    "*.{js,ts,astro}": [
       "eslint --fix",
+      "prettier --write"
+    ],
+    "*.md": [
       "prettier --write"
     ]
   }
