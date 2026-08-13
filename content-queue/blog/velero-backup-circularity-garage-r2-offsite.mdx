@@ -5,11 +5,11 @@ date: "2026-10-18"
 tags: ["Kubernetes", "Backup", "Velero", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-The circularity: Velero backs up into Garage S3, which runs inside the Kubernetes cluster it's backing up. Cluster lost → Garage PVC lost → Velero backup bucket gone → nothing to restore from.
+The circularity: [Velero](/blog/velero-garage-k3s-backup/) backs up into Garage S3, which runs inside the Kubernetes cluster it's backing up. Cluster lost → Garage PVC lost → Velero backup bucket gone → nothing to restore from.
 
 This is the backup equivalent of storing your offsite backup key in the safe you're backing up. The offsite target exists in config but isn't actually reachable — and you don't realize the gap until you need it.
 
@@ -38,7 +38,7 @@ Two PVCs with different storage backends, different failure modes:
 | `garage-meta` | `local-path` | k3s node | Node-pinned, survives if node survives |
 | `garage-data` | NFS (`nfs-client`) | NFS LXC | Survives if NFS LXC survives |
 
-On 2026-07-12, an unclean Garage shutdown (OOM kill) left `db.sqlite` corrupted. The metadata — SQLite, bucket/key ownership, access grants — and the actual object data were on different volumes with different rollback fates. A partial restore or node loss would leave one without the other, with no clean way to reconcile them.
+On 2026-07-12, an unclean Garage shutdown (OOM kill) left `db.sqlite` corrupted — [the same NFS/SQLite locking incompatibility](/blog/nfs-vs-local-path-sqlite-trap/) that eventually forced every embedded database off NFS. The metadata — SQLite, bucket/key ownership, access grants — and the actual object data were on different volumes with different rollback fates. A partial restore or node loss would leave one without the other, with no clean way to reconcile them.
 
 ## The Four Options
 
@@ -120,4 +120,4 @@ Backup circularity is the most common structural flaw in self-hosted Kubernetes:
 
 **Further reading:** For understanding the full recovery architecture, [Designing Data-Intensive Applications by Martin Kleppmann*](https://amzn.to/4aUtkCs) covers replication, backup strategies, and the failure modes that make torn-state hazards so dangerous. The Velero circularity is a specific case of the general problem Kleppmann describes: systems that depend on their own recovery path.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

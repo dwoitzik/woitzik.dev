@@ -5,7 +5,7 @@ date: "2026-09-20"
 tags: ["Proxmox", "Kubernetes", "Performance", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -13,7 +13,7 @@ etcd is the brain of Kubernetes. Every API call, every configmap update, every p
 
 On a single Proxmox host running k3s VMs alongside Ollama LLM inference, Minecraft game servers, and Docker media workloads, etcd shares CPU with everything else. Without scheduling priority, a Minecraft player join and an Ollama model load can delay etcd's fdatasync calls enough to trigger leader-election timeouts.
 
-The fix: `cpu.units = 2048` on k3s VMs, giving them 2x the CPU scheduling priority over every other workload on the host.
+The fix: `cpu.units = 2048` on k3s VMs, giving them 2x the CPU scheduling priority over every other workload on the host — the same VMs that get [staggered boot ordering](/blog/staggered-vm-boot-load-average-147/) to prevent I/O storms in the first place.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -37,7 +37,7 @@ On a single NVMe shared by all VMs, etcd's fdatasync competes with:
 
 Under normal load, this is fine — NVMe IOPS are high enough to handle all of them. But when Ollama starts loading a 26B model (Gemma 4) and Minecraft generates terrain simultaneously, the NVMe queue depth spikes, fdatasync latency increases, and etcd's lease renewal window shrinks.
 
-Without CPU priority, etcd's fdatasync also competes for CPU time with these workloads. The kernel's CFS scheduler doesn't know that etcd's fdatasync is more important than Ollama's matrix multiplication — it just sees two processes requesting CPU time and分配 equally.
+Without CPU priority, etcd's fdatasync also competes for CPU time with these workloads. The kernel's CFS scheduler doesn't know that etcd's fdatasync is more important than Ollama's matrix multiplication — it just sees two processes requesting CPU time and allocates it equally.
 
 ## The Fix
 
@@ -100,7 +100,7 @@ CPU priority and memory priority are separate in Proxmox. `cpu.units` affects CP
 
 On this host, both matter:
 - etcd needs low-latency CPU for fdatasync (solved by `cpu.units`)
-- k3s control-plane needs guaranteed RAM for API server and scheduler (solved by `memory.dedicated = 12284`)
+- k3s control-plane needs guaranteed RAM for API server and scheduler (solved by `memory.dedicated = 12284`, the same VM-vs-LXC memory model covered in [the overcommit guard writeup](/blog/overcommit-guard-python-host-freeze/))
 
 The RAM allocation is a hard reservation — 12 GB is always available for the k3s-11 VM. The CPU priority is a soft weighting — it only matters when cores are shared. Both are necessary: without RAM priority, the k3s VM could be ballooned down to 4 GB under pressure; without CPU priority, etcd could lose the fdatasync race to Ollama.
 
@@ -114,4 +114,4 @@ The RAM allocation is a hard reservation — 12 GB is always available for the k
 
 CPU scheduling priority is the same concept as Azure VM series selection: E-series VMs are memory-optimized, F-series are compute-optimized, and Dv5-series offer balanced resources. Choosing the wrong series for etcd (a latency-sensitive, write-heavy workload) produces the same performance degradation as running it without `cpu.units` on Proxmox. The difference is that Azure makes the choice at VM creation time, while Proxmox lets you adjust it dynamically.
 
-<ProductCTA variant="end" slug="azure-firewall-enterprise" />
+<NewsletterCTA />

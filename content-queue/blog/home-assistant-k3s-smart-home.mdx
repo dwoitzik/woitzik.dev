@@ -5,7 +5,7 @@ date: "2026-11-22"
 tags: ["Kubernetes", "Home Assistant", "IoT", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
@@ -174,7 +174,7 @@ No Nabu Casa cloud needed. The wildcard certificate from cert-manager handles TL
 
 ## Database: PostgreSQL
 
-Home Assistant's default database is SQLite. On k3s, switch to PostgreSQL for better performance:
+Home Assistant's default database is SQLite — the same kind of embedded database that [corrupts under NFS file-locking](/blog/nfs-vs-local-path-sqlite-trap/) if you're not careful about storage class. On k3s, switch to PostgreSQL for better performance:
 
 ```yaml
 # configuration.yaml
@@ -182,7 +182,7 @@ homeassistant:
   db_url: postgresql://homeassistant:password@home-assistant-db.home-assistant.svc:5432/homeassistant
 ```
 
-The PostgreSQL instance is managed by CNPG (CloudNativePG) with daily backups to MinIO.
+The PostgreSQL instance is managed by [CNPG (CloudNativePG)](/blog/cnpg-postgresql-operator-k3s/) with daily backups to MinIO.
 
 ## Backup with Velero
 
@@ -205,4 +205,4 @@ velero restore create --from-backup home-assistant-daily-20261122
 
 Running Home Assistant on k3s means you lose the one-click add-on store and the managed Zigbee/Bluetooth stack. You gain: GitOps-managed configuration, Velero backups, cert-manager TLS, and the ability to run Home Assistant alongside 20 other workloads on the same cluster. For a homelab that already runs k3s, this is the right architecture.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

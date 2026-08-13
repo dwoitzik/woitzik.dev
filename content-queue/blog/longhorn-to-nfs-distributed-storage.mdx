@@ -5,7 +5,7 @@ date: "2026-09-27"
 tags: ["Kubernetes", "Storage", "Homelab", "Debugging"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -96,8 +96,8 @@ After migrating from Longhorn to NFS, I defined the rule:
 
 | Application | Storage Class | Reason |
 |---|---|---|
-| PostgreSQL (CNPG) | local-path | CNPG manages its own replication |
-| Garage S3 metadata | local-path | SQLite file-locking (the NFS trap) |
+| PostgreSQL ([CNPG](/blog/cnpg-postgresql-operator-k3s/)) | local-path | CNPG manages its own replication |
+| Garage S3 metadata | local-path | [SQLite file-locking (the NFS trap)](/blog/nfs-vs-local-path-sqlite-trap/) |
 | Mealie, Home Assistant | local-path | SQLite databases |
 | Everything else | nfs-client | Default, survives pod rescheduling |
 
@@ -132,4 +132,4 @@ After the migration, Longhorn was uninstalled. The cluster went from three stora
 
 Distributed storage on a single host is the same anti-pattern as Azure Zone-Redundant Storage across availability zones that share the same power source. If the underlying infrastructure isn't actually distributed, the replication layer adds complexity without adding resilience. The fix in both cases: match the storage topology to the actual infrastructure topology. Single host = single NFS server. Multi-host = distributed storage.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

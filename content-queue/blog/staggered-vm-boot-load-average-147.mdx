@@ -5,7 +5,7 @@ date: "2026-09-06"
 tags: ["Proxmox", "Homelab", "Performance", "Debugging"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -83,7 +83,7 @@ NFS itself depends on ZFS — the NFS export directory lives on the ZFS pool. ZF
 
 ## The CPU Scheduling Priority
 
-Beyond boot order, k3s VMs get CPU scheduling priority via `cpu.units`:
+Beyond boot order, k3s VMs get [CPU scheduling priority via `cpu.units`](/blog/cpu-scheduling-etcd-proxmox-units/):
 
 ```hcl
 # k3s VMs get 2x scheduling priority
@@ -127,10 +127,10 @@ The workaround: a manual `pct set` step in the operations runbook, applied after
 | I/O wait % | 85% | 15% |
 | Failed mount attempts | 12-15 | 0 |
 
-The staggering didn't add total boot time — it redistributed the I/O load over 3 minutes instead of concentrating it in 30 seconds. Services come up later individually but the cluster as a whole is stable sooner because nothing is fighting for I/O.
+The staggering didn't add total boot time — it redistributed the I/O load over 3 minutes instead of concentrating it in 30 seconds. Services come up later individually but the cluster as a whole is stable sooner because nothing is fighting for I/O. The same host also runs [a memory overcommit guard](/blog/overcommit-guard-python-host-freeze/) for the RAM side of this problem — boot order fixes the I/O storm, the guard fixes the memory one.
 
 ---
 
 Boot storm mitigation is the same problem in Azure: when you scale out a VMSS from 0 to 50 instances, all 50 hit the Azure fabric simultaneously. Azure handles this with staggered placement and shared disks, but the principle is identical — spread the I/O load over time instead of concentrating it. In a homelab, you do it yourself with `startup.order` and `startup.up` delays.
 
-<ProductCTA variant="end" slug="azure-firewall-enterprise" />
+<NewsletterCTA />

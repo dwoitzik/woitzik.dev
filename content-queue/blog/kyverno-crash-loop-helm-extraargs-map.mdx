@@ -5,11 +5,11 @@ date: "2026-10-08"
 tags: ["Kubernetes", "Security", "Debugging"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-Kyverno's cleanup-controller was restarting every few hours. The leader-election timeout was expiring under load, the controller lost its lock, and the new leader took over — causing a brief gap in policy enforcement. The fix looked simple: increase `leaderElectionRetryPeriod`. The fix crash-looped the very pod it was meant to stabilize.
+Kyverno's cleanup-controller was restarting every few hours. The leader-election timeout was expiring under load — the same class of leader-election instability that [CPU contention causes for etcd](/blog/cpu-scheduling-etcd-proxmox-units/) — the controller lost its lock, and the new leader took over, causing a brief gap in policy enforcement. The fix looked simple: increase `leaderElectionRetryPeriod`. The fix crash-looped the very pod it was meant to stabilize.
 
 ## The Symptom
 
@@ -114,7 +114,7 @@ This is a common Helm gotcha across many charts, not just Kyverno:
 | Chart | Flag field | Type | Gotcha |
 |---|---|---|---|
 | Kyverno | `extraArgs` | map | List syntax renders `--0=` prefix |
-| Cert-Manager | `extraArgs` | map | Same pattern |
+| [Cert-Manager](/blog/cert-manager-wildcard-k3s-cloudflare/) | `extraArgs` | map | Same pattern |
 | Prometheus | `extraArgs` | map | Same pattern |
 | ArgoCD | `extraArgs` | map | Same pattern |
 
@@ -124,6 +124,6 @@ The fix is always the same: if the chart expects a map, use map syntax. If you'r
 
 ---
 
-<ProductCTA slug="hub-spoke-enterprise-vnet" variant="end" />
-
 *Kyverno policies are only effective when the controller is running. A crash-looping cleanup controller means policy reports accumulate without cleanup, and namespace selector caches go stale. Pin your Helm values correctly, and dry-run before deploying to production.*
+
+<NewsletterCTA />

@@ -5,11 +5,11 @@ date: "2026-11-05"
 tags: ["Kubernetes", "Prometheus", "Monitoring", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-Prometheus started at 1.2GB RAM. A week later, it was at 4GB. The OOMKill threshold was 6GB. At the current growth rate, Prometheus would hit the limit in 10 days. The problem wasn't the number of targets — it was the combination of default retention (15 days), 15-second scrape intervals, and recording rules that pre-computed expensive queries.
+Prometheus started at 1.2GB RAM. A week later, it was at 4GB. The OOMKill threshold was 6GB. At the current growth rate, Prometheus would hit the limit in 10 days. The problem wasn't the number of targets — it was the combination of default retention (15 days), 15-second scrape intervals, and recording rules that pre-computed expensive queries. This is the same [kube-prometheus-stack](/blog/kube-prometheus-loki-grafana-k3s/) deployment behind the cluster's alerting, so an OOM here doesn't just lose metrics — it takes out the alert pipeline too.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -134,6 +134,6 @@ After applying these changes:
 | Disk usage | 12GB | 6GB |
 | Scrape targets | 200+ | 200+ (unchanged) |
 
-The visibility didn't change — the same dashboards show the same data. The difference is that Prometheus isn't burning RAM on series nobody looks at.
+The visibility didn't change — the same dashboards show the same data. The difference is that Prometheus isn't burning RAM on series nobody looks at, and it isn't a candidate for [the two-tier overcommit guard](/blog/overcommit-guard-python-host-freeze/) tripping on a workload that was never supposed to grow unbounded.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

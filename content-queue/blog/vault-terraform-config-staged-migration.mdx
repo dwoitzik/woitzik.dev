@@ -5,11 +5,11 @@ date: "2026-10-22"
 tags: ["Kubernetes", "Vault", "Terraform", "Security", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-Vault is the trust root for every other secret on the cluster. 25+ services depend on External Secrets Operator syncing from Vault's KV v2 engine — all running on a single [BMAX Mini PC*](https://amzn.to/4bv3yF1). Authelia, databases, ArgoCD notifications, Velero credentials — all of them pull from `secret/<app>/*` paths.
+Vault is the trust root for every other secret on the cluster. 25+ services depend on External Secrets Operator syncing from Vault's KV v2 engine — all running on a single [BMAX Mini PC*](https://amzn.to/4bv3yF1). [Authelia](/blog/k3s-authelia-proxmox-homelab/), databases, ArgoCD notifications, Velero credentials — all of them pull from `secret/<app>/*` paths. Unsealing this Vault after a restart is a separate problem, solved by [the polling sidecar pattern](/blog/vault-auto-unseal-polling-sidecar/) — this article only covers what's configured once Vault is already up.
 
 Vault's configuration — policies, Kubernetes auth method, roles — was managed through `vault login` and CLI commands. No version control, no audit trail, no reproducibility. If someone changed a policy by hand, nobody else knew.
 
@@ -160,4 +160,4 @@ Bringing Vault config under Terraform isn't about Terraform being better than CL
 
 **Further reading:** For understanding the security model behind Vault's policy system, [Zero Trust Networks by Evan Gilman and Doug Barth*](https://amzn.to/3QdWfkH) covers the "never trust, always verify" principles that Vault's Kubernetes auth method implements. The staged migration pattern — import first, modify later — is a core operations concept covered in [The Phoenix Project by Gene Kim*](https://amzn.to/4f4RHQf) under the context of change management and reducing deployment risk.
 
-<ProductCTA variant="end" slug="azure-firewall-enterprise" />
+<NewsletterCTA />

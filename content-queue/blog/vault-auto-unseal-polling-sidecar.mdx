@@ -5,13 +5,13 @@ date: "2026-08-23"
 tags: ["Kubernetes", "Security", "Vault", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
 HashiCorp Vault Enterprise has auto-unseal: a sealed Vault automatically unseals using a cloud KMS (AWS KMS, Azure Key Vault, GCP Cloud KMS). Vault OSS doesn't. Every time a Vault pod restarts — node failure, OOMKill, Kubernetes rescheduling — someone has to manually unseal it with `vault operator unseal` using the unseal keys.
 
-On a homelab cluster where Vault backs ExternalSecrets for 25+ services, a sealed Vault means every ExternalSecret refresh fails. Authelia can't start (no hmac-secret), Open WebUI can't start (no WEBUI_SECRET_KEY), and half the cluster sits in init-container loops waiting for secrets that Vault can't provide.
+On a homelab cluster where Vault backs ExternalSecrets for 25+ services, a sealed Vault means every ExternalSecret refresh fails. [Authelia](/blog/k3s-authelia-proxmox-homelab/) can't start (no hmac-secret), Open WebUI can't start (no WEBUI_SECRET_KEY), and half the cluster sits in init-container loops waiting for secrets that Vault can't provide.
 
 The fix: a polling sidecar that auto-unseals Vault OSS without a KMS. The trade-off is a collapsed security boundary — but for a homelab, it's the right trade-off.
 
@@ -149,7 +149,7 @@ This is the minimum viable network segmentation for Vault: it needs to be reacha
 
 ## What I'd Change
 
-1. **Use Vault's built-in auto-unseal with a cloud KMS if available.** The sidecar is a workaround for Vault OSS limitations. If you're running Vault Enterprise or can tolerate the cost of a cloud KMS, use it. The sidecar exists because my homelab doesn't have a KMS.
+1. **Use Vault's built-in auto-unseal with a cloud KMS if available.** The sidecar is a workaround for Vault OSS limitations. If you're running Vault Enterprise or can tolerate the cost of a cloud KMS, use it. The sidecar exists because my homelab doesn't have a KMS. Vault's *configuration* (policies, auth roles) is a separate concern from unsealing — see [the staged Terraform migration](/blog/vault-terraform-config-staged-migration/) for how that part is managed without touching unseal keys.
 
 2. **Store unseal keys in a more secure backend.** The Kubernetes Secret is the weakest link. An improvement would be to store the keys in an HSM or a separate, more restricted secret backend. But at that point, you've basically built KMS-based auto-unseal from scratch.
 
@@ -159,4 +159,4 @@ This is the minimum viable network segmentation for Vault: it needs to be reacha
 
 Vault auto-unseal without KMS is the same problem as managing encryption keys in environments without HSMs: you're trading security boundary strength for operational practicality. Azure Key Vault Managed HSM provides FIPS 140-2 Level 3 key protection — but it costs money and adds complexity. For non-production environments, the polling sidecar gives you 90% of the operational benefit at 10% of the security cost. The key is knowing which trade-off you're making.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

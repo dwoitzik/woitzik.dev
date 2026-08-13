@@ -5,11 +5,11 @@ date: "2026-09-17"
 tags: ["Kubernetes", "Backup", "Homelab", "Disaster Recovery"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
-The 3-2-1 backup rule is simple: 3 copies of your data, on 2 different media types, with 1 copy offsite. My homelab implements all three layers. In theory. In practice, each layer has its own failure mode that I discovered only when I needed it.
+The 3-2-1 backup rule is simple: 3 copies of your data, on 2 different media types, with 1 copy offsite. My homelab implements all three layers. In theory. In practice, each layer has its own failure mode that I discovered only when I needed it — starting with [the Garage S3 target Velero backs into](/blog/velero-garage-k3s-backup/), which is where layer 1 lives.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -89,7 +89,7 @@ spec:
     ttl: 168h  # 7 days
 ```
 
-Waiting on a Cloudflare R2 account with real API credentials. R2 has no egress fees and no API rate limiting for the volume this backup produces (~4 GB/day).
+Waiting on a Cloudflare R2 account with real API credentials. R2 has no egress fees and no API rate limiting for the volume this backup produces (~4 GB/day). Activating it also fixes a second problem beyond throttling: [Garage runs inside the same cluster Velero is protecting](/blog/velero-backup-circularity-garage-r2-offsite/), so an in-cluster-only backup target is circular regardless of how fast it uploads.
 
 ## The Restore Gotcha
 
@@ -130,4 +130,4 @@ After these discoveries, I added:
 
 Backup verification is the same compliance requirement in Azure: ISO 27001 and NIS2 both require documented, tested restore procedures. Azure Backup reports "Completed" for VM snapshots, but the snapshot might not include the data disk if the backup policy was misconfigured. The only way to verify is to actually restore a test VM and confirm its contents — the same monthly drill I now run against Velero and PBS.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

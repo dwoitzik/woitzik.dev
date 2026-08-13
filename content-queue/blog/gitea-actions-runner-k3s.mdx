@@ -5,11 +5,11 @@ date: "2026-11-12"
 tags: ["Kubernetes", "Gitea", "CI/CD", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-GitHub Actions is free for public repos. For private repos, you get 2,000 minutes/month on the free tier. A homelab infrastructure repo that runs Terraform plan, Ansible lint, and container builds on every PR burns through 2,000 minutes in about a week. Gitea Actions runs the same YAML workflows on your own hardware — the [BMAX Mini PC*](https://amzn.to/4bv3yF1) with 64GB RAM has more than enough for a Gitea instance and a handful of action runners.
+GitHub Actions is free for public repos. For private repos, you get 2,000 minutes/month on the free tier. A homelab infrastructure repo that runs Terraform plan, Ansible lint, and container builds on every PR burns through 2,000 minutes in about a week. Gitea Actions runs the same YAML workflows on your own hardware — the [BMAX Mini PC*](https://amzn.to/4bv3yF1) with 64GB RAM has more than enough for a Gitea instance and a handful of action runners. It's a similar self-hosted-CI motive to [running Terraform plan output through GitHub Actions for Slack alerts](/blog/github-actions-terraform-plan-slack/) instead of trusting a dashboard nobody checks.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -165,6 +165,6 @@ Two runners with 2GB each = 4GB. On a 64GB machine, that's negligible. The runne
 
 ## The Trade-off
 
-Gitea Actions is not as mature as GitHub Actions. Missing features: matrix builds, reusable workflows, and the marketplace of pre-built actions. For a homelab infrastructure repo that runs Terraform, Ansible, and container builds, these missing features don't matter. The YAML syntax is the same, the runner runs on your hardware, and there's no minute limit.
+Gitea Actions is not as mature as GitHub Actions. Missing features: matrix builds, reusable workflows, and the marketplace of pre-built actions. For a homelab infrastructure repo that runs Terraform, Ansible, and container builds, these missing features don't matter — Terraform changes still go through [Atlantis](/blog/mikrotik-terraform-gitops-firewall-management/) for the actual apply, so Gitea Actions only needs to handle lint and plan. The YAML syntax is the same, the runner runs on your hardware, and there's no minute limit.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

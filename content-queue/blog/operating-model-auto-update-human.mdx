@@ -5,7 +5,7 @@ date: "2026-09-24"
 tags: ["Kubernetes", "Homelab", "GitOps", "Operations"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -33,9 +33,9 @@ Renovate opens a PR, CI runs, and after 3 days of green the PR auto-merges. If t
 
 Stateful and critical services where a bad upgrade can cause data loss or auth outage:
 
-- **Databases:** CNPG Postgres, Redis/Valkey
-- **Auth:** Authelia, Vault
-- **Storage:** Garage S3, Velero
+- **Databases:** [CNPG Postgres](/blog/cnpg-postgresql-operator-k3s/), Redis/Valkey
+- **Auth:** [Authelia](/blog/k3s-authelia-proxmox-homelab/), [Vault](/blog/vault-auto-unseal-polling-sidecar/)
+- **Storage:** [Garage S3](/blog/velero-garage-k3s-backup/), Velero
 - **Apps with data migrations:** Nextcloud, Paperless, Gitea, Immich
 
 Every update — patch, minor, or digest — gets a PR that requires manual review. The failure mode for these isn't "pod restarts" — it's "database schema mismatch" or "OIDC keys rotated."
@@ -141,4 +141,4 @@ The operating model is a living document. As the cluster evolves (Cilium CNI, R2
 
 This operating model maps directly to enterprise SRE practices: SLO-based alerting replaces threshold alerting, runbooks define the human response for each alert type, and change management gates (like Atlantis's `apply` requirement) prevent unreviewed infrastructure changes. The difference is that enterprise environments have teams; a homelab has one person who needs to sleep through the night without Discord notifications.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

@@ -5,7 +5,7 @@ date: "2026-08-27"
 tags: ["AI", "Kubernetes", "Homelab", "Debugging"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -98,7 +98,7 @@ env:
   # HSA_OVERRIDE_GFX_VERSION removed — was never stable on gfx90c
 ```
 
-CPU inference is slower (qwen2.5:7b takes ~30 seconds per inference vs ~8 seconds on the iGPU), but it doesn't crash. Stability over speed for a homelab document processing pipeline.
+CPU inference is slower (qwen2.5:7b takes ~30 seconds per inference vs ~8 seconds on the iGPU), but it doesn't crash. Stability over speed for a homelab document processing pipeline — the same trade-off that governs [what gets to auto-update vs. what needs a human](/blog/operating-model-auto-update-human/) on this cluster: a slower, boring path beats a fast, unstable one.
 
 ## The Lesson: Two Failure Modes Stacked
 
@@ -109,10 +109,10 @@ The incident had two independent root causes that interacted to make debugging h
 
 If only (1) existed, I'd have noticed the fabricated content immediately. If only (2) existed, I'd have blamed Ollama instability. Both together meant that paperless-gpt failures looked like Ollama crashes (intermittent, random) rather than a systematic configuration error (consistent, every image document).
 
-The debugging lesson: when a system fails in two different ways (sometimes fabricated content, sometimes connection refused), check for two separate root causes rather than assuming one explains both.
+The debugging lesson: when a system fails in two different ways (sometimes fabricated content, sometimes connection refused), check for two separate root causes rather than assuming one explains both — the same discipline that mattered when [three merged GitOps fixes turned out to have three unrelated failure modes](/blog/gitops-merged-not-applied-argocd-drift/).
 
 ---
 
 AI model misconfiguration in production has the same pattern: a model that can't process the input type it's given will produce plausible-looking but wrong output, and there's no automatic error. Azure OpenAI's vision models require explicit multimodal input formatting — sending a raw image to a text-only deployment doesn't error, it just ignores the image and responds to any text in the prompt. The fix is the same: verify that your model's capabilities match your input types, and test with known inputs before trusting the output.
 
-<ProductCTA variant="end" slug="ai-rag-enterprise" />
+<NewsletterCTA />

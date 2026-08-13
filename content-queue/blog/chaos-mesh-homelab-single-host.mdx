@@ -5,7 +5,7 @@ date: "2026-08-20"
 tags: ["Kubernetes", "Chaos Engineering", "Homelab", "Observability"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -104,7 +104,7 @@ The fix wasn't to make Authelia faster. The fix was to recognize that 90 seconds
 
 The 100ms latency injection was more insidious. It didn't break anything immediately. Instead, it exposed timing-dependent behavior that was invisible under normal network conditions:
 
-**Velero backup duration increased by 40%.** Velero's Kopia sidecar communicates with the Garage S3 endpoint over the cluster network. Adding 100ms per request multiplied across thousands of file operations extended the backup window from ~12 minutes to ~20 minutes.
+**Velero backup duration increased by 40%.** [Velero's Kopia sidecar](/blog/velero-garage-k3s-backup/) communicates with the Garage S3 endpoint over the cluster network. Adding 100ms per request multiplied across thousands of file operations extended the backup window from ~12 minutes to ~20 minutes.
 
 **ArgoCD sync operations became sluggish.** ArgoCD's repo-server fetches manifests from the git repo, applies diffs, and syncs. Each step involves network calls that now had 100ms added. Syncs that normally took 5 seconds took 15-20 seconds.
 
@@ -128,10 +128,10 @@ Every service has implicit assumptions about network latency. When those assumpt
 
 ### 4. Chaos testing on a homelab isn't overkill
 
-The cluster has no SLA. Nobody is paying for uptime. But the same workloads (Postgres, Vault, Authelia) run in production environments everywhere. Finding that a pod-kill takes 90 seconds to recover — on a homelab where the consequence is "I can't log in for a minute and a half" — is infinitely better than finding it in production where the consequence is a customer-facing outage.
+The cluster has no SLA. Nobody is paying for uptime. But the same workloads (Postgres, Vault, Authelia) run in production environments everywhere. Finding that a pod-kill takes 90 seconds to recover — on a homelab where the consequence is "I can't log in for a minute and a half" — is infinitely better than finding it in production where the consequence is a customer-facing outage. It's the same reasoning behind [treating a cascading OOM-kill/DNS-storm failure](/blog/k3s-cascading-failure-oomkill-dns-storm/) as worth a full root-cause writeup even though nobody was paged.
 
 ---
 
 Chaos engineering at enterprise scale uses the same tools: Azure Chaos Studio for VM and AKS fault injection, Azure Load Testing for performance baseline, and Azure Monitor for measuring blast radius. The principle is identical — inject realistic failures in a controlled environment, measure the impact, fix what breaks. The only difference is that Azure Chaos Studio charges per experiment, so you want your homelab practice run to be thorough.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

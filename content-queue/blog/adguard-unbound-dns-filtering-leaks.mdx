@@ -5,11 +5,11 @@ date: "2026-11-15"
 tags: ["Networking", "DNS", "AdGuard", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-AdGuard Home's default configuration forwards DNS queries to Google's `8.8.8.8` or Cloudflare's `1.1.1.1`. Every DNS lookup — every website, every API call, every telemetry ping — goes to a public resolver. Your ISP sees the queries too (they're in cleartext UDP on port 53). Unbound resolves recursively: it walks the DNS hierarchy from the root servers down, caching results locally. No upstream resolver sees your queries.
+AdGuard Home's default configuration forwards DNS queries to Google's `8.8.8.8` or Cloudflare's `1.1.1.1`. Every DNS lookup — every website, every API call, every telemetry ping — goes to a public resolver. Your ISP sees the queries too (they're in cleartext UDP on port 53). Unbound resolves recursively: it walks the DNS hierarchy from the root servers down, caching results locally. No upstream resolver sees your queries. This same AdGuard instance also does the wildcard DNS work behind [cert-manager's TLS automation](/blog/cert-manager-wildcard-k3s-cloudflare/) — filtering and resolution are one control point in this network.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -102,29 +102,7 @@ A `SERVFAIL` for a domain with invalid DNSSEC means Unbound is validating correc
 
 ## The Failover
 
-The two Raspberry Pis run Unbound in active/passive mode via Keepalived. If the primary (10.0.30.2) fails, Keepalived floats the virtual IP (10.0.30.10) to the secondary (10.0.30.3). AdGuard Home queries `10.0.30.10`, so the failover is transparent.
-
-```bash
-# Keepalived config
-vrrp_script check_unbound {
-    script "pgrep unbound"
-    interval 2
-    weight -20
-}
-
-vrrp_instance VI_1 {
-    state MASTER
-    interface eth0
-    virtual_router_id 51
-    priority 101
-    virtual_ipaddress {
-        10.0.30.10/24
-    }
-    track_script {
-        check_unbound
-    }
-}
-```
+The two Raspberry Pis run Unbound in active/passive mode via Keepalived. If the primary (10.0.30.2) fails, Keepalived floats the virtual IP (10.0.30.10) to the secondary (10.0.30.3). AdGuard Home queries `10.0.30.10`, so the failover is transparent. The full Keepalived VRRP setup — the config, the health-check script, the failover timing — is covered in [the HA DNS architecture piece](/blog/unbound-adguard-keepalived-homelab/); this article assumes that failover layer already exists and focuses on what it resolves through: recursive, non-leaking DNS instead of a forwarder to a public resolver.
 
 If Unbound crashes on the primary, Keepalived detects it within 2 seconds and fails over. The DNS queries continue without interruption.
 
@@ -141,4 +119,4 @@ unbound_request_list_count 0
 
 Grafana dashboard: `cachehits / num_queries` should be above 70%. Below 50% means the cache is too small or the TTLs are too short.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

@@ -5,11 +5,11 @@ date: "2026-11-19"
 tags: ["Networking", "VPN", "Tailscale", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-WireGuard on MikroTik works. The Terraform-managed firewall rules handle the UDP port forwarding, the peer configurations are in the RouterOS config, and the VPN tunnel comes up in under a second. The problem: every device needs a WireGuard client configured with the correct peer, allowed IPs, and DNS. Tailscale builds on WireGuard but adds NAT traversal, key exchange, and an ACL system — and it can run as an exit node on the [RB5009*](https://amzn.to/4w08b21) so every device on the network gets VPN access automatically.
+[WireGuard on MikroTik](/blog/mikrotik-wireguard-vpn-terraform/) works. The Terraform-managed firewall rules handle the UDP port forwarding, the peer configurations are in the RouterOS config, and the VPN tunnel comes up in under a second. The problem: every device needs a WireGuard client configured with the correct peer, allowed IPs, and DNS. Tailscale builds on WireGuard but adds NAT traversal, key exchange, and an ACL system — and it can run as an exit node on the [RB5009*](https://amzn.to/4w08b21) so every device on the network gets VPN access automatically. It's a different trade-off than [self-hosting Headscale](/blog/headscale-oidc-k3s-authelia/): Tailscale's coordination server is third-party, Headscale's is yours.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -122,4 +122,4 @@ The Tailscale admin console shows a real-time map of connections, latency, and b
 
 Tailscale is a third-party service. Your network topology, device IPs, and connection metadata are visible to Tailscale's coordination server. For a homelab, this is usually acceptable — the benefit of NAT traversal and zero-config mesh networking outweighs the privacy cost. If you need full control, WireGuard on MikroTik (managed via Terraform) is the alternative.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

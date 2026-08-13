@@ -1,15 +1,15 @@
 ---
 title: "Proxmox Backup Server: The 3-2-1 Rule on a Budget"
-description: "PBS runs as a VM on Proxmox, backing up LXC containers and VMs to a local HDD and offsite via Rclone to Garage (S3-compatible). The 3-2-1 backup strategy without paying for cloud storage."
+description: "PBS runs as a VM on Proxmox, backing up LXC containers and VMs to a local HDD and offsite via Rclone to Cloudflare R2 (S3-compatible). The 3-2-1 backup strategy without paying for traditional cloud storage."
 date: "2026-11-29"
 tags: ["Proxmox", "Backup", "PBS", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-The 3-2-1 rule: 3 copies of your data, on 2 different media, with 1 offsite. Proxmox Backup Server (PBS) handles the first two — it deduplicates, compresses, and verifies backups of Proxmox VMs and LXC containers. The offsite copy goes to Garage, a self-hosted S3-compatible object store running on a remote server. The whole setup costs a [BMAX Mini PC*](https://amzn.to/4bv3yF1), a [2TB Seagate External HDD*](https://amzn.to/4vxwLpY), and a Garage instance on a €5/month VPS.
+The 3-2-1 rule: 3 copies of your data, on 2 different media, with 1 offsite. Proxmox Backup Server (PBS) handles the first two — it deduplicates, compresses, and verifies backups of Proxmox VMs and LXC containers. The offsite copy goes to Cloudflare R2, an S3-compatible object store with no egress fees. Unlike [Garage](/blog/velero-garage-k3s-backup/), the self-hosted S3 store running inside my k3s cluster, R2 lives entirely outside the cluster and the host — which matters, because [backing up to a bucket that lives on the thing you're backing up defeats the point](/blog/velero-backup-circularity-garage-r2-offsite/). The whole setup costs a [BMAX Mini PC*](https://amzn.to/4bv3yF1), a [2TB Seagate External HDD*](https://amzn.to/4vxwLpY), and R2's free tier (10GB, more than enough for PBS's deduplicated chunks).
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -70,24 +70,24 @@ PBS's deduplication means a full backup of 5 VMs and 8 containers uses only 15GB
 
 ## Offsite via Rclone
 
-The offsite copy uses Rclone to sync PBS data to Garage:
+The offsite copy uses Rclone to sync PBS data to Cloudflare R2:
 
 ```bash
 # Install Rclone
 apt install rclone
 
-# Configure Rclone for Garage
+# Configure Rclone for R2
 cat > /etc/rclone.conf << 'EOF'
-[garage]
+[r2]
 type = s3
-provider = Other
-endpoint = https://garage.example.com
-access_key_id = GXXXXXXX
+provider = Cloudflare
+endpoint = https://<account-id>.r2.cloudflarestorage.com
+access_key_id = XXXXXXXX
 secret_access_key = XXXXXXXX
 EOF
 
-# Sync backup repository to Garage
-rclone sync /mnt/backup/pbs garage:pbs-backup \
+# Sync backup repository to R2
+rclone sync /mnt/backup/pbs r2:pbs-backup \
   --bwlimit "07:00-23:00,5M" \
   --bwlimit "23:00-07:00,off" \
   --transfers 4
@@ -138,10 +138,10 @@ In the Proxmox web UI, go to the VM/Container → Backup → Restore. Select the
 |---|---|
 | [BMAX Mini PC*](https://amzn.to/4bv3yF1) (host) | ~€180 (one-time) |
 | [Seagate 2TB External HDD*](https://amzn.to/4vxwLpY) | ~€60 (one-time) |
-| Garage VPS (5TB storage) | ~€5/month |
-| **Total first year** | ~€300 |
-| **Total ongoing** | ~€60/year |
+| Cloudflare R2 (PBS chunks fit in the 10GB free tier) | ~€0/month |
+| **Total first year** | ~€240 |
+| **Total ongoing** | ~€0/year (until you outgrow the free tier) |
 
-Compare this to Backblaze B2: 2TB would cost ~€10/month. The self-hosted Garage approach saves €5/month and gives you full control over the offsite copy.
+Compare this to Backblaze B2: 2TB would cost ~€10/month, plus egress fees on restore. R2 has no egress fees at all, which matters the day you actually need to pull a multi-GB restore back down.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

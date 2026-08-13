@@ -5,7 +5,7 @@ date: "2026-10-11"
 tags: ["Kubernetes", "GitOps", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
@@ -52,6 +52,8 @@ done
 
 The audit found approximately 14 directories with the same untracked-after-bootstrap gap - no current drift in most of them, but nothing preventing drift from accumulating silently if files were added there in the future.
 
+This is the same class of gap that [a GitHub Actions Terraform-plan-to-Slack alert](/blog/github-actions-terraform-plan-slack/) is designed to close on the Terraform side — a green pipeline or a `Synced` badge tells you the command ran, not that the running state matches intent.
+
 ## The First Live Finding: Traefik allowCrossNamespace
 
 Traefik's `allowCrossNamespace` fix had been merged to git on 2026-07-04. The change allowed IngressRoutes in one namespace to reference Services in another - without it, `argo.woitzik.dev`, `monitoring.woitzik.dev`, and `status.woitzik.dev` returned bare 404s.
@@ -72,7 +74,7 @@ After manual sync, all three endpoints came back to 302 within seconds of the ro
 
 ## The Second Finding: Velero's Fix That Couldn't Have Worked
 
-Velero had a merged fix for repository maintenance frequency - too-frequent Kopia maintenance jobs were running during backup windows and causing timeouts. The fix set a custom maintenance frequency via Helm values.
+[Velero](/blog/velero-garage-k3s-backup/) had a merged fix for repository maintenance frequency - too-frequent Kopia maintenance jobs were running during backup windows and causing timeouts. The fix set a custom maintenance frequency via Helm values.
 
 The fix was synced correctly. It also did nothing, for two independent reasons:
 
@@ -153,4 +155,4 @@ None of these are expensive. They're all one-liners. The cost of skipping them -
 
 The same GitOps verification gap exists in Azure DevOps pipelines and GitHub Actions that deploy Terraform or Helm. A pipeline that reports "succeeded" proves that the deployment command ran without error - it doesn't prove that the cluster's running state matches the manifest. Checking the running state directly, after deployment, is the only check that closes the gap.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

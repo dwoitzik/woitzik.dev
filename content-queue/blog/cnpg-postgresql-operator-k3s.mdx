@@ -5,11 +5,11 @@ date: "2026-11-01"
 tags: ["Kubernetes", "PostgreSQL", "CloudNativePG", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-Nextcloud's PostgreSQL database ran as a StatefulSet with a Longhorn PVC. When the Proxmox host rebooted for a kernel update, Longhorn volumes took 90 seconds to reconstruct. During that window, Nextcloud returned 500 errors. The fix: CloudNativePG (CNPG), a Kubernetes operator that manages PostgreSQL streaming replication, automatic failover, and backups — without depending on a distributed storage layer.
+Nextcloud's PostgreSQL database ran as a StatefulSet with a Longhorn PVC. When the Proxmox host rebooted for a kernel update, Longhorn volumes took 90 seconds to reconstruct. During that window, Nextcloud returned 500 errors — the same [Longhorn Multi-Attach problem](/blog/longhorn-to-nfs-distributed-storage/) that pushed everything else off distributed storage on this single-host cluster. The fix: CloudNativePG (CNPG), a Kubernetes operator that manages PostgreSQL streaming replication, automatic failover, and backups — without depending on a distributed storage layer.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -78,7 +78,7 @@ spec:
 
 ## The Backup Sidecar
 
-CNPG uses Barman for backups. The `barmanObjectStore` section points to a MinIO instance running in the cluster. Backups run daily by default. The `retentionPolicy: "30d"` keeps 30 days of backups.
+CNPG uses Barman for backups. The `barmanObjectStore` section points to [a MinIO instance running in the cluster](/blog/minio-s3-storage-k3s-homelab/), kept deliberately separate from the Garage bucket Velero uses. Backups run daily by default. The `retentionPolicy: "30d"` keeps 30 days of backups.
 
 To trigger a manual backup:
 
@@ -126,4 +126,4 @@ Grafana dashboard: alert if `replication_lag_seconds` exceeds 5 seconds. That me
 
 CNPG adds complexity: an operator, Barman for backups, and streaming replication configuration. The benefit is PostgreSQL that survives node failures without depending on Longhorn's storage reconstruction. For a single-node homelab, this is the right trade-off — the [BMAX Mini PC*](https://amzn.to/4bv3yF1) has enough RAM for two PostgreSQL instances, and the failover is faster than waiting for Longhorn to rebuild.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

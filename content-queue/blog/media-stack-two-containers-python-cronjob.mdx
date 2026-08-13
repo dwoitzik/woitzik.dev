@@ -5,7 +5,7 @@ date: "2026-09-13"
 tags: ["Homelab", "Proxmox", "Networking", "Self-Hosted"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -45,7 +45,7 @@ The acquisition LXC (`ct-srv-media-acq-01`) runs Mullvad's WireGuard tunnel as i
 
 ### NFS File Locking
 
-Media libraries (downloaded files, metadata databases) live on NFS. As I wrote about in the SQLite trap article, NFS file-locking semantics don't work with embedded databases. Sonarr and Radarr use SQLite internally for their media databases — and those databases corrupt on NFS under concurrent access.
+Media libraries (downloaded files, metadata databases) live on NFS. As I wrote about in [the SQLite trap article](/blog/nfs-vs-local-path-sqlite-trap/), NFS file-locking semantics don't work with embedded databases. Sonarr and Radarr use SQLite internally for their media databases — and those databases corrupt on NFS under concurrent access.
 
 Moving the acquisition stack to a local LXC with local storage eliminates the NFS lock problem. The media files themselves (downloaded episodes, movies) still live on NFS for sharing, but the application databases stay local.
 
@@ -139,7 +139,7 @@ spec:
     secretName: wildcard-woitzik-dev-tls
 ```
 
-The media stack gets Authelia protection, wildcard TLS, and Cloudflare Tunnel external access — the same as every in-cluster service. The only difference is the backend IP.
+The media stack gets [Authelia](/blog/k3s-authelia-proxmox-homelab/) protection, wildcard TLS, and [Cloudflare Tunnel](/blog/cloudflare-tunnel-zero-inbound-ports/) external access — the same as every in-cluster service. The only difference is the backend IP.
 
 ## The Python CronJob
 
@@ -178,4 +178,4 @@ Without this CronJob, stuck downloads sit indefinitely. Sonarr and Radarr don't 
 
 The media stack's departure from Kubernetes is the same pattern as running stateful workloads outside AKS: GPU workloads go to dedicated VMs with GPU passthrough, VPN-routed workloads go to network-isolated VMs, and file-locking workloads go to local SSDs. Kubernetes excels at stateless, horizontally-scalable workloads. Media transcoding and acquisition are neither — they're stateful, single-instance, and hardware-dependent. The right platform for them is the bare metal underneath, not the orchestration layer on top.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

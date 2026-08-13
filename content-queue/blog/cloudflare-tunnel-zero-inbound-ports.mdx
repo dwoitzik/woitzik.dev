@@ -5,11 +5,11 @@ date: "2026-08-16"
 tags: ["Kubernetes", "Networking", "Cloudflare", "Security"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
-Three services in my homelab need external access: Immich for family photo backup, Atlantis for Terraform webhooks, and Jellyfin for media. None of them have a single inbound firewall rule. Cloudflare Tunnel handles all external traffic through an outbound-only connection, and split-DNS on AdGuard ensures LAN clients reach services directly without leaving the network.
+Three services in my homelab need external access: Immich for family photo backup, Atlantis for Terraform webhooks, and Jellyfin for media. None of them have a single inbound firewall rule — the [MikroTik firewall stays default-deny](/blog/mikrotik-zero-trust-firewall-terraform/) with no WAN-facing accept rules at all. Cloudflare Tunnel handles all external traffic through an outbound-only connection, and split-DNS on AdGuard ensures LAN clients reach services directly without leaving the network.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -97,7 +97,7 @@ This was the Immich-specific fix documented in CHANGELOG v0.8.0. The same issue 
 
 Atlantis needs to receive GitHub webhooks for Terraform PR events. The naive approach: expose Atlantis directly via Cloudflare Tunnel. The problem: Atlantis has no built-in authentication — anyone who knows the URL can trigger plans and applies.
 
-The fix: route Atlantis through Traefik first, which applies the Authelia ForwardAuth middleware before the request reaches Atlantis:
+The fix: route Atlantis through Traefik first, which applies the [Authelia](/blog/k3s-authelia-proxmox-homelab/) ForwardAuth middleware before the request reaches Atlantis:
 
 ```hcl
 ingress {
@@ -157,4 +157,4 @@ The `auth` DNS record (CNAME to `home.woitzik.dev`) is `proxied = false` — it'
 
 Cloudflare Tunnel's zero-inbound-port model is the same pattern as Azure Private Link and Azure Front Door: external traffic enters through a managed proxy, never touches your firewall directly, and the origin service only needs outbound connectivity. The split-DNS complexity is the same as Azure DNS Private Zones — internal resolution goes through private endpoints, external resolution through public DNS. Different tools, identical architecture.
 
-<ProductCTA variant="end" slug="azure-firewall-enterprise" />
+<NewsletterCTA />

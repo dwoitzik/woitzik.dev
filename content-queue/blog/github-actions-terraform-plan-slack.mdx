@@ -5,11 +5,11 @@ date: "2026-11-08"
 tags: ["Terraform", "GitHub Actions", "GitOps", "Atlantis"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-`terraform plan` exits with code 0 whether there are changes or not. In a GitOps workflow with Atlantis on a [BMAX Mini PC*](https://amzn.to/4bv3yF1), that means a plan can show 15 resources to destroy and CI still passes green. A GitHub Actions step that parses the plan output, counts additions/changes/deletions, and posts a summary to Slack gives the team visibility without checking the Atlantis dashboard.
+`terraform plan` exits with code 0 whether there are changes or not. In a GitOps workflow with [Atlantis](/blog/mikrotik-terraform-gitops-firewall-management/) on a [BMAX Mini PC*](https://amzn.to/4bv3yF1), that means a plan can show 15 resources to destroy and CI still passes green. A GitHub Actions step that parses the plan output, counts additions/changes/deletions, and posts a summary to Slack gives the team visibility without checking the Atlantis dashboard.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -150,6 +150,6 @@ This gives PR reviewers the plan summary without scrolling through the full diff
 
 If you're using Atlantis (like the homelab-infrastructure repo), the same parsing works on Atlantis plan output. Atlantis posts the plan as a PR comment with a specific format. A GitHub Action that watches for Atlantis comments and extracts the plan summary is more reliable than running `terraform plan` twice.
 
-The key difference: Atlantis runs the plan on a server with state access. The GitHub Actions workflow runs with `-backend=false` (no state). For alerting purposes, `-backend=false` is fine — you only need the plan output format, not the actual state.
+The key difference: Atlantis runs the plan on a server with state access. The GitHub Actions workflow runs with `-backend=false` (no state). For alerting purposes, `-backend=false` is fine — you only need the plan output format, not the actual state. It's a lighter-weight version of the same verification-gap problem covered in [why a "merged" GitOps change isn't proof it's deployed](/blog/gitops-merged-not-applied-argocd-drift/): a green pipeline confirms the command ran, not that the outcome matches intent.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />

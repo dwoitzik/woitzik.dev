@@ -5,11 +5,11 @@ date: "2026-10-29"
 tags: ["Kubernetes", "Traefik", "Security", "Homelab"]
 ---
 
-import ProductCTA from "@components/ProductCTA.astro";
+import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-Prometheus scraped Grafana 30 times in 10 seconds. Grafana's API returned 429s. The dashboard went blank. The root cause: a misconfigured Prometheus service monitor with a 1-second scrape interval. The fix: Traefik's RateLimit middleware, correctly configured to protect against scrape storms without blocking normal dashboard access. This runs on a [BMAX Mini PC*](https://amzn.to/4bv3yF1) with 20+ services behind Traefik — one misconfigured scrape can cascade into a cluster-wide outage.
+Prometheus scraped [Grafana](/blog/kube-prometheus-loki-grafana-k3s/) 30 times in 10 seconds. Grafana's API returned 429s. The dashboard went blank. The root cause: a misconfigured Prometheus service monitor with a 1-second scrape interval — the kind of [runaway scrape config that also drives Prometheus's own RAM usage](/blog/prometheus-sizing-homelab-ram/). The fix: Traefik's RateLimit middleware, correctly configured to protect against scrape storms without blocking normal dashboard access. This runs on a [BMAX Mini PC*](https://amzn.to/4bv3yF1) with 20+ services behind Traefik — one misconfigured scrape can cascade into a cluster-wide outage.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -131,4 +131,4 @@ traefikmiddleware_ratelimit_rejected_total{middleware="monitoring-grafana-rate-l
 
 Grafana alert: if `rejected_total` increases by more than 10 per minute, something is hammering the service. This is the early warning for scrape storms, bot attacks, or misconfigured clients.
 
-<ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />
+<NewsletterCTA />
