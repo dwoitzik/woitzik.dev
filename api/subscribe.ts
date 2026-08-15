@@ -100,14 +100,14 @@ const DAY7_SUBJECT = "If you're dealing with a compliance deadline...";
 const DAY7_BODY = emailBody(`
   <p style="margin:0 0 16px">If you're reading this, there's a decent chance someone in your org has mentioned ISO 27001, NIS2, or KRITIS recently — and you're the one who has to make the infrastructure compliant.</p>
   <p style="margin:0 0 16px">The problem isn't that the controls are hard to understand. It's that nobody maps them to actual Terraform resources.</p>
-  <p style="margin:0 0 8px;font-weight:600;color:#0a0a0a">The cheat sheet covers the basics. The enterprise modules go further:</p>
+  <p style="margin:0 0 8px;font-weight:600;color:#0a0a0a">The cheat sheet covers the basics. The open source modules go further:</p>
   <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin:16px 0;border:1px solid #e5e5e5;border-radius:6px">
     <tr><td style="padding:14px 16px;border-bottom:1px solid #e5e5e5">
-      <p style="margin:0 0 4px;font-weight:700;font-size:14px;color:#0a0a0a">Enterprise Hub &amp; Spoke — Zero-Trust Edition <span style="color:#0ea5e9">€49</span></p>
+      <p style="margin:0 0 4px;font-weight:700;font-size:14px;color:#0a0a0a">Hub &amp; Spoke — Zero-Trust Edition <span style="color:#10b981">Free</span></p>
       <p style="margin:0;font-size:13px;color:#737373">Zero-Trust NSG baselines, centralized Private DNS Zones, DINE policy lifecycle bypass. Audit-ready on day one.</p>
     </td></tr>
     <tr><td style="padding:14px 16px">
-      <p style="margin:0 0 4px;font-weight:700;font-size:14px;color:#0a0a0a">Azure Firewall — Forced Tunneling Edition <span style="color:#0ea5e9">€49</span></p>
+      <p style="margin:0 0 4px;font-weight:700;font-size:14px;color:#0a0a0a">Azure Firewall — Forced Tunneling Edition <span style="color:#10b981">Free</span></p>
       <p style="margin:0;font-size:13px;color:#737373">Cycle-error-free. KMS + Azure AD bypasses included. Drops into any Hub &amp; Spoke without breaking anything.</p>
     </td></tr>
   </table>
@@ -116,7 +116,7 @@ const DAY7_BODY = emailBody(`
       ${emailButton("https://woitzik.dev/templates", "View all modules &rarr;")}
     </td></tr>
   </table>
-  <p style="margin:0;font-size:13px;color:#737373">Both ship with full source code — no lock-in, no black box. If the timing isn't right, no worries. I'll keep publishing deep dives.</p>
+  <p style="margin:0;font-size:13px;color:#737373">Both ship with full source code, MIT licensed — no lock-in, no black box. If the timing isn't right, no worries. I'll keep publishing deep dives.</p>
   <p style="margin:16px 0 0;font-size:13px;color:#737373">— David<br><a href="https://woitzik.dev" style="color:#0ea5e9;text-decoration:none">woitzik.dev</a></p>
 `);
 
