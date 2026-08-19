@@ -106,9 +106,7 @@ The KMS IP `23.102.135.246/32` is not arbitrary - it is the officially documente
 
 ## Step 2: Dynamic Subnet Binding at Scale
 
-The free baseline binds the Route Table to a single subnet. In a real Hub & Spoke environment with multiple Spokes, you need to bind dynamically - without duplicating the association resource for every subnet.
-
-The Enterprise Edition solves this with `for_each` over a variable map:
+The module binds the Route Table to its own self-contained spoke subnet by default. If you're peering in additional external Spokes rather than using the built-in one, don't duplicate the association resource for each - bind dynamically with `for_each` over a variable map instead:
 
 ```hcl
 resource "azurerm_subnet_route_table_association" "spoke_routing" {
@@ -126,14 +124,14 @@ Hardcoding IP addresses in Firewall Network Rules is the fastest way to create a
 
 ```hcl
 resource "azurerm_ip_group" "spokes" {
-  name                = "ipg-enterprise-spokes-${var.environment}"
+  name                = "ipg-spokes-${var.environment}"
   location            = var.location
   resource_group_name = var.resource_group_name
-  cidrs               = var.spoke_cidrs
+  cidrs               = var.spoke_subnet_cidr
 }
 ```
 
-When a new Spoke CIDR is added to `var.spoke_cidrs`, every firewall rule that references `azurerm_ip_group.spokes.id` automatically inherits it. No rule editing required.
+When a new Spoke CIDR is added to `var.spoke_subnet_cidr`, every firewall rule that references `azurerm_ip_group.spokes.id` automatically inherits it. No rule editing required.
 
 ## The Result
 
@@ -146,6 +144,6 @@ With correct resource ordering, explicit PaaS bypass routes, dynamic subnet bind
 - Keeps Managed Identities authenticating correctly
 - Scales to new Spokes by changing a variable, not rewriting rules
 
-The free repository at the top covers the cycle error fix and the baseline Route Table structure. The Enterprise Blueprint packages everything in this article - KMS and AD bypasses, `for_each` subnet binding, dynamic IP Groups, and FQDN baseline policies - into a single module that drops into any existing Hub & Spoke deployment.
+The repository at the top covers everything in this article - cycle error fix, KMS and AD bypasses, the baseline Route Table structure, dynamic IP Groups, and FQDN baseline policies - free and MIT licensed.
 
 <ProductCTA variant="end" slug="azure-firewall-enterprise" />
