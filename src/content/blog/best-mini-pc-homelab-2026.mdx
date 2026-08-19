@@ -6,6 +6,7 @@ tags: ["Hardware", "Homelab", "Review"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
+import AffiliateLink from "@components/AffiliateLink.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
@@ -211,7 +212,7 @@ All of them work with Proxmox. The Intel NUC 13 Pro has the smoothest experience
 
 ### What about the Raspberry Pi 5 as a homelab node?
 
-The Raspberry Pi 5 is a legitimate homelab option — I run two in my own lab for edge DNS and Keepalived — but it does not compete with mini PCs for compute-intensive workloads. The Pi 5's ARM Cortex-A76 cores are roughly 40% slower than an N100 in single-threaded work and lack the x86 instruction set compatibility that Proxmox and many Docker images assume. For lightweight services, the Pi 5 wins on power efficiency (idle ~3-4W). For anything beyond DNS, reverse proxy, and monitoring, a mini PC is the better investment.
+The Raspberry Pi is a legitimate homelab option for lightweight, low-power roles — I run two <AffiliateLink href="https://amzn.to/4wNS0oI">Raspberry Pi 4Bs</AffiliateLink> for [edge DNS and Keepalived failover](/blog/unbound-adguard-keepalived-homelab/) in my own lab, and if I were building that today I'd go straight for the <AffiliateLink href="https://amzn.to/4wETNfv">Raspberry Pi 5</AffiliateLink> instead - see that article for why. Either way, it does not compete with mini PCs for compute-intensive workloads. The Pi 5's ARM Cortex-A76 cores are roughly 40% slower than an N100 in single-threaded work and lack the x86 instruction set compatibility that Proxmox and many Docker images assume. For lightweight services, the Pi 5 wins on power efficiency (idle ~3-4W). For anything beyond DNS, reverse proxy, and monitoring, a mini PC is the better investment.
 
 ## Conclusion
 
