@@ -1,0 +1,55 @@
+---
+import { SITE } from "@consts";
+---
+
+<aside
+  class="not-prose my-10 flex flex-wrap items-center justify-between gap-4 p-5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50"
+>
+  <div class="min-w-0">
+    <p class="font-semibold text-black dark:text-white text-sm m-0">
+      Did you find this helpful?
+    </p>
+    <p class="text-sm text-neutral-500 dark:text-neutral-400 mt-1 m-0">
+      These deep dives take real time to write and test. A coffee helps keep
+      them free and ad-light.
+    </p>
+  </div>
+  <a
+    href={SITE.SUPPORT_URL}
+    target="_blank"
+    rel="noopener noreferrer"
+    data-support-cta
+    class="shrink-0 inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded bg-black dark:bg-white text-white dark:text-black hover:opacity-75 transition-opacity"
+  >
+    <span aria-hidden="true">☕</span> Buy me a coffee
+  </a>
+</aside>
+
+<script>
+  function trackSupportClick() {
+    const links = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>("a[data-support-cta]"),
+    );
+    links.forEach((el) => {
+      if (el.dataset.tracking) return;
+      el.dataset.tracking = "1";
+      el.addEventListener("click", () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const analytics = window as any;
+        if (typeof analytics.va === "function") {
+          analytics.va("event", {
+            name: "support_click",
+            data: { page: location.pathname },
+          });
+        }
+        if (typeof analytics.gtag === "function") {
+          analytics.gtag("event", "support_click", {
+            page_path: location.pathname,
+          });
+        }
+      });
+    });
+  }
+
+  document.addEventListener("astro:page-load", trackSupportClick);
+</script>

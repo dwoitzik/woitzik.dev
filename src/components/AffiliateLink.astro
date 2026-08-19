@@ -1,0 +1,31 @@
+---
+import { SITE } from "@consts";
+
+interface Props {
+  href: string;
+}
+
+const { href: rawHref } = Astro.props;
+
+// amzn.to short links already carry the associate tag. Full amazon.* product
+// URLs don't - tag them here so every new affiliate link is correctly
+// attributed without hand-editing a tracking ID into each article.
+function withAssociateTag(href: string): string {
+  if (!/amazon\.[a-z.]+\//i.test(href)) return href;
+  try {
+    const url = new URL(href);
+    if (!url.searchParams.has("tag")) {
+      url.searchParams.set("tag", SITE.AMAZON_ASSOCIATE_TAG);
+    }
+    return url.toString();
+  } catch {
+    return href;
+  }
+}
+
+const href = withAssociateTag(rawHref);
+---
+
+<a href={href} target="_blank" rel="sponsored noopener noreferrer"
+  ><slot />&#42;</a
+>

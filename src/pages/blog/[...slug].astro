@@ -10,6 +10,7 @@ import EmailCapture from "@components/EmailCapture.astro";
 import ShareButtons from "@components/ShareButtons.astro";
 import AuthorBio from "@components/AuthorBio.astro";
 import FeedbackWidget from "@components/FeedbackWidget.astro";
+import SupportCTA from "@components/SupportCTA.astro";
 
 export async function getStaticPaths() {
   const posts = (await getCollection("blog"))
@@ -190,6 +191,10 @@ const jsonLd = {
 
         <div class="animate">
           <FeedbackWidget slug={post.slug} />
+        </div>
+
+        <div class="animate">
+          <SupportCTA />
         </div>
 
         <!-- Related Posts -->
