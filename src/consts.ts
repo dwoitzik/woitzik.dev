@@ -5,11 +5,14 @@ export const SITE: Site = {
   EMAIL: "david@woitzik.dev",
   NUM_POSTS_ON_HOMEPAGE: 3,
   NUM_PROJECTS_ON_HOMEPAGE: 3,
+  SUPPORT_URL: "https://buymeacoffee.com/dwoitzik",
+  AMAZON_ASSOCIATE_TAG: "woitzikdev-21",
 };
 
 export const HOME: Metadata = {
   TITLE: "Home",
-  DESCRIPTION: "Hybrid Cloud Engineer specializing in Azure, Terraform, and Zero-Trust network architecture.",
+  DESCRIPTION:
+    "Hybrid Cloud Engineer specializing in Azure, Terraform, and Zero-Trust network architecture.",
 };
 
 export const BLOG: Metadata = {
