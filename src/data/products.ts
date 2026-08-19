@@ -5,10 +5,7 @@ export type Product = {
   badge: string;
   title: string;
   description: string;
-  price: string;
-  priceNote: string;
-  compareAtPrice?: string;
-  href: string;
+  repoHref: string;
   articleHref: string;
   tags: string[];
   bullets: string[];
