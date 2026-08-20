@@ -223,7 +223,7 @@ vrrp_instance VI_1 {
 
 The primary node (`rpi-srv-01`) has priority 150, the backup has 100. As long as the primary is up, it holds the VIP. If it stops sending VRRP advertisements, the backup promotes itself and takes over the IP within ~3 seconds.
 
-VRRP uses multicast. If your switch filters multicast between ports (MikroTik does by default), you need to permit `224.0.0.18` on the VLAN carrying the Pi nodes.
+VRRP uses multicast. If your switch filters multicast between ports ([MikroTik\*](https://amzn.to/4w08b21) does by default), you need to permit `224.0.0.18` on the VLAN carrying the Pi nodes.
 
 The Ansible task:
 
