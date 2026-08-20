@@ -82,7 +82,7 @@ Notice the inclusion of **Atlantis** and **Cloudflared**.
 *   **Cloudflared** provides secure, Zero-Trust ingress without opening ports on my firewall.
 
 ### 4. The DMZ & External Exposure
-Services that face the hostile public internet are strictly isolated in a DMZ VLAN (which we secured via [MikroTik firewall rules in a previous post](/blog/mikrotik-zero-trust-firewall-terraform/)).
+Services that face the hostile public internet are strictly isolated in a DMZ VLAN (which we secured via [MikroTik\*](https://amzn.to/4w08b21) [firewall rules in a previous post](/blog/mikrotik-zero-trust-firewall-terraform/)).
 ```yaml
 - name: Provision DMZ External Proxy
   hosts: dmz_proxies

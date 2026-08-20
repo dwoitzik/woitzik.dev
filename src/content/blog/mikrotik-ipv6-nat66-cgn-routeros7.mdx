@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
-Most homelab IPv6 guides assume you have native IPv6 from your ISP: a delegated /56 prefix, clean RA on the WAN, no NAT. That describes maybe 30% of actual deployments in Germany. My setup runs on a [MikroTik RB5009\*](https://amzn.to/4w08b21) behind a FritzBox with CGN, exactly the 70% case.
+Most homelab IPv6 guides assume you have native IPv6 from your ISP: a delegated /56 prefix, clean RA on the WAN, no NAT. That describes maybe 30% of actual deployments in Germany. My setup runs on a [MikroTik RB5009\*](https://amzn.to/4w08b21) behind a [FritzBox\*](https://amzn.to/4f5WDEI) with CGN, exactly the 70% case.
 
 The other 70% sits behind a FritzBox with DS-Lite or CGN, gets a GUA on the WAN interface via SLAAC, and has no delegated prefix to distribute internally. If you want IPv6 inside your network, you build it yourself.
 

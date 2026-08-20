@@ -7,7 +7,7 @@ tags: ["Terraform", "GitHub Actions", "GitOps", "Atlantis"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
 `terraform plan` exits with code 0 whether there are changes or not. In a GitOps workflow with [Atlantis](/blog/mikrotik-terraform-gitops-firewall-management/) on a [BMAX Mini PC*](https://amzn.to/4bv3yF1), that means a plan can show 15 resources to destroy and CI still passes green. A GitHub Actions step that parses the plan output, counts additions/changes/deletions, and posts a summary to Slack gives the team visibility without checking the Atlantis dashboard.
 
@@ -21,7 +21,7 @@ Atlantis runs `terraform plan` on every PR. The plan output is posted as a PR co
 Plan: 5 to add, 3 to change, 7 to destroy.
 ```
 
-...sits uncommented for days. The PR gets approved and merged. Atlantis applies. The 7 destroyed resources include a Cloudflare DNS record and a MikroTik firewall rule.
+...sits uncommented for days. The PR gets approved and merged. Atlantis applies. The 7 destroyed resources include a Cloudflare DNS record and a [MikroTik*](https://amzn.to/4w08b21) firewall rule.
 
 ## The GitHub Actions Workflow
 
