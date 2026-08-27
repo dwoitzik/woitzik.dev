@@ -7,6 +7,8 @@ tags: ["Kubernetes", "Backup", "Homelab", "Debugging"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
 Velero reported "Completed" on every daily backup. The schedule ran on time, the S3 uploads succeeded, the backup size looked reasonable. I never verified the contents — because "Completed" means completed, right?
 
 On 2026-06-19, I needed to restore a PVC. The backup existed in Garage S3. The restore completed. The PVC was empty.
@@ -117,5 +119,7 @@ The secondary issue is "torn state" — Velero's metadata (manifests) and the PV
 ---
 
 Backup verification is the same problem in Azure: Azure Backup reports "Completed" for VM snapshots, but a snapshot without the correct recovery point tier doesn't include disk contents. The verification step — actually restoring a test VM from backup — is the only way to confirm the backup contains what you think it contains. Compliance frameworks like ISO 27001 and NIS2 require documented restore testing for exactly this reason.
+
+[Designing Data-Intensive Applications\*](https://amzn.to/4aUtkCs) is the best book I know on why "the operation returned success" and "the data is actually there" are separate claims that need separate verification.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

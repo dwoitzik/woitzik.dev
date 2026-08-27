@@ -5,6 +5,8 @@ date: "2026-08-11"
 tags: ["Azure", "Terraform", "Logic Apps", "Private Link", "Networking"]
 ---
 
+*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+
 Logic App Standard is the go-to hosting model when your workflows need VNet integration and a predictable App Service Plan. In a hardened Azure landing zone, that means one thing: a Storage Account that is not reachable from the public internet, fronted by Private Endpoints.
 
 The deployment succeeded. The Resource Group, the Storage Account, the private endpoints, the DNS zones - everything planned cleanly and applied without a single error. Then the workflow host refused to start. Every single boot ended in the same `403 Forbidden`, roughly 600 milliseconds after the host registered its blob webhook endpoint.
@@ -198,3 +200,5 @@ When you wire a Logic App Standard or Function App to a private Storage Account:
 A private endpoint per Storage subresource is not a nice-to-have for Logic Apps Standard - it is a hard requirement of the host runtime. The trap is that Queue and Table are invisible in every configuration file and every blog tutorial, so they get skipped until a `403 Forbidden` starts appearing in Kudu logs at every boot.
 
 The good news: the fix is deterministic, and it is now encoded in the template rather than remembered by an engineer who already paid the price once.
+
+If DNS resolution and private-endpoint plumbing like this is the part that still feels like guesswork, [Netzwerke: Verstehen, Einrichten, Administrieren\*](https://amzn.to/4f3kTar) is the reference I keep coming back to for the underlying concepts.

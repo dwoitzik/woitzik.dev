@@ -7,6 +7,8 @@ tags: ["Azure", "Terraform", "Networking", "Security"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
 Your Terraform pipeline is green. The deployment completes without errors. You grab a coffee.
 
 Ten minutes later, Azure Policy has silently rewritten three of your resources. You run `terraform plan` again. It detects drift. It tries to revert. Policy blocks the revert with a cryptic permission error. Your pipeline is now permanently broken - and nobody touched the code.
@@ -203,5 +205,7 @@ After `terraform apply`, you have a network topology that is built to last in a 
 - **Audit-ready** - ISO 27001 Annex A.8 and NIS2 Article 21 network controls satisfied on day one
 
 Everything in this article - Zero-Trust NSGs, centralized DNS, DINE bypass logic - is packaged into a single, tested, ready-to-deploy module on GitHub. Free and MIT licensed.
+
+For the underlying networking concepts (peering, DNS, NSGs) rather than just the Terraform syntax, [Netzwerke: Verstehen, Einrichten, Administrieren\*](https://amzn.to/4f3kTar) is the reference I keep coming back to.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

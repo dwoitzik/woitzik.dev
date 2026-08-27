@@ -7,6 +7,8 @@ tags: ["Kubernetes", "Security", "Homelab", "SSO"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
 Every internal service in my homelab goes through the same authentication gate: Authelia. Proxmox, PBS, Grafana, ArgoCD, Headscale, ArgoCD, Uptime Kuma, Paperless, Nextcloud — 25+ web services, one login, one session, one set of access rules. The OIDC provider, the Postgres backend, the session store, and the secrets are all running inside k3s, backed by CNPG, Redis, and Vault.
 
 This article is the full implementation: how the pieces fit together, why certain design decisions were made, and the specific bugs that bit me along the way.
@@ -214,5 +216,7 @@ Two things, if starting over:
 ---
 
 SSO across 25+ services is the same problem in enterprise Azure: Entra ID provides the OIDC provider, Azure Application Registrations replace the Authelia client definitions, and Conditional Access Policies replace the `access_control` rules. The scale is different (Entra ID handles millions of identities), but the architectural pattern — centralize authentication, delegate authorization to the service, protect everything behind a single middleware — is identical.
+
+Most of the debugging above happened at a shell prompt, grepping logs and testing OIDC flows with `curl`, not in a dashboard. [The Linux Command Line\*](https://amzn.to/4gEAhv9) is still the book I'd hand someone who wants to get faster at that part.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

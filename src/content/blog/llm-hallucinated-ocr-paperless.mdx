@@ -7,6 +7,8 @@ tags: ["AI", "Kubernetes", "Homelab", "Debugging"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
 I discovered that paperless-gpt was generating plausible-looking but entirely fabricated German OCR text for scanned documents. The model returned confident, grammatically correct German sentences for pages that were actually invoices, receipts, and handwritten notes. The titles it assigned to these documents were similarly fictional.
 
 The root cause wasn't a bug in paperless-gpt. It was a configuration error that sent page images to a text-only model that couldn't see images at all — and the model did exactly what language models do when given input they can't process: it made something up.
@@ -112,5 +114,7 @@ The debugging lesson: when a system fails in two different ways (sometimes fabri
 ---
 
 AI model misconfiguration in production has the same pattern: a model that can't process the input type it's given will produce plausible-looking but wrong output, and there's no automatic error. Azure OpenAI's vision models require explicit multimodal input formatting — sending a raw image to a text-only deployment doesn't error, it just ignores the image and responds to any text in the prompt. The fix is the same: verify that your model's capabilities match your input types, and test with known inputs before trusting the output.
+
+The LXC running this workload is on an older BMAX B5A Pro (Ryzen 7 5825U) — the ROCm gap described above is specific to that chip. If you're buying a mini PC for this kind of local-inference box today, the [BMAX Ryzen 7 8745HS Mini PC\*](https://amzn.to/4bv3yF1) is the direct successor with a much stronger Radeon 780M iGPU.
 
 <NewsletterCTA />

@@ -7,6 +7,8 @@ tags: ["Azure", "Terraform", "AI"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
 Your Terraform pipeline is green. The deployment completes without errors. You grab a coffee.
 
 Ten minutes later, you test your new Enterprise RAG application. It immediately throws a `403 Forbidden`. You log into the Azure Portal, check the OpenAI Networking tab, and there it is: your Shared Private Link from AI Search is sitting in a **Pending** state. Nobody told Terraform to approve it. Nobody told you it even needed approving.
@@ -195,5 +197,7 @@ With the AzAPI state machine, Identity Chaining, and proper Private DNS, you end
 - Satisfies ISO 27001 Annex A.8 and NIS2 Article 21 network and identity controls
 
 The AzAPI trick above is worth knowing if you're stuck with a Shared Private Link approval loop - it's a real, general-purpose pattern. But the shipped module went a step further and dropped the workaround entirely: instead of a Shared Private Link needing programmatic approval, it puts both services behind proper Private Endpoints and has AI Search authenticate to OpenAI via Managed Identity + RBAC. No approval step to automate because there's nothing pending to approve. Full VNet injection, Private DNS, and Identity Chaining, all in a single free, MIT-licensed module.
+
+If the DNS/private-networking side of this is the unfamiliar part, [Netzwerke: Verstehen, Einrichten, Administrieren\*](https://amzn.to/4f3kTar) covers the underlying concepts well.
 
 <ProductCTA variant="end" slug="azure-rag-enterprise" />
