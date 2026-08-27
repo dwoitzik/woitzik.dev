@@ -7,8 +7,6 @@ tags: ["Kubernetes", "Chaos Engineering", "Homelab", "Observability"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
-
 Chaos engineering sounds like a production-only practice — inject failures, measure impact, improve resilience. But the biggest value of chaos testing isn't catching production failures. It's finding the problems you didn't know existed, in infrastructure you thought was solid, before they find you.
 
 I run two weekly chaos experiments on my single-host k3s cluster: a pod-kill every Sunday at 03:00 UTC, and a 100ms network latency injection at 03:30 UTC. Both are scoped to pods labeled `chaos-kill: enabled` in the `apps` namespace. Here's what they've taught me.
