@@ -1,0 +1,25 @@
+name: Synthetic check — newsletter signup
+
+on:
+  schedule:
+    - cron: "0 8 * * *" # daily 08:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  check-subscribe:
+    name: "POST /api/subscribe against production"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit real signup and check response
+        run: |
+          resp=$(curl -s -w '\n%{http_code}' -X POST https://woitzik.dev/api/subscribe \
+            -H "Content-Type: application/json" \
+            -d '{"email":"woitzikdavid18+synthetic@gmail.com"}')
+          body=$(echo "$resp" | head -n -1)
+          code=$(echo "$resp" | tail -n1)
+          echo "HTTP $code"
+          echo "$body"
+          if [ "$code" != "200" ]; then
+            echo "::error::Newsletter signup is broken in production (HTTP $code): $body"
+            exit 1
+          fi
