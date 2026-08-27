@@ -190,7 +190,11 @@ export default async function handler(
     console.error("Brevo contact error:", contactRes.status, err);
     res.writeHead(500);
     res.end(
-      JSON.stringify({ error: "Failed to subscribe. Please try again." }),
+      JSON.stringify({
+        error: "Failed to subscribe. Please try again.",
+        debugBrevoStatus: contactRes.status,
+        debugBrevoError: err,
+      }),
     );
     return;
   }
