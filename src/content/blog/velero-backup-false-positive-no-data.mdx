@@ -7,8 +7,6 @@ tags: ["Kubernetes", "Backup", "Homelab", "Debugging"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
-
 Velero reported "Completed" on every daily backup. The schedule ran on time, the S3 uploads succeeded, the backup size looked reasonable. I never verified the contents — because "Completed" means completed, right?
 
 On 2026-06-19, I needed to restore a PVC. The backup existed in Garage S3. The restore completed. The PVC was empty.
