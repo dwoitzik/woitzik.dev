@@ -40,14 +40,12 @@ const withDates = queued
 const published = [];
 
 if (withDates.length > 0) {
-  const { file, date } = withDates[0];
-  const srcPath = resolve(QUEUE_DIR, file);
-  const destPath = resolve(BLOG_DIR, file);
-  renameSync(srcPath, destPath);
-  published.push(file);
-  console.log(`Published: ${file} (scheduled ${date.toISOString().slice(0, 10)})`);
-  if (withDates.length > 1) {
-    console.log(`${withDates.length - 1} more article(s) queued for future dates.`);
+  for (const { file, date } of withDates) {
+    const srcPath = resolve(QUEUE_DIR, file);
+    const destPath = resolve(BLOG_DIR, file);
+    renameSync(srcPath, destPath);
+    published.push(file);
+    console.log(`Published: ${file} (scheduled ${date.toISOString().slice(0, 10)})`);
   }
 } else {
   console.log("Nothing due for publishing today.");

@@ -2,7 +2,11 @@ name: Publish queued articles on schedule
 
 on:
   schedule:
-    - cron: "0 7 * * *" # daily 07:00 UTC — publishes any queued article whose date has arrived
+    - cron: "17 7 * * *" # daily ~07:17 UTC — publishes any queued article whose date has arrived.
+    # Off the top of the hour on purpose: GitHub's own docs say scheduled
+    # workflows are most likely to be delayed or dropped at :00, the start
+    # of every hour, under high platform load. A run silently not firing
+    # is exactly what happened on 2026-08-27.
   workflow_dispatch: {}
 
 permissions:
