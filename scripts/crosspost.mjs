@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 /**
- * Crosspost a blog article to dev.to, Medium, and announce it on Mastodon.
+ * Crosspost a blog article to dev.to, and announce it on Mastodon.
+ *
+ * Medium and Hackernoon crossposting were removed 2026-08-27: both required
+ * a persistent authenticated Playwright browser session on one specific
+ * machine, that session's auth rotted after 41 days unattended, and Medium
+ * had 0 of 54 articles ever actually confirmed posted despite the old script
+ * logging "submitted" — no error handling existed to tell success from
+ * silent failure. dev.to's real API-based crosspost below is unaffected.
  *
  * Usage:
  *   node scripts/crosspost.mjs <slug>                 # post everywhere configured
@@ -8,14 +15,13 @@
  *   node scripts/crosspost.mjs <slug> --update-devto   # article already exists on
  *                                                       # dev.to -- PUT the current
  *                                                       # markdown instead of skipping
- *                                                       # (Medium/Mastodon still no-op
- *                                                       # since they'd already been posted)
+ *                                                       # (Mastodon still no-op since
+ *                                                       # it would already been posted)
  *
  * Required env vars (set in .env.crosspost or export before running):
  *   DEVTO_API_KEY
  *   MASTODON_INSTANCE_URL       e.g. https://hachyderm.io  (optional — skipped if unset)
  *   MASTODON_ACCESS_TOKEN                                   (optional — skipped if unset)
- *   MEDIUM_INTEGRATION_TOKEN                                (optional — skipped if unset)
  */
 
 import { readFileSync, writeFileSync, existsSync } from "fs";
@@ -248,221 +254,13 @@ async function postToMastodon(slug, fm, dryRun) {
   }
 }
 
-// ─── Medium (Playwright — API dead for new users) ──────────────────────────
-// Medium's public write API no longer issues new tokens. The only reliable
-// import path is browser automation: open medium.com/p/import, paste the
-// canonical URL, let Medium pull the content, add attribution + tags, publish.
-// Persistent browser context stored in scripts/.auth/medium survives logins.
-const mediumPostedFile = resolve(ROOT, "scripts/.medium-posted.json");
-
-function loadMediumPosted() {
-  if (!existsSync(mediumPostedFile)) return [];
-  return JSON.parse(readFileSync(mediumPostedFile, "utf8"));
-}
-
-function saveMediumPosted(slugs) {
-  writeFileSync(mediumPostedFile, JSON.stringify(slugs, null, 2) + "\n");
-}
-
-async function postToMedium(slug, fm, dryRun) {
-  const posted = loadMediumPosted();
-  if (posted.includes(slug)) {
-    console.log(`⏭️   Medium: already posted (${slug}) — skipping`);
-    return;
-  }
-
-  const canonicalUrl = `https://woitzik.dev/blog/${slug}/`;
-
-  if (dryRun) {
-    console.log(`\n[DRY RUN] Medium: would import ${canonicalUrl}`);
-    console.log(`  Title: ${fm.title}`);
-    return;
-  }
-
-  const { firefox } = await import("playwright");
-  const authDir = resolve(ROOT, "scripts/.auth/medium");
-  const context = await firefox.launchPersistentContext(authDir, {
-    headless: false,
-    viewport: { width: 1280, height: 900 },
-  });
-
-  const page = context.pages()[0] || await context.newPage();
-
-  await page.goto("https://medium.com/p/import", { waitUntil: "domcontentloaded", timeout: 30000 });
-  await page.waitForTimeout(3000);
-
-  // If login page, wait for user
-  if (page.url().includes("login") || page.url().includes("signin")) {
-    console.log("🔐  Medium: Bitte einloggen im Browser-Fenster...");
-    console.log("    Warte bis zu 120 Sekunden...");
-    await page.waitForURL("**/p/import", { timeout: 120000 });
-    console.log("    Login erkannt, fahre fort...");
-    await page.waitForTimeout(2000);
-  }
-
-  console.log(`📤  Medium: importing ${canonicalUrl}...`);
-
-  // Find import URL input
-  const urlInput = page.locator('input[placeholder*="URL"], input[type="url"], textarea[placeholder*="URL"]').first();
-  if (await urlInput.isVisible({ timeout: 10000 }).catch(() => false)) {
-    await urlInput.fill(canonicalUrl);
-  } else {
-    const anyInput = page.locator('input[type="text"], input:not([type])').first();
-    await anyInput.fill(canonicalUrl);
-  }
-
-  // Click Import
-  const importBtn = page.locator('button:has-text("Import"), button:has-text("import")').first();
-  await importBtn.click();
-
-  // Wait for editor
-  console.log("⏳  Medium: waiting for content...");
-  await page.waitForURL("**/edit/**", { timeout: 60000 }).catch(() => {});
-  await page.waitForTimeout(5000);
-
-  // Publish
-  console.log("🚀  Medium: publishing...");
-  const publishBtn = page.locator('button:has-text("Publish")').first();
-  if (await publishBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await publishBtn.click();
-    await page.waitForTimeout(3000);
-    const confirmBtn = page.locator('button:has-text("Publish"), button:has-text("Got it")').last();
-    if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await confirmBtn.click();
-    }
-  }
-
-  await page.waitForTimeout(3000);
-  console.log(`✅  Medium: ${page.url()}`);
-  saveMediumPosted([...posted, slug]);
-  await context.close();
-}
-
-// ─── Hackernoon (Playwright — no API, editorial review) ────────────────────
-// Hackernoon has no write API. Import via writer dashboard, set canonical
-// URL ("First seen at"), submit for editorial review (3-4 business days).
-const hackernoonPostedFile = resolve(ROOT, "scripts/.hackernoon-posted.json");
-
-function loadHackernoonPosted() {
-  if (!existsSync(hackernoonPostedFile)) return [];
-  return JSON.parse(readFileSync(hackernoonPostedFile, "utf8"));
-}
-
-function saveHackernoonPosted(slugs) {
-  writeFileSync(hackernoonPostedFile, JSON.stringify(slugs, null, 2) + "\n");
-}
-
-async function postToHackernoon(slug, fm, dryRun) {
-  const posted = loadHackernoonPosted();
-  if (posted.includes(slug)) {
-    console.log(`⏭️   Hackernoon: already posted (${slug}) — skipping`);
-    return;
-  }
-
-  const canonicalUrl = `https://woitzik.dev/blog/${slug}/`;
-  const tags = (fm.tags || []).slice(0, 5);
-
-  if (dryRun) {
-    console.log(`\n[DRY RUN] Hackernoon: would import ${canonicalUrl}`);
-    console.log(`  Title: ${fm.title}`);
-    console.log(`  Tags: ${tags.join(", ")}`);
-    return;
-  }
-
-  const { firefox } = await import("playwright");
-  const authDir = resolve(ROOT, "scripts/.auth/hackernoon");
-  const context = await firefox.launchPersistentContext(authDir, {
-    headless: false,
-    viewport: { width: 1280, height: 900 },
-  });
-
-  const page = context.pages()[0] || await context.newPage();
-
-  // Navigate to writer dashboard
-  await page.goto("https://app.hackernoon.com/new", { waitUntil: "domcontentloaded", timeout: 30000 });
-  await page.waitForTimeout(3000);
-
-  // Check if logged in
-  if (page.url().includes("login") || page.url().includes("sign")) {
-    console.log("🔐  Hackernoon: please log in manually in the browser window...");
-    console.log("    Waiting up to 120 seconds...");
-    await page.waitForURL("**/new", { timeout: 120000 });
-    console.log("    Login detected, continuing...");
-    await page.waitForTimeout(2000);
-  }
-
-  // Look for import option — try the import tab or URL import
-  console.log(`📤  Hackernoon: importing ${canonicalUrl}...`);
-
-  // Try clicking "Import Story" or similar
-  const importBtn = page.locator('button:has-text("Import"), a:has-text("Import"), [data-testid*="import"]').first();
-  if (await importBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await importBtn.click();
-    await page.waitForTimeout(2000);
-  }
-
-  // Find URL input for import
-  const urlInput = page.locator('input[placeholder*="URL"], input[placeholder*="url"], input[placeholder*="link"], textarea[placeholder*="URL"]').first();
-  if (await urlInput.isVisible({ timeout: 10000 }).catch(() => false)) {
-    await urlInput.fill(canonicalUrl);
-    // Submit the import
-    const submitBtn = page.locator('button:has-text("Import"), button:has-text("Submit"), button:has-text("import")').first();
-    if (await submitBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await submitBtn.click();
-    }
-  } else {
-    // Fallback: paste content directly into editor
-    console.log("⚠️   Hackernoon: import URL input not found, trying direct paste...");
-    const editor = page.locator('[contenteditable="true"], .ProseMirror, .editor').first();
-    if (await editor.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await editor.click();
-      // Read and paste the markdown content
-      const mdxPath = resolve(ROOT, `src/content/blog/${slug}.mdx`);
-      const raw = readFileSync(mdxPath, "utf8");
-      const body = mdxToMarkdown(raw, slug);
-      await page.keyboard.insertText(body);
-    }
-  }
-
-  await page.waitForTimeout(5000);
-
-  // Set canonical URL in Story Settings ("First seen at")
-  console.log("🔗  Hackernoon: setting canonical URL...");
-  const settingsBtn = page.locator('button:has-text("Story Settings"), [data-testid*="settings"], button:has-text("Settings")').first();
-  if (await settingsBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await settingsBtn.click();
-    await page.waitForTimeout(2000);
-
-    const firstSeenInput = page.locator('input[placeholder*="First seen"], input[placeholder*="first seen"], input[name*="canonical"], input[name*="firstSeen"]').first();
-    if (await firstSeenInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await firstSeenInput.fill(canonicalUrl);
-    }
-  }
-
-  // Submit for review
-  console.log("🚀  Hackernoon: submitting for review...");
-  const submitReviewBtn = page.locator('button:has-text("Submit"), button:has-text("submit for review"), button:has-text("Submit Story")').first();
-  if (await submitReviewBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await submitReviewBtn.click();
-    await page.waitForTimeout(3000);
-  }
-
-  console.log(`✅  Hackernoon: submitted (editorial review takes 3-4 business days)`);
-
-  posted.push(slug);
-  saveHackernoonPosted(posted);
-  await context.close();
-}
-
 // ─── Main ─────────────────────────────────────────────────────────────────
 
 const [, , slugOrAll, ...flags] = process.argv;
 
 const dryRun = flags.includes("--dry-run");
 const updateDevTo = flags.includes("--update-devto");
-const doMedium = flags.includes("--medium");
-const doHackernoon = flags.includes("--hackernoon");
-const doDevTo = !doMedium && !doHackernoon && !flags.includes("--mastodon");
+const doDevTo = !flags.includes("--mastodon");
 const doAll = slugOrAll === "--all";
 const delayMs = parseInt(flags.find((f) => f.startsWith("--delay="))?.split("=")[1] || "0", 10) * 1000;
 const maxPosts = parseInt(flags.find((f) => f.startsWith("--max="))?.split("=")[1] || "0", 10);
@@ -471,19 +269,15 @@ if (!slugOrAll) {
   console.error("Usage: node scripts/crosspost.mjs <slug|--all> [flags]");
   console.error("\nPlatforms:");
   console.error("  --devto          Post to dev.to (default, 35s between posts)");
-  console.error("  --medium         Post to Medium via Playwright (max 2/day)");
-  console.error("  --hackernoon     Post to Hackernoon via Playwright (max 10/day)");
   console.error("  --mastodon       Post to Mastodon");
-  console.error("  --all            Post all articles (use with --medium/--hackernoon)");
+  console.error("  --all            Post all articles");
   console.error("  --delay=N        Seconds between posts (default: platform minimum)");
   console.error("  --update-devto   Update existing dev.to article");
   console.error("  --max=N         Limit posts per run (default: unlimited)");
   console.error("  --dry-run        Preview without posting");
   console.error("\nExamples:");
-  console.error("  node scripts/crosspost.mjs my-article --medium");
+  console.error("  node scripts/crosspost.mjs my-article --dry-run");
   console.error("  node scripts/crosspost.mjs --all --devto");
-  console.error("  node scripts/crosspost.mjs --all --medium --max=2  (post 2, then stop)");
-  console.error("  node scripts/crosspost.mjs --all --medium --delay=43200  (12h between)");
   console.error("\nAvailable slugs:");
   const { readdirSync } = await import("fs");
   readdirSync(resolve(ROOT, "src/content/blog"))
@@ -509,41 +303,23 @@ async function crosspostOne(slug) {
 
   if (doDevTo) await postToDevTo(slug, fm, markdown, dryRun, updateDevTo);
   if (flags.includes("--mastodon")) await postToMastodon(slug, fm, dryRun);
-  if (doMedium) await postToMedium(slug, fm, dryRun);
-  if (doHackernoon) await postToHackernoon(slug, fm, dryRun);
 }
 
 if (doAll) {
   const { readdirSync } = await import("fs");
-  const allSlugs = readdirSync(resolve(ROOT, "src/content/blog"))
+  const slugs = readdirSync(resolve(ROOT, "src/content/blog"))
     .filter((f) => f.endsWith(".mdx"))
     .map((f) => f.replace(".mdx", ""))
     .sort();
 
-  // Filter out already-posted articles for platforms with tracking
-  const slugs = allSlugs.filter((slug) => {
-    if (doMedium && loadMediumPosted().includes(slug)) return false;
-    if (doHackernoon && loadHackernoonPosted().includes(slug)) return false;
-    return true;
-  });
-
   if (slugs.length === 0) {
-    console.log("\n✅  All articles already posted — nothing to do.");
+    console.log("\n✅  Nothing to post.");
     process.exit(0);
-  }
-
-  // Default delay: platform minimum if not specified
-  let effectiveDelay = delayMs;
-  if (effectiveDelay === 0) {
-    if (doMedium) effectiveDelay = 43_200; // 12h for Medium (2/day)
-    else if (doHackernoon) effectiveDelay = 8640; // ~2.5h for Hackernoon (10/day)
   }
 
   const toPost = maxPosts > 0 ? slugs.slice(0, maxPosts) : slugs;
 
   console.log(`\n🔄  Crossposting ${toPost.length} articles${maxPosts > 0 ? ` (max ${maxPosts})` : ""}`);
-  if (doMedium) console.log(`⚠️   Medium: max 2/day — ${Math.ceil(toPost.length / 2)} days needed`);
-  if (doHackernoon) console.log(`⚠️   Hackernoon: editorial review takes 3-4 business days`);
   console.log("");
 
   let posted = 0;
@@ -555,9 +331,9 @@ if (doAll) {
     await crosspostOne(toPost[i]);
     posted++;
 
-    if (effectiveDelay > 0 && i < toPost.length - 1) {
-      console.log(`\n⏳  Waiting ${effectiveDelay / 1000}s before next post...`);
-      await new Promise((r) => setTimeout(r, effectiveDelay));
+    if (delayMs > 0 && i < toPost.length - 1) {
+      console.log(`\n⏳  Waiting ${delayMs / 1000}s before next post...`);
+      await new Promise((r) => setTimeout(r, delayMs));
     }
   }
 
