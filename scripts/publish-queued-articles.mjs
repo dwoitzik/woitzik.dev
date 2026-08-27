@@ -11,8 +11,12 @@ function frontmatterDate(content) {
   return new Date(match[1]);
 }
 
+// UTC, not local time: frontmatter dates are bare "YYYY-MM-DD" (parsed as UTC
+// midnight), and the GitHub Actions runner is UTC anyway — local-time
+// comparison only matters when running this by hand off-runner, where it can
+// silently shift the due date by your machine's UTC offset.
 const today = new Date();
-today.setHours(0, 0, 0, 0);
+today.setUTCHours(0, 0, 0, 0);
 
 let queued;
 try {
