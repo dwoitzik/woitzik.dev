@@ -7,6 +7,8 @@ tags: ["Security", "Kubernetes", "Homelab"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
 SEC-008 was a finding from an earlier security audit: Atlantis was accessible without authentication. The fix was straightforward - put an Authelia `ForwardAuth` middleware in front of the Traefik `IngressRoute`, gating the UI and all endpoints except the GitHub webhook path (which uses its own HMAC-based authentication).
 
 That fix held for months. It was reopened by a completely unrelated infrastructure migration that nobody checked against the auth model.
@@ -102,5 +104,7 @@ That's the property worth building a habit around: after any infrastructure migr
 ---
 
 The same failure mode applies directly to Azure. Migrating a workload from AKS to a VM (or from a VMSS behind an Application Gateway to a standalone VM) can silently remove WAF rules, identity-based authentication, or Private Endpoint network restrictions that were provided by the original deployment layer. The migration itself succeeds. The traffic flows. The security controls evaporate quietly. The right time to check is during the migration, not after a security review flags it.
+
+This is the same class of failure [The Phoenix Project\*](https://amzn.to/4f4RHQf) spends a lot of pages on: the handoff between teams is where invariants quietly stop being true.
 
 <NewsletterCTA />

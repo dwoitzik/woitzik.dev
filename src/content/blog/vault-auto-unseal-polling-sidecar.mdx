@@ -7,6 +7,8 @@ tags: ["Kubernetes", "Security", "Vault", "Homelab"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
 HashiCorp Vault Enterprise has auto-unseal: a sealed Vault automatically unseals using a cloud KMS (AWS KMS, Azure Key Vault, GCP Cloud KMS). Vault OSS doesn't. Every time a Vault pod restarts — node failure, OOMKill, Kubernetes rescheduling — someone has to manually unseal it with `vault operator unseal` using the unseal keys.
 
 On a homelab cluster where Vault backs ExternalSecrets for 25+ services, a sealed Vault means every ExternalSecret refresh fails. [Authelia](/blog/k3s-authelia-proxmox-homelab/) can't start (no hmac-secret), Open WebUI can't start (no WEBUI_SECRET_KEY), and half the cluster sits in init-container loops waiting for secrets that Vault can't provide.
@@ -156,5 +158,7 @@ This is the minimum viable network segmentation for Vault: it needs to be reacha
 ---
 
 Vault auto-unseal without KMS is the same problem as managing encryption keys in environments without HSMs: you're trading security boundary strength for operational practicality. Azure Key Vault Managed HSM provides FIPS 140-2 Level 3 key protection — but it costs money and adds complexity. For non-production environments, the polling sidecar gives you 90% of the operational benefit at 10% of the security cost. The key is knowing which trade-off you're making.
+
+[Designing Data-Intensive Applications\*](https://amzn.to/4aUtkCs) has the best treatment I know of this exact class of trade-off - security boundary strength versus operational practicality - if you want the deeper theory.
 
 <NewsletterCTA />

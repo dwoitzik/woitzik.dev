@@ -7,6 +7,8 @@ tags: ["Azure", "Terraform", "Networking"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
 You are building the ultimate Azure Hub & Spoke network. VNet peerings: done. Subnets: defined. An Azure Firewall sitting in the Hub, ready to inspect every packet leaving your environment.
 
 You add a Route Table to force all internet-bound traffic (`0.0.0.0/0`) from the Spokes into the Firewall. You run `terraform plan`.
@@ -143,5 +145,7 @@ With correct resource ordering, explicit PaaS bypass routes, dynamic subnet bind
 - Scales to new Spokes by changing a variable, not rewriting rules
 
 The repository at the top covers everything in this article - cycle error fix, KMS and AD bypasses, the baseline Route Table structure, dynamic IP Groups, and FQDN baseline policies - free and MIT licensed.
+
+If the routing/NAT concepts here are the unfamiliar part rather than just the Terraform syntax, [Netzwerke: Verstehen, Einrichten, Administrieren\*](https://amzn.to/4f3kTar) is the German-language reference I keep going back to.
 
 <ProductCTA variant="end" slug="azure-firewall-enterprise" />

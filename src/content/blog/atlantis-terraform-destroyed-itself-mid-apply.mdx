@@ -7,6 +7,8 @@ tags: ["Terraform", "GitOps", "Homelab", "Debugging"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
 On 2026-07-04, Atlantis applied a Terraform change that shut down the VM it was running on. The Terraform runner destroyed its own runtime environment mid-apply.
 
 This is the story of a circular dependency that doesn't show up in `terraform plan`, why `bpg/proxmox` can't always update attributes in-place, and how moving Atlantis from a k3s Deployment to a dedicated LXC container eliminated the hazard entirely.
@@ -117,5 +119,7 @@ The clean fix is always the same: the runner manages everything *except* itself.
 ---
 
 The same pattern applies to CI/CD runners in enterprise environments. A self-hosted GitHub Actions runner managing its own host's infrastructure via Terraform has the identical circular dependency. The fix is the same: separate the runner's infrastructure from the infrastructure it manages, even if they share the same cloud account.
+
+If you want the deeper case for why "the system that deploys everything must never depend on itself" isn't a Terraform-specific quirk but a systemic pattern that shows up everywhere in ops, [The Phoenix Project\*](https://amzn.to/4f4RHQf) is the book that names it.
 
 <ProductCTA variant="end" slug="azure-firewall-enterprise" />

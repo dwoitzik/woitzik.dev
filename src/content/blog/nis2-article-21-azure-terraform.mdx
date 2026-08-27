@@ -7,6 +7,8 @@ tags: ["Azure", "Terraform", "Compliance", "Security"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
 Most NIS2 content on the internet is written by lawyers for lawyers. It explains what the directive requires in broad strokes, references recitals and annexes, and leaves engineers staring at a wall of legal text wondering what to actually build.
 
 This article is different. It focuses specifically on the **network security controls** required by NIS2 Article 21 and maps each requirement to concrete Azure resources - managed with Terraform.
@@ -259,5 +261,7 @@ Implementing NIS2 Article 21 network controls in Azure with Terraform gives you:
 - Full audit trail - every change version-controlled and reviewable
 
 The modules that implement this architecture are available on the templates page - each one tested against these controls and documented for audit purposes.
+
+If the network-segmentation concepts behind Article 21 are the unfamiliar part, [Netzwerke: Verstehen, Einrichten, Administrieren\*](https://amzn.to/4f3kTar) is the reference I still reach for.
 
 <ProductCTA variant="end" slug="azure-firewall-enterprise" />

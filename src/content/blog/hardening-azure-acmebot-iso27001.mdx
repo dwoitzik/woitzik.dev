@@ -7,6 +7,8 @@ tags: ["Azure", "Terraform", "Security", "Compliance"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
 Automating SSL/TLS certificates with Let's Encrypt and Azure Key Vault is a solved problem.
 Tools like the fantastic [Azure Acmebot](https://github.com/shibayan/keyvault-acmebot) make
 deployment incredibly simple.
@@ -201,5 +203,7 @@ requirements of ISO 27001 Annex A.8, NIS2 Article 21, and KRITIS baseline contro
 - All inter-service traffic stays on Azure's private backbone
 - Identity-based access (Managed Identity + RBAC) layered on top of network controls
 - Full Infrastructure-as-Code - auditable, repeatable, version-controlled
+
+If the network-security side of this (not just the Terraform) is what's new, [Netzwerke: Verstehen, Einrichten, Administrieren\*](https://amzn.to/4f3kTar) is the reference I'd point at.
 
 <ProductCTA variant="end" slug="acmebot-enterprise-vnet" />
