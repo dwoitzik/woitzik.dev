@@ -10,7 +10,7 @@ import AffiliateLink from "@components/AffiliateLink.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
-Three services in my homelab need external access: Immich for family photo backup, Atlantis for Terraform webhooks, and Jellyfin for media. None of them have a single inbound firewall rule — the <AffiliateLink href="https://amzn.to/4w08b21">MikroTik</AffiliateLink> [firewall stays default-deny](/blog/mikrotik-zero-trust-firewall-terraform/) with no WAN-facing accept rules at all. Cloudflare Tunnel handles all external traffic through an outbound-only connection, and split-DNS on AdGuard ensures LAN clients reach services directly without leaving the network.
+Three services in my homelab need external access: Immich for family photo backup, Atlantis for Terraform webhooks, and Jellyfin for media. None of them have a single inbound firewall rule — the <AffiliateLink href="/go/4w08b21">MikroTik</AffiliateLink> [firewall stays default-deny](/blog/mikrotik-zero-trust-firewall-terraform/) with no WAN-facing accept rules at all. Cloudflare Tunnel handles all external traffic through an outbound-only connection, and split-DNS on AdGuard ensures LAN clients reach services directly without leaving the network.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -72,7 +72,7 @@ AdGuard Home handles this with wildcard overrides:
 
 The `*.woitzik.dev → 10.0.20.200` wildcard covers all internal services. The specific override for `photos.woitzik.dev` points to Cloudflare's anycast IPs, so mobile clients on cellular networks get routed through the tunnel while LAN clients go direct.
 
-The gotcha: AdGuard's wildcard applies to the search domain too. If the Proxmox host's search domain is `woitzik.dev`, every internal hostname query goes through the wildcard — including `pve.woitzik.dev`, `pbs.woitzik.dev`, and other services that should never leave the LAN. This was caught during initial setup: PTR queries for k3s pod IPs were being forwarded to the <AffiliateLink href="https://amzn.to/4f5WDEI">FritzBox</AffiliateLink> because AdGuard's search domain configuration leaked DNS traffic outward.
+The gotcha: AdGuard's wildcard applies to the search domain too. If the Proxmox host's search domain is `woitzik.dev`, every internal hostname query goes through the wildcard — including `pve.woitzik.dev`, `pbs.woitzik.dev`, and other services that should never leave the LAN. This was caught during initial setup: PTR queries for k3s pod IPs were being forwarded to the <AffiliateLink href="/go/4f5WDEI">FritzBox</AffiliateLink> because AdGuard's search domain configuration leaked DNS traffic outward.
 
 ## The Chunked Encoding Fix
 

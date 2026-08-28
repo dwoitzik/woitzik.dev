@@ -120,6 +120,6 @@ The clean fix is always the same: the runner manages everything *except* itself.
 
 The same pattern applies to CI/CD runners in enterprise environments. A self-hosted GitHub Actions runner managing its own host's infrastructure via Terraform has the identical circular dependency. The fix is the same: separate the runner's infrastructure from the infrastructure it manages, even if they share the same cloud account.
 
-If you want the deeper case for why "the system that deploys everything must never depend on itself" isn't a Terraform-specific quirk but a systemic pattern that shows up everywhere in ops, [The Phoenix Project\*](https://amzn.to/4f4RHQf) is the book that names it.
+If you want the deeper case for why "the system that deploys everything must never depend on itself" isn't a Terraform-specific quirk but a systemic pattern that shows up everywhere in ops, [The Phoenix Project\*](/go/4f4RHQf) is the book that names it.
 
 <ProductCTA variant="end" slug="azure-firewall-enterprise" />

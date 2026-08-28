@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
-Every Kubernetes cluster needs a backup strategy. For a homelab running on bare metal, a [BMAX Mini PC\*](https://amzn.to/4bv3yF1) with Longhorn for distributed storage, the options are limited: `etcd` snapshots cover cluster state but not persistent volumes, and MinIO is the standard S3 target for Velero - but MinIO is large, opinionated, and overkill for a single-node homelab.
+Every Kubernetes cluster needs a backup strategy. For a homelab running on bare metal, a [BMAX Mini PC\*](/go/4bv3yF1) with Longhorn for distributed storage, the options are limited: `etcd` snapshots cover cluster state but not persistent volumes, and MinIO is the standard S3 target for Velero - but MinIO is large, opinionated, and overkill for a single-node homelab.
 
 [Garage](https://garagehq.deuxfleurs.fr/) is a lightweight, open-source S3-compatible object store written in Rust. The binary is ~50MB, the configuration is a single TOML file, and it works with any S3-compatible client including the Velero AWS plugin. It's a much better fit for a homelab than MinIO.
 

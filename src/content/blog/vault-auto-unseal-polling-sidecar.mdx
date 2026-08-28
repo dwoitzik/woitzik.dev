@@ -159,6 +159,6 @@ This is the minimum viable network segmentation for Vault: it needs to be reacha
 
 Vault auto-unseal without KMS is the same problem as managing encryption keys in environments without HSMs: you're trading security boundary strength for operational practicality. Azure Key Vault Managed HSM provides FIPS 140-2 Level 3 key protection — but it costs money and adds complexity. For non-production environments, the polling sidecar gives you 90% of the operational benefit at 10% of the security cost. The key is knowing which trade-off you're making.
 
-[Designing Data-Intensive Applications\*](https://amzn.to/4aUtkCs) has the best treatment I know of this exact class of trade-off - security boundary strength versus operational practicality - if you want the deeper theory.
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) has the best treatment I know of this exact class of trade-off - security boundary strength versus operational practicality - if you want the deeper theory.
 
 <NewsletterCTA />
