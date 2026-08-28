@@ -2,7 +2,7 @@
 title: "Azure OpenAI RAG Network"
 description: "Terraform template for a zero-trust Azure OpenAI + AI Search deployment — VNet injection, Private DNS, and RBAC identity chaining."
 date: "2026-03-10"
-repoURL: "https://github.com/dwoitzik/azure-openai-rag-network"
+repoURL: "https://github.com/dwoitzik/terraform-azurerm-openai-rag"
 ---
 
 Network foundation for a production AI RAG stack on Azure. Deploys Azure OpenAI and AI Search with VNet injection and Private DNS — no public endpoint exposure.
