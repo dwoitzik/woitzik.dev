@@ -66,6 +66,18 @@ export default async function handler(
   const country = (req.headers["x-vercel-ip-country"] as string) ?? "";
   const { domain, tag } = MARKETPLACES[country] ?? DEFAULT_MARKETPLACE;
 
+  if (url.searchParams.has("debug")) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        country,
+        resolvedDomain: domain,
+        allHeaders: req.headers,
+      }),
+    );
+    return;
+  }
+
   res.writeHead(302, {
     Location: `https://www.${domain}/dp/${asin}?tag=${tag}`,
     "Cache-Control": "no-store",
