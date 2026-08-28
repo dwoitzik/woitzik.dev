@@ -6,6 +6,7 @@ export type Product = {
   title: string;
   description: string;
   repoHref: string;
+  registryHref?: string;
   articleHref: string;
   tags: string[];
   bullets: string[];

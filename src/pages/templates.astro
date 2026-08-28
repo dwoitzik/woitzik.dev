@@ -97,6 +97,16 @@ const foundationSlug = "hub-spoke-enterprise-vnet";
                 >
                   View on GitHub &rarr;
                 </a>
+                {product.registryHref && (
+                  <a
+                    href={product.registryHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded border border-black/15 dark:border-white/20 hover:opacity-80 transition-opacity"
+                  >
+                    Terraform Registry &rarr;
+                  </a>
+                )}
                 {product.articleHref !== "/templates" && (
                   <a
                     href={product.articleHref}
