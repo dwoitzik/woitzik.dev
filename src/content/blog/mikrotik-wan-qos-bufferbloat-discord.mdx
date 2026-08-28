@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 Discord voice was choppy. Not for me hearing others, for others hearing me. Robotic, garbled audio that came and went. Confirmed clean over mobile data, which meant the problem was my home network path, not Discord or the ISP.
 
-The investigation led to a textbook bufferbloat scenario on the [MikroTik RB5009\*](https://amzn.to/4w08b21): zero QoS or AQM on the WAN interface, a 50 Mbit upload ceiling that's trivially easy to saturate, and RouterOS's default `pfifo` queue doing nothing to prevent one bulk transfer from monopolizing the link against latency-sensitive UDP voice traffic.
+The investigation led to a textbook bufferbloat scenario on the [MikroTik RB5009\*](/go/4w08b21): zero QoS or AQM on the WAN interface, a 50 Mbit upload ceiling that's trivially easy to saturate, and RouterOS's default `pfifo` queue doing nothing to prevent one bulk transfer from monopolizing the link against latency-sensitive UDP voice traffic.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 

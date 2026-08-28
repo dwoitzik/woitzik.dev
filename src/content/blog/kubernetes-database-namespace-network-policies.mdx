@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
-After locking down Vault's namespace with NetworkPolicies, I ran the same check on every other namespace. Everything runs on a [BMAX Mini PC\*](https://amzn.to/4bv3yF1) behind a [MikroTik RB5009\*](https://amzn.to/4w08b21): one misconfigured NetworkPolicy and the wrong pod reaches Authelia's database. `kubectl get networkpolicy -n database` returned empty. Zero policies. Any pod anywhere in the cluster could reach Authelia's PostgreSQL and Redis instances with no network-layer restriction.
+After locking down Vault's namespace with NetworkPolicies, I ran the same check on every other namespace. Everything runs on a [BMAX Mini PC\*](/go/4bv3yF1) behind a [MikroTik RB5009\*](/go/4w08b21): one misconfigured NetworkPolicy and the wrong pod reaches Authelia's database. `kubectl get networkpolicy -n database` returned empty. Zero policies. Any pod anywhere in the cluster could reach Authelia's PostgreSQL and Redis instances with no network-layer restriction.
 
 This is the same gap class as Vault, missed in that pass because the audit focused on external-facing trust roots first. The database namespace holds Authelia's actual session and configuration storage. If Authelia is the gate for every exposed service in the homelab, the database namespace is what Authelia trusts. A compromised workload in the apps namespace could brute-force session tokens directly at the Postgres level, bypassing Authelia's own API entirely.
 

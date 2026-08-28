@@ -198,6 +198,6 @@ With the AzAPI state machine, Identity Chaining, and proper Private DNS, you end
 
 The AzAPI trick above is worth knowing if you're stuck with a Shared Private Link approval loop - it's a real, general-purpose pattern. But the shipped module went a step further and dropped the workaround entirely: instead of a Shared Private Link needing programmatic approval, it puts both services behind proper Private Endpoints and has AI Search authenticate to OpenAI via Managed Identity + RBAC. No approval step to automate because there's nothing pending to approve. Full VNet injection, Private DNS, and Identity Chaining, all in a single free, MIT-licensed module.
 
-If the DNS/private-networking side of this is the unfamiliar part, [Netzwerke: Verstehen, Einrichten, Administrieren\*](https://amzn.to/4f3kTar) covers the underlying concepts well.
+If the DNS/private-networking side of this is the unfamiliar part, [Netzwerke: Verstehen, Einrichten, Administrieren\*](/go/4f3kTar) covers the underlying concepts well.
 
 <ProductCTA variant="end" slug="azure-rag-enterprise" />

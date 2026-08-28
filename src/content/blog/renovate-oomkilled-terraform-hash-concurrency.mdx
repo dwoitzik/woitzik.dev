@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
-Renovate kept getting OOMKilled on the [BMAX Mini PC\*](https://amzn.to/4bv3yF1) running my entire k3s cluster. The Kubernetes CronJob would start, run for a while, and then die with exit code 137. The natural assumption: not enough memory. Bump the limit. Problem solved.
+Renovate kept getting OOMKilled on the [BMAX Mini PC\*](/go/4bv3yF1) running my entire k3s cluster. The Kubernetes CronJob would start, run for a while, and then die with exit code 137. The natural assumption: not enough memory. Bump the limit. Problem solved.
 
 Three rounds of bumps later, 2 GiB then 3 GiB then 4 GiB, it was still dying. The fix had nothing to do with memory limits. It had to do with what Renovate was actually doing with the memory it had.
 

@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 DNS is the most critical service in any network. If it goes down, nothing works - browsers can't resolve hostnames, services can't reach each other, and the error messages are uniformly unhelpful. In a homelab, a single DNS server is a single point of failure.
 
-This is the DNS architecture running on two Raspberry Pi 4B edge nodes ([starter set\*](https://amzn.to/4wNS0oI)) in my homelab. If you're building this today, go straight for the [Raspberry Pi 5\*](https://amzn.to/4wETNfv), the performance jump for containerized workloads is massive: Unbound as a recursive resolver, AdGuard Home for filtering, and Keepalived for automatic failover. The whole stack is managed with Ansible.
+This is the DNS architecture running on two Raspberry Pi 4B edge nodes ([starter set\*](/go/4wNS0oI)) in my homelab. If you're building this today, go straight for the [Raspberry Pi 5\*](/go/4wETNfv), the performance jump for containerized workloads is massive: Unbound as a recursive resolver, AdGuard Home for filtering, and Keepalived for automatic failover. The whole stack is managed with Ansible.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -223,7 +223,7 @@ vrrp_instance VI_1 {
 
 The primary node (`rpi-srv-01`) has priority 150, the backup has 100. As long as the primary is up, it holds the VIP. If it stops sending VRRP advertisements, the backup promotes itself and takes over the IP within ~3 seconds.
 
-VRRP uses multicast. If your switch filters multicast between ports ([MikroTik\*](https://amzn.to/4w08b21) does by default), you need to permit `224.0.0.18` on the VLAN carrying the Pi nodes.
+VRRP uses multicast. If your switch filters multicast between ports ([MikroTik\*](/go/4w08b21) does by default), you need to permit `224.0.0.18` on the VLAN carrying the Pi nodes.
 
 The Ansible task:
 

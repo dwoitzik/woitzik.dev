@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
-Many homelabs start as a single Docker host or a messy Proxmox node where services are spun up manually. But as your infrastructure grows to include reverse proxies, DNS blocklists, network storage, and AI models, manual management becomes a nightmare. My stack runs on a [BMAX Mini PC\*](https://amzn.to/4bv3yF1) (64GB RAM, Ryzen 7) for compute and [Raspberry Pi 4Bs\*](https://amzn.to/4wNS0oI) for edge DNS, physical hardware, not cloud VMs.
+Many homelabs start as a single Docker host or a messy Proxmox node where services are spun up manually. But as your infrastructure grows to include reverse proxies, DNS blocklists, network storage, and AI models, manual management becomes a nightmare. My stack runs on a [BMAX Mini PC\*](/go/4bv3yF1) (64GB RAM, Ryzen 7) for compute and [Raspberry Pi 4Bs\*](/go/4wNS0oI) for edge DNS, physical hardware, not cloud VMs.
 
 To maintain sanity, I treat my home network exactly like an enterprise production environment - the full setup is tracked on the [Homelab Infrastructure project page](/projects/homelab/). Everything is defined in code, strictly segmented by function, and deployed automatically. 
 
@@ -82,7 +82,7 @@ Notice the inclusion of **Atlantis** and **Cloudflared**.
 *   **Cloudflared** provides secure, Zero-Trust ingress without opening ports on my firewall.
 
 ### 4. The DMZ & External Exposure
-Services that face the hostile public internet are strictly isolated in a DMZ VLAN (which we secured via [MikroTik\*](https://amzn.to/4w08b21) [firewall rules in a previous post](/blog/mikrotik-zero-trust-firewall-terraform/)).
+Services that face the hostile public internet are strictly isolated in a DMZ VLAN (which we secured via [MikroTik\*](/go/4w08b21) [firewall rules in a previous post](/blog/mikrotik-zero-trust-firewall-terraform/)).
 ```yaml
 - name: Provision DMZ External Proxy
   hosts: dmz_proxies

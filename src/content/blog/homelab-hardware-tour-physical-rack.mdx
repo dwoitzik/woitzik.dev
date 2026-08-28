@@ -17,13 +17,13 @@ Every article on this blog, the K3s cluster, the MikroTik VLAN setup, the Terraf
 
 Everything lives in a compact 10-inch rack, not the full 19-inch server racks you see in datacenter photos, but a scaled-down version that fits realistically in a home office.
 
-**The Enclosure:** I'm using a [DIGITUS 10-Inch 6U Wall Mounting Cabinet\*](https://amzn.to/4pGBkxb). Six rack units is enough for everything below with room to spare, and the closed design keeps noise down significantly. I picked 10-inch over 19-inch for three reasons: it fits on a single wall mount without studs, the noise containment is noticeably better with a smaller volume to resonate, and every piece of gear I run has a 10-inch form factor option. A 19-inch rack in a home office is overkill unless you're running multiple full-size servers.
+**The Enclosure:** I'm using a [DIGITUS 10-Inch 6U Wall Mounting Cabinet\*](/go/4pGBkxb). Six rack units is enough for everything below with room to spare, and the closed design keeps noise down significantly. I picked 10-inch over 19-inch for three reasons: it fits on a single wall mount without studs, the noise containment is noticeably better with a smaller volume to resonate, and every piece of gear I run has a 10-inch form factor option. A 19-inch rack in a home office is overkill unless you're running multiple full-size servers.
 
-**Shelving & Airflow:** For mounting the Raspberry Pis and smaller gear, I use a [DIGITUS 1U 10-Inch Perforated Shelf\*](https://amzn.to/456lv9g). The perforation matters more than it sounds: it keeps airflow moving through the rack instead of trapping heat around the Pis.
+**Shelving & Airflow:** For mounting the Raspberry Pis and smaller gear, I use a [DIGITUS 1U 10-Inch Perforated Shelf\*](/go/456lv9g). The perforation matters more than it sounds: it keeps airflow moving through the rack instead of trapping heat around the Pis.
 
-**Cooling:** Since it's a closed rack, passive cooling isn't always enough. I've added a pack of [ARCTIC P12 120mm Fans\*](https://amzn.to/44vgXJy) as exhaust. They are whisper-quiet but push enough air to keep temperatures stable. The real test was summer: with the rack closed and ambient room temperature at 28°C, the Proxmox host's NVMe was hitting 72°C under sustained load. After adding the P12s as exhaust pulling warm air out the top, that dropped to 58°C. The key detail: I mounted them as exhaust, not intake. In a small rack, pulling hot air out is more effective than pushing cool air in, because the perforated shelf already provides passive intake from below.
+**Cooling:** Since it's a closed rack, passive cooling isn't always enough. I've added a pack of [ARCTIC P12 120mm Fans\*](/go/44vgXJy) as exhaust. They are whisper-quiet but push enough air to keep temperatures stable. The real test was summer: with the rack closed and ambient room temperature at 28°C, the Proxmox host's NVMe was hitting 72°C under sustained load. After adding the P12s as exhaust pulling warm air out the top, that dropped to 58°C. The key detail: I mounted them as exhaust, not intake. In a small rack, pulling hot air out is more effective than pushing cool air in, because the perforated shelf already provides passive intake from below.
 
-**Power Delivery:** Everything is powered by a [DIGITUS 4-Way 10-Inch PDU\*](https://amzn.to/3RiBttM) mounted at the very bottom. It fits perfectly in the 10" profile and keeps the cable clutter to a minimum.
+**Power Delivery:** Everything is powered by a [DIGITUS 4-Way 10-Inch PDU\*](/go/3RiBttM) mounted at the very bottom. It fits perfectly in the 10" profile and keeps the cable clutter to a minimum.
 
 Knowing the idle draw of the entire rack (47W) versus under load (120W) tells you exactly how much UPS capacity you need and whether a given mini PC upgrade is worth the thermal cost.
 
@@ -33,19 +33,19 @@ Knowing the idle draw of the entire rack (47W) versus under load (120W) tells yo
 
 This is the workhorse of the entire lab. Everything from the [local AI stack running Ollama](/blog/deploying-gemma-proxmox-iac/) to the bulk of my K3s worker nodes lives here.
 
-I run an older BMAX B5A Pro (Ryzen 7 5825U), but if you are buying one today, the upgraded [BMAX Ryzen 7 8745HS Mini PC\*](https://amzn.to/4bv3yF1) is the direct successor with a much faster Radeon 780M GPU and DDR5 support.
+I run an older BMAX B5A Pro (Ryzen 7 5825U), but if you are buying one today, the upgraded [BMAX Ryzen 7 8745HS Mini PC\*](/go/4bv3yF1) is the direct successor with a much faster Radeon 780M GPU and DDR5 support.
 
-**The Memory Upgrade:** Out of the box, these mini PCs usually ship with modest RAM. I upgraded my node to 64GB using a [Crucial 64GB DDR4 SODIMM Kit\*](https://amzn.to/3QZejZn) (or the [Crucial 64GB DDR5 SODIMM Kit\*](https://amzn.to/4aUt06I) if you go with the newer DDR5-based BMAX model). I chose Crucial specifically because mini-PC platforms can be picky with memory compatibility, and I wanted 24/7 rock-solid stability. The 64GB is not luxury, it's the minimum for running a K3s control plane, several worker workloads, and local LLM inference simultaneously without resource contention. The OOM cascade I wrote about in [How a 1 GiB Memory Limit Took Down My Entire k3s Cluster](/blog/k3s-cascading-failure-oomkill-dns-storm) was partly caused by underestimating how quickly memory fills when Proxmox balloons down and kubelet reads the wrong capacity.
+**The Memory Upgrade:** Out of the box, these mini PCs usually ship with modest RAM. I upgraded my node to 64GB using a [Crucial 64GB DDR4 SODIMM Kit\*](/go/3QZejZn) (or the [Crucial 64GB DDR5 SODIMM Kit\*](/go/4aUt06I) if you go with the newer DDR5-based BMAX model). I chose Crucial specifically because mini-PC platforms can be picky with memory compatibility, and I wanted 24/7 rock-solid stability. The 64GB is not luxury, it's the minimum for running a K3s control plane, several worker workloads, and local LLM inference simultaneously without resource contention. The OOM cascade I wrote about in [How a 1 GiB Memory Limit Took Down My Entire k3s Cluster](/blog/k3s-cascading-failure-oomkill-dns-storm) was partly caused by underestimating how quickly memory fills when Proxmox balloons down and kubelet reads the wrong capacity.
 
-**Backup Storage:** For local backups and raw file storage, I have a [Seagate Portable 2TB External HDD\*](https://amzn.to/4vxwLpY) connected directly via USB. It's the offsite sync target that the [disaster recovery runbook](/blog/backup-restore-test-never-verified-network-conflict) references, deliberately local-only, because depending on the thing you're backing up *away from* failing defeats the purpose.
+**Backup Storage:** For local backups and raw file storage, I have a [Seagate Portable 2TB External HDD\*](/go/4vxwLpY) connected directly via USB. It's the offsite sync target that the [disaster recovery runbook](/blog/backup-restore-test-never-verified-network-conflict) references, deliberately local-only, because depending on the thing you're backing up *away from* failing defeats the purpose.
 
 ### Edge Nodes
 
 For redundant, low-power edge compute (Keepalived nodes, lightweight K3s agents, and local DNS), I run a Raspberry Pi cluster:
 
-I originally started with the [db-tronic Raspberry Pi 4 (8GB) Starter Set\*](https://amzn.to/4wNS0oI). It came as a complete kit with a case, power supply, and SD card, which saves a lot of time ordering components separately.
+I originally started with the [db-tronic Raspberry Pi 4 (8GB) Starter Set\*](/go/4wNS0oI). It came as a complete kit with a case, power supply, and SD card, which saves a lot of time ordering components separately.
 
-If you are building a new node today, I'd highly recommend going straight for the newer [db-tronic Raspberry Pi 5 (8GB) Starter Set\*](https://amzn.to/4wETNfv), as the performance jump for containerized workloads is massive.
+If you are building a new node today, I'd highly recommend going straight for the newer [db-tronic Raspberry Pi 5 (8GB) Starter Set\*](/go/4wETNfv), as the performance jump for containerized workloads is massive.
 
 The Pis run AdGuard Home and Unbound for the entire network's DNS, in an active/passive pair via Keepalived. Physical hardware means no Proxmox snapshot, no PBS backup, no `terraform destroy && apply` to recover. That's why the [hardening pass](/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables): watchdog, fail2ban, nftables, matters so much. A k3s pod that crashes gets rescheduled in seconds. A Raspberry Pi that hard-hangs stays hung until someone pulls the power.
 
@@ -53,11 +53,11 @@ The Pis run AdGuard Home and Unbound for the entire network's DNS, in an active/
 
 The networking layer is where most of the actual engineering happens, this is the physical backbone behind the MikroTik VLAN filtering and Zero-Trust firewall articles.
 
-**The Gateway:** My setup is fed by an [AVM FRITZ!Box 6591 Cable Modem\*](https://amzn.to/4f5WDEI) (if you want the modern Wi-Fi 6 equivalent, look at the [FRITZ!Box 6690 Cable\*](https://amzn.to/4f2yuid)).
+**The Gateway:** My setup is fed by an [AVM FRITZ!Box 6591 Cable Modem\*](/go/4f5WDEI) (if you want the modern Wi-Fi 6 equivalent, look at the [FRITZ!Box 6690 Cable\*](/go/4f2yuid)).
 
-**Core Router:** Behind the modem sits the brain of my network: the [MikroTik RB5009 Router\*](https://amzn.to/4w08b21). This single device replaced what used to be a separate router and a dumb switch. RouterOS gives me full VLAN filtering, firewall rules, and WireGuard VPN termination, all managed through Terraform.
+**Core Router:** Behind the modem sits the brain of my network: the [MikroTik RB5009 Router\*](/go/4w08b21). This single device replaced what used to be a separate router and a dumb switch. RouterOS gives me full VLAN filtering, firewall rules, and WireGuard VPN termination, all managed through Terraform.
 
-**Cabling:** To connect the router, patch panel, and servers inside the tight space of the 10-inch rack, I use short, high-quality [deleyCON 0.5m CAT7 Patch Cables\*](https://amzn.to/4plOgZ5). Using 50cm cables keeps the rack looking clean without needing complex cable management bars.
+**Cabling:** To connect the router, patch panel, and servers inside the tight space of the 10-inch rack, I use short, high-quality [deleyCON 0.5m CAT7 Patch Cables\*](/go/4plOgZ5). Using 50cm cables keeps the rack looking clean without needing complex cable management bars.
 
 I picked the RB5009 specifically over MikroTik's cheaper hEX or hAP models because of the switch chip. Full hardware offloading for VLAN-tagged traffic matters once you're running a Proxmox trunk port carrying multiple VLANs. Software-switched VLANs on cheaper models introduce latency you *will* notice under sustained load.
 
@@ -91,20 +91,20 @@ A homelab is never truly finished, and you need the right tools to maintain it (
 
 ### Essential Tools
 
-**The Tool Kit:** Every time I need to open a mini PC or swap an M.2 SSD, I reach for the [iFixit Pro Tech Toolkit\*](https://amzn.to/4wKbVEW). It has every security bit imaginable and is practically a lifetime investment.
+**The Tool Kit:** Every time I need to open a mini PC or swap an M.2 SSD, I reach for the [iFixit Pro Tech Toolkit\*](/go/4wKbVEW). It has every security bit imaginable and is practically a lifetime investment.
 
-**Labeling:** You cannot run VLANs and complex patch panels without labeling your cables. I use the [Brother PT-H110 Label Maker\*](https://amzn.to/4wcr4PG) to keep my sanity when tracing connections. After the third time spending 20 minutes tracing a cable because "I'll remember which one that is," I bought this. Should have been the first purchase.
+**Labeling:** You cannot run VLANs and complex patch panels without labeling your cables. I use the [Brother PT-H110 Label Maker\*](/go/4wcr4PG) to keep my sanity when tracing connections. After the third time spending 20 minutes tracing a cable because "I'll remember which one that is," I bought this. Should have been the first purchase.
 
-**Cable Management:** No plastic zip ties inside the rack! I use [15m Roll of Velcro Cable Ties\*](https://amzn.to/4bnvY3K) because they are reusable and don't damage the copper inside your CAT7 cables.
+**Cable Management:** No plastic zip ties inside the rack! I use [15m Roll of Velcro Cable Ties\*](/go/4bnvY3K) because they are reusable and don't damage the copper inside your CAT7 cables.
 
-**Power Monitoring:** Because power prices in Germany are no joke, I run my entire rack through a [TP-Link Tapo P110 Smart Plug with Energy Monitoring\*](https://amzn.to/3STKPwD) so I can track the exact wattage and idle draw.
+**Power Monitoring:** Because power prices in Germany are no joke, I run my entire rack through a [TP-Link Tapo P110 Smart Plug with Energy Monitoring\*](/go/3STKPwD) so I can track the exact wattage and idle draw.
 
 ### Recommended Reading
 
-- [Designing Data-Intensive Applications by Martin Kleppmann\*](https://amzn.to/4aUtkCs): The absolute holy grail for understanding distributed systems, databases, and scalability. Essential for anyone running Kubernetes.
-- [The Phoenix Project by Gene Kim\*](https://amzn.to/4f4RHQf): A novel about IT and DevOps. It's highly entertaining and will feel painfully familiar to anyone working in tech.
-- [The Linux Command Line by William Shotts\*](https://amzn.to/4gEAhv9): The best introduction to mastering the bash shell, which you will need daily when managing headless servers.
-- [Netzwerke: Verstehen, Einrichten, Administrieren\*](https://amzn.to/4f3kTar): A fantastic, comprehensive German guide to understanding network architecture from the ground up.
+- [Designing Data-Intensive Applications by Martin Kleppmann\*](/go/4aUtkCs): The absolute holy grail for understanding distributed systems, databases, and scalability. Essential for anyone running Kubernetes.
+- [The Phoenix Project by Gene Kim\*](/go/4f4RHQf): A novel about IT and DevOps. It's highly entertaining and will feel painfully familiar to anyone working in tech.
+- [The Linux Command Line by William Shotts\*](/go/4gEAhv9): The best introduction to mastering the bash shell, which you will need daily when managing headless servers.
+- [Netzwerke: Verstehen, Einrichten, Administrieren\*](/go/4f3kTar): A fantastic, comprehensive German guide to understanding network architecture from the ground up.
 
 ---
 

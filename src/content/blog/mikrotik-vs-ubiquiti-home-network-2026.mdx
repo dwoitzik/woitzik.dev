@@ -11,7 +11,7 @@ import AffiliateLink from "@components/AffiliateLink.astro";
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
-This is the networking debate that never dies in homelab circles: MikroTik or Ubiquiti? I have run both in production — <AffiliateLink href="https://amzn.to/4w08b21">MikroTik RB5009</AffiliateLink> as my primary router for over two years with every firewall rule and VLAN managed via Terraform, and Ubiquiti UniFi gear in a friend's lab where I helped with deployment. This is not a spec-sheet comparison. It is a practical breakdown of what each platform actually delivers for a homelab that runs Proxmox, K3s, and zero-trust networking.
+This is the networking debate that never dies in homelab circles: MikroTik or Ubiquiti? I have run both in production — <AffiliateLink href="/go/4w08b21">MikroTik RB5009</AffiliateLink> as my primary router for over two years with every firewall rule and VLAN managed via Terraform, and Ubiquiti UniFi gear in a friend's lab where I helped with deployment. This is not a spec-sheet comparison. It is a practical breakdown of what each platform actually delivers for a homelab that runs Proxmox, K3s, and zero-trust networking.
 
 ## TL;DR — The Verdict
 
@@ -41,7 +41,7 @@ The short version: MikroTik is for engineers who want to own their network stack
 
 ### Design & Build Quality
 
-The **RB5009** is an industrial-looking metal box. No Wi-Fi, no antennas, no RGB. It has 7 Gigabit Ethernet ports, one 10G SFP+ cage, and a USB 3.0 port. The metal chassis dissipates heat passively — no fan, no noise. It is designed to live in a rack or on a shelf without anyone noticing it. At 100x155x33mm, it is compact enough to mount in a 10-inch rack (I use a [DIGITUS 10" rack\*](https://amzn.to/4pGBkxb) for mine).
+The **RB5009** is an industrial-looking metal box. No Wi-Fi, no antennas, no RGB. It has 7 Gigabit Ethernet ports, one 10G SFP+ cage, and a USB 3.0 port. The metal chassis dissipates heat passively — no fan, no noise. It is designed to live in a rack or on a shelf without anyone noticing it. At 100x155x33mm, it is compact enough to mount in a 10-inch rack (I use a [DIGITUS 10" rack\*](/go/4pGBkxb) for mine).
 
 The **UniFi Dream Router** (UDR) is designed to be seen. It is a white, cylindrical unit with a built-in Wi-Fi 6 access point and a small LED status ring. It looks like something from a modern living room, not a server closet. The build quality is good — solid plastic, well-ventilated — but it is designed for desk or shelf placement, not rack mounting. The form factor says "consumer product" while the RB5009 says "networking equipment."
 

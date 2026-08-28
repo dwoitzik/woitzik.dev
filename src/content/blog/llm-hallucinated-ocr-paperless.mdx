@@ -115,6 +115,6 @@ The debugging lesson: when a system fails in two different ways (sometimes fabri
 
 AI model misconfiguration in production has the same pattern: a model that can't process the input type it's given will produce plausible-looking but wrong output, and there's no automatic error. Azure OpenAI's vision models require explicit multimodal input formatting — sending a raw image to a text-only deployment doesn't error, it just ignores the image and responds to any text in the prompt. The fix is the same: verify that your model's capabilities match your input types, and test with known inputs before trusting the output.
 
-The LXC running this workload is on an older BMAX B5A Pro (Ryzen 7 5825U) — the ROCm gap described above is specific to that chip. If you're buying a mini PC for this kind of local-inference box today, the [BMAX Ryzen 7 8745HS Mini PC\*](https://amzn.to/4bv3yF1) is the direct successor with a much stronger Radeon 780M iGPU.
+The LXC running this workload is on an older BMAX B5A Pro (Ryzen 7 5825U) — the ROCm gap described above is specific to that chip. If you're buying a mini PC for this kind of local-inference box today, the [BMAX Ryzen 7 8745HS Mini PC\*](/go/4bv3yF1) is the direct successor with a much stronger Radeon 780M iGPU.
 
 <NewsletterCTA />

@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
-I already run `kube-prometheus-stack` with Prometheus, Grafana, and Loki, full observability for everything inside the cluster. But host-level metrics like CPU temperature, disk health, and per-node resource usage on the Proxmox VMs and bare-metal nodes needed something separate. The node-exporter inside kube-prometheus handles k3s nodes, but the non-Kubernetes hosts, the [Raspberry Pi 5\*](https://amzn.to/4wETNfv) edge nodes and the [BMAX Mini PC\*](https://amzn.to/4bv3yF1) running Proxmox itself, were a blind spot.
+I already run `kube-prometheus-stack` with Prometheus, Grafana, and Loki, full observability for everything inside the cluster. But host-level metrics like CPU temperature, disk health, and per-node resource usage on the Proxmox VMs and bare-metal nodes needed something separate. The node-exporter inside kube-prometheus handles k3s nodes, but the non-Kubernetes hosts, the [Raspberry Pi 5\*](/go/4wETNfv) edge nodes and the [BMAX Mini PC\*](/go/4bv3yF1) running Proxmox itself, were a blind spot.
 
 The obvious answer was another exporter. The realistic answer was that I didn't want to manage another exporter, another Prometheus scrape config, and another set of dashboards for something that only needs to answer "is this machine healthy right now?"
 

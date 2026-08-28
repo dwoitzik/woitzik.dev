@@ -36,7 +36,7 @@ Each app's own pod also mounts its PVC subdirectory separately. Velero backs tha
 
 ## The First Hypothesis (Wrong)
 
-My first guess was `garage-data/immich-library` — Immich's photo library, which lives on separate USB-attached disks ([Seagate Portable 2TB External HDD&#42;](https://amzn.to/4vxwLpY)). Excluding it would have reduced backup size, but the USB disks aren't on the contended rpool. The backup bottleneck was the SSD, not USB. Excluding the Immich volume would have been the wrong fix for the right symptom.
+My first guess was `garage-data/immich-library` — Immich's photo library, which lives on separate USB-attached disks ([Seagate Portable 2TB External HDD&#42;](/go/4vxwLpY)). Excluding it would have reduced backup size, but the USB disks aren't on the contended rpool. The backup bottleneck was the SSD, not USB. Excluding the Immich volume would have been the wrong fix for the right symptom.
 
 ## The Right Fix
 

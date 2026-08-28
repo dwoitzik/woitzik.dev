@@ -105,6 +105,6 @@ That's the property worth building a habit around: after any infrastructure migr
 
 The same failure mode applies directly to Azure. Migrating a workload from AKS to a VM (or from a VMSS behind an Application Gateway to a standalone VM) can silently remove WAF rules, identity-based authentication, or Private Endpoint network restrictions that were provided by the original deployment layer. The migration itself succeeds. The traffic flows. The security controls evaporate quietly. The right time to check is during the migration, not after a security review flags it.
 
-This is the same class of failure [The Phoenix Project\*](https://amzn.to/4f4RHQf) spends a lot of pages on: the handoff between teams is where invariants quietly stop being true.
+This is the same class of failure [The Phoenix Project\*](/go/4f4RHQf) spends a lot of pages on: the handoff between teams is where invariants quietly stop being true.
 
 <NewsletterCTA />
