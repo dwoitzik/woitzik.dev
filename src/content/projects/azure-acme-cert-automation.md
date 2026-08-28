@@ -2,7 +2,7 @@
 title: "Azure ACME Certificate Automation"
 description: "Terraform wrapper to deploy Acmebot on Azure — automated Let's Encrypt certificates stored in Key Vault, VNet-isolated, zero-maintenance."
 date: "2026-02-10"
-repoURL: "https://github.com/dwoitzik/azure-acme-cert-automation"
+repoURL: "https://github.com/dwoitzik/terraform-azurerm-acme-cert"
 ---
 
 VNet-isolated certificate automation for Azure. Deploys the open-source Acmebot engine with the surrounding Terraform infrastructure — Storage, Key Vault, IAM, and a hardened App Service Plan, all behind Private Endpoints.

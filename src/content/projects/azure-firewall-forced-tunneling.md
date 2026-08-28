@@ -2,7 +2,7 @@
 title: "Azure Firewall Forced Tunneling"
 description: "Terraform template for Azure Firewall with forced tunneling — routes all internet-bound traffic through the firewall without breaking Windows VMs or Managed Identities."
 date: "2026-02-28"
-repoURL: "https://github.com/dwoitzik/azure-firewall-forced-tunneling"
+repoURL: "https://github.com/dwoitzik/terraform-azurerm-firewall-forced-tunneling"
 ---
 
 Forced tunneling in Azure requires routing all internet-bound traffic through Azure Firewall — but the default Terraform setup hits a cycle error and breaks Windows activation and Azure AD authentication.
