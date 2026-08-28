@@ -5,6 +5,35 @@ const ROOT = resolve(import.meta.dirname, "..");
 const QUEUE_DIR = resolve(ROOT, "content-queue/blog");
 const BLOG_DIR = resolve(ROOT, "src/content/blog");
 
+const SITE_URL = "https://woitzik.dev";
+// Key file lives at public/<key>.txt (served at the site root) - IndexNow
+// verifies ownership by fetching it, no account/registration involved.
+const INDEXNOW_KEY = "d3fa48a9db675c01bf0a0863f0672b6d";
+
+// Pings the shared IndexNow endpoint, which fans out to every participating
+// engine (Bing, Yandex, etc - not Google, which doesn't support the
+// protocol). Best-effort: a failed ping here shouldn't fail the publish step,
+// the article is already live either way and will get crawled eventually.
+async function pingIndexNow(slugs) {
+  if (slugs.length === 0) return;
+  const urlList = slugs.map((slug) => `${SITE_URL}/blog/${slug}/`);
+  try {
+    const res = await fetch("https://api.indexnow.org/indexnow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({
+        host: new URL(SITE_URL).hostname,
+        key: INDEXNOW_KEY,
+        keyLocation: `${SITE_URL}/${INDEXNOW_KEY}.txt`,
+        urlList,
+      }),
+    });
+    console.log(`IndexNow: submitted ${urlList.length} URL(s), status ${res.status}`);
+  } catch (err) {
+    console.warn(`IndexNow submission failed (non-fatal): ${err.message}`);
+  }
+}
+
 function frontmatterDate(content) {
   const match = content.match(/^date:\s*"([^"]+)"/m);
   if (!match) return null;
@@ -54,6 +83,8 @@ if (withDates.length > 0) {
 } else {
   console.log("Nothing due for publishing today.");
 }
+
+await pingIndexNow(published.map((file) => file.replace(/\.mdx$/, "")));
 
 // Emit for GitHub Actions to decide whether to commit/push
 if (process.env.GITHUB_OUTPUT) {
