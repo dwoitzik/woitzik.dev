@@ -28,6 +28,10 @@ const { title, description, image, type, publishedTime, tags } = Astro.props;
       publishedTime={publishedTime}
       tags={tags}
     />
+    <script
+      src="https://analytics.woitzik.dev/api/script.js"
+      data-site-id="a52de9f046eb"
+      defer></script>
   </head>
   <body>
     <a
@@ -83,6 +87,13 @@ const { title, description, image, type, publishedTime, tags } = Astro.props;
               url: href,
               slug: slug,
               page_path: location.pathname,
+            });
+          }
+          if (window.rybbit && typeof window.rybbit.event === "function") {
+            window.rybbit.event("affiliate_click", {
+              url: href,
+              slug: slug,
+              page: location.pathname,
             });
           }
         }

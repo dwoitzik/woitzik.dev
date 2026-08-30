@@ -24,3 +24,5 @@ pnpm-debug.log*
 .auth/
 .post-crossposts.sh
 scripts/.hackernoon-posted.json
+.vercel
+.env*
