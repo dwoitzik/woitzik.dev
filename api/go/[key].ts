@@ -24,7 +24,7 @@ const ASINS: Record<string, string> = {
   "4gEAhv9": "1718504527",
   "4gGnuZ3": "B0CJM1TDHL",
   "4gN53Sv": "B0FND44C4X",
-  "4hmdcNX": "B0CF66JB31",
+  "4hmdcNX": "B0FB7KQLR1", // Synology DS225+ (successor to DS224+, article updated 2026-09-02)
   "4pGBkxb": "B086NHM33N",
   "4plOgZ5": "B06XCXNB59",
   "4ptIiVP": "B0FB2XPTKC",

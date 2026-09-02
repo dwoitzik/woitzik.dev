@@ -18,13 +18,13 @@ But the NAS market in 2026 is crowded. Synology still dominates mindshare, QNAP 
 
 | Model | Bays | CPU | RAM | Price (approx.) | Best For |
 |---|---|---|---|---|---|
-| [Synology DS224+*](/go/4hmdcNX) | 2 | Intel Celeron J4125 | 2GB (expandable) | ~€300 | Best Overall |
+| [Synology DS225+*](/go/4hmdcNX) | 2 | Intel Celeron J4125 | 2GB (expandable) | ~€330 | Best Overall |
 | [QNAP TS-264*](/go/3T4phNT) | 2 | Intel Celeron N5095 | 8GB | ~€350 | Best Features |
 | [Terramaster F2-223*](/go/3T4phgR) | 2 | Intel Celeron N4505 | 4GB | ~€200 | Best Budget |
 | [Synology DS423+*](/go/4ptIiVP) | 4 | Intel Celeron J4125 | 2GB (expandable) | ~€500 | Best for Growth |
 | [UGREEN DXP2800*](/go/4fqnkmc) | 2 | Intel N100 | 8GB | ~€280 | Best Newcomer |
 
-If you want the short version: the **Synology DS224+** remains the default recommendation for anyone who wants a NAS that works reliably for 5+ years with minimal maintenance. If you need more bays and growth potential, the **Synology DS423+** is the investment pick. If budget matters and you are comfortable with less polish, the **Terramaster F2-223** punches well above its price.
+If you want the short version: the **Synology DS225+** remains the default recommendation for anyone who wants a NAS that works reliably for 5+ years with minimal maintenance. If you need more bays and growth potential, the **Synology DS423+** is the investment pick. If budget matters and you are comfortable with less polish, the **Terramaster F2-223** punches well above its price.
 
 ## Selection Criteria — What Matters in a Home Backup NAS
 
@@ -32,7 +32,7 @@ A NAS for home backup has different priorities than a NAS for media streaming or
 
 **Reliability over features** — You need a device that stays online 24/7, handles power loss gracefully, and does not corrupt your data during firmware updates. Synology leads here by a wide margin. QNAP's feature set is broader but their update track record is rougher.
 
-**Disk compatibility** — Not all NAS enclosures work well with all drives. Synology's drive compatibility list is restrictive (they now push their own HAT5300 drives), but this conservatism means fewer surprise failures. QNAP and Terramaster are more permissive.
+**Disk compatibility** — Not all NAS enclosures work well with all drives. Synology's drive compatibility list is restrictive (they now push their own HAT5300 drives), but this conservatism means fewer surprise failures. As of DSM 7.3 (October 2025), Synology walked back part of the 2024 lockout — third-party 3.5" HDDs and 2.5" SATA SSDs work again on 2025-generation Plus models without being blocked at install/pool-creation time, though M.2 NVMe cache SSDs are still restricted to validated drives. QNAP and Terramaster remain more permissive across the board.
 
 **Backup software** — The native backup application matters more than the hardware. Synology Active Backup for Business, Hyper Backup, and Snapshot Replication are best-in-class for consumer NAS. QNAP's Hybrid Backup Sync is powerful but more complex. Terramaster and UGREEN's software ecosystems are younger and less proven.
 
@@ -44,11 +44,11 @@ A NAS for home backup has different priorities than a NAS for media streaming or
 
 ## Individual Reviews
 
-### 1. Synology DS224+ — Best Overall
+### 1. Synology DS225+ — Best Overall
 
-2-Bay · Intel Celeron J4125 · 2GB DDR4 (expandable to 6GB) · ~€300
+2-Bay · Intel Celeron J4125 · 2GB DDR4 (expandable to 6GB) · ~€330
 
-The DS224+ is the NAS I recommend to everyone who asks, and the one I run myself. It is not the cheapest, not the fastest, and not the most feature-rich — it is the one that works without drama for years.
+The DS225+ is the NAS I recommend to everyone who asks, and the one I run myself. It is the direct successor to the DS224+ — same J4125 CPU and 2GB base RAM, with one real upgrade: a 2.5GbE port alongside the 1GbE port, replacing the older model's dual 1GbE. It is not the cheapest, not the fastest, and not the most feature-rich — it is the one that works without drama for years.
 
 Synology's DSM 7.2 operating system is the reason to buy this NAS. The interface is polished, the backup applications are mature, and the package ecosystem (Docker support, surveillance, media serving) covers every use case without feeling bloated. Hyper Backup handles encrypted, deduplicated backups to local drives, remote Synology NAS, and cloud targets (S3, Backblaze B2, Google Drive) with a single application.
 
@@ -99,11 +99,11 @@ The real advantage of the TS-264 is HDMI output. If you want a NAS that doubles 
 
 2-Bay · Intel Celeron N4505 · 4GB DDR4 · ~€200
 
-The Terramaster F2-223 is the budget pick that does not feel like a compromise in core functionality. At €200, it undercuts the Synology DS224+ by €100 while offering similar hardware: a dual-core Intel CPU, 4GB RAM (upgradeable), and dual GbE ports.
+The Terramaster F2-223 is the budget pick that does not feel like a compromise in core functionality. At €200, it undercuts the Synology DS225+ by €100 while offering similar hardware: a dual-core Intel CPU, 4GB RAM (upgradeable), and dual GbE ports.
 
 Terramaster's TOS 5 operating system is the weak point. It has improved significantly from TOS 4, which was genuinely bad, but it still lacks the polish and reliability of DSM or QTS. The Docker integration works, the backup applications exist, and the file sharing protocols (SMB, NFS, WebDAV) are functional — but the overall experience feels like using a first-generation product. The community is smaller, the documentation is thinner, and finding solutions to edge-case problems takes more effort.
 
-Where the F2-223 wins is raw value. The N4505 is a modern dual-core chip that handles file serving and light Docker workloads without issue. The 4GB base RAM is adequate for basic use. The dual GbE ports support link aggregation. And at €200, you can buy two of them for the price of one Synology DS224+ — which, if you need redundancy, is a compelling argument.
+Where the F2-223 wins is raw value. The N4505 is a modern dual-core chip that handles file serving and light Docker workloads without issue. The 4GB base RAM is adequate for basic use. The dual GbE ports support link aggregation. And at €200, you can buy two of them for the price of one Synology DS225+ — which, if you need redundancy, is a compelling argument.
 
 **Pros:**
 - Best price-to-hardware ratio
@@ -125,7 +125,7 @@ Where the F2-223 wins is raw value. The N4505 is a modern dual-core chip that ha
 
 The DS423+ is the NAS you buy when you know your storage needs will grow. Four bays with Synology Hybrid RAID (SHR) means you can start with two drives, add a third later, and a fourth later — without rebuilding the array from scratch each time.
 
-The J4125 CPU is the same as the DS224+, which means the same performance limitations apply. For file serving and backup, it is fine. For media transcoding, it is not. The value of the DS423+ is not in its CPU — it is in the four bays, the expandability, and the Synology ecosystem at a scale that grows with your data.
+The J4125 CPU is the same as the DS225+, which means the same performance limitations apply. For file serving and backup, it is fine. For media transcoding, it is not. The value of the DS423+ is not in its CPU — it is in the four bays, the expandability, and the Synology ecosystem at a scale that grows with your data.
 
 Max RAM is 32GB (via a single SO-DIMM slot), which is overkill for most home use but enables running Synology's Virtual Machine Manager with multiple lightweight VMs. The two built-in NVMe M.2 slots (for cache, not storage) improve random I/O for database-heavy applications.
 
@@ -135,12 +135,12 @@ Power consumption scales with drives: idle around 15-20W with four drives spun d
 - SHR with 4 bays — maximum flexibility for mixed drives
 - Expandable to 32GB RAM
 - NVMe cache slots for performance-sensitive workloads
-- Same reliable DSM 7.2 as the DS224+
+- Same reliable DSM 7.2 as the DS225+
 - 10GbE expandable via PCIe slot
 
 **Cons:**
 - €500 is a significant investment for a 4-bay consumer NAS
-- J4125 CPU is aging — same as the cheaper DS224+
+- J4125 CPU is aging — same as the cheaper DS225+
 - 2GB base RAM requires immediate upgrade
 - Power consumption with 4 active drives is meaningful
 - No hardware transcoding
@@ -173,23 +173,23 @@ The N100's idle power draw (~8-10W for the enclosure) is competitive with Synolo
 
 ## Head-to-Head Comparison
 
-| Feature | DS224+ | TS-264 | F2-223 | DS423+ | DXP2800 |
+| Feature | DS225+ | TS-264 | F2-223 | DS423+ | DXP2800 |
 |---|---|---|---|---|---|
 | CPU | J4125 (4C) | N5095 (4C) | N4505 (2C) | J4125 (4C) | N100 (4C) |
 | Base RAM | 2GB | 8GB | 4GB | 2GB | 8GB |
 | Max RAM | 6GB | 8GB | 32GB | 32GB | 16GB |
 | Bays | 2 | 2 | 2 | 4 | 2 |
-| NIC | 2x 1GbE | 2x 2.5GbE | 2x 1GbE | 2x 1GbE | 2x 2.5GbE |
+| NIC | 1x 2.5GbE + 1x 1GbE | 2x 2.5GbE | 2x 1GbE | 2x 1GbE | 2x 2.5GbE |
 | M.2 Slots | 2 (cache) | 2 (storage) | 0 | 2 (cache) | 2 (storage) |
 | HDMI | No | Yes (2.0) | No | No | No |
 | PCIe Slot | No | Yes | No | Yes | No |
 | Idle Power | ~10-12W | ~15-18W | ~8-10W | ~15-20W | ~8-10W |
 | OS | DSM 7.2 | QTS 5 | TOS 5 | DSM 7.2 | UGOS |
-| Price | ~€300 | ~€350 | ~€200 | ~€500 | ~€280 |
+| Price | ~€330 | ~€350 | ~€200 | ~€500 | ~€280 |
 
 ## Buyer's Guide
 
-**Buy the Synology DS224+ if:** You want a NAS that works reliably for 5+ years with minimal maintenance. DSM is the best NAS OS, Hyper Backup handles every backup scenario, and the ecosystem is proven. This is the default recommendation for 90% of home users.
+**Buy the Synology DS225+ if:** You want a NAS that works reliably for 5+ years with minimal maintenance. DSM is the best NAS OS, Hyper Backup handles every backup scenario, and the ecosystem is proven. This is the default recommendation for 90% of home users.
 
 **Buy the QNAP TS-264 if:** You need maximum features in a 2-bay form factor. HDMI output for direct media playback, dual 2.5GbE for fast network transfers, and 8GB RAM for Docker-heavy use cases. Be prepared to harden the security on day one.
 
@@ -199,7 +199,7 @@ The N100's idle power draw (~8-10W for the enclosure) is competitive with Synolo
 
 **Buy the UGREEN DXP2800 if:** You are betting on UGOS maturing and want the best hardware value today. The N100 + 8GB DDR5 + dual 2.5GbE combination is unbeatable at €280. Just be aware you are an early adopter.
 
-**For the homelab audience:** The Synology DS224+ with two 4TB drives in SHR-1 (mirroring) is the backbone of a 3-2-1 backup strategy. Pair it with a cloud sync target (Backblaze B2 or your own offsite S3-compatible endpoint) and you have a backup architecture that survives fire, theft, and ransomware. I run exactly this — the details are in the [disaster recovery runbook](/blog/backup-restore-test-never-verified-network-conflict).
+**For the homelab audience:** The Synology DS225+ with two 4TB drives in SHR-1 (mirroring) is the backbone of a 3-2-1 backup strategy. Pair it with a cloud sync target (Backblaze B2 or your own offsite S3-compatible endpoint) and you have a backup architecture that survives fire, theft, and ransomware. I run exactly this — the details are in the [disaster recovery runbook](/blog/backup-restore-test-never-verified-network-conflict).
 
 ## Frequently Asked Questions
 
@@ -233,8 +233,8 @@ For a single computer with non-critical data, an external drive is fine. For any
 
 ## Conclusion
 
-The NAS market in 2026 is defined by one question: do you trust the software or the hardware more? Synology's DS224+ has aging hardware but bulletproof software. The UGREEN DXP2800 has excellent hardware but unproven software. The QNAP TS-264 sits in between, with strong hardware and software that requires active security management.
+The NAS market in 2026 is defined by one question: do you trust the software or the hardware more? Synology's DS225+ has aging hardware but bulletproof software. The UGREEN DXP2800 has excellent hardware but unproven software. The QNAP TS-264 sits in between, with strong hardware and software that requires active security management.
 
-For a home backup NAS that runs 24/7 for the next five years, trust matters more than specs. The Synology DS224+ is the boring, reliable choice — and that is exactly what you want from the device holding your only copy of family photos and critical documents.
+For a home backup NAS that runs 24/7 for the next five years, trust matters more than specs. The Synology DS225+ is the boring, reliable choice — and that is exactly what you want from the device holding your only copy of family photos and critical documents.
 
-Buy the DS224+. Put two IronWolf drives in it. Configure Hyper Backup to sync to a cloud target. Verify the restore works once. Then forget about it — which is exactly how a backup system should behave.
+Buy the DS225+. Put two IronWolf drives in it. Configure Hyper Backup to sync to a cloud target. Verify the restore works once. Then forget about it — which is exactly how a backup system should behave.
