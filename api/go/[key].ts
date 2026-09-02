@@ -22,8 +22,9 @@ const ASINS: Record<string, string> = {
   "4f5WDEI": "B0DSPXJ2LS",
   "4fqnkmc": "B0D2K9J5TY",
   "4gEAhv9": "1718504527",
-  "4gGnuZ3": "B0CJM1TDHL",
-  "4gN53Sv": "B0FND44C4X",
+  "4gGnuZ3": "B0BZR8P4YS", // Beelink EQ12 (was wrong product B0CJM1TDHL, fixed 2026-09-02)
+  "4gN53Sv": "B0CQ4WBV8L", // GMKtec NucBox K6 7840HS/32GB/1TB (was wrong product B0FND44C4X, fixed 2026-09-02)
+  "beelink-s12pro": "B0H2CY6X54",
   "4hmdcNX": "B0FB7KQLR1", // Synology DS225+ (successor to DS224+, article updated 2026-09-02)
   "4pGBkxb": "B086NHM33N",
   "4plOgZ5": "B06XCXNB59",
