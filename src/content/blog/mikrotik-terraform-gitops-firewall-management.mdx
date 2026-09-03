@@ -10,7 +10,7 @@ import AffiliateLink from "@components/AffiliateLink.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
-My <AffiliateLink href="https://amzn.to/4w08b21">MikroTik RB5009</AffiliateLink> has no manual RouterOS configuration. Every firewall rule, every VLAN interface, every DHCP static lease, every NAT port-forward — all of it lives in Terraform, reviewed via Atlantis pull requests, and applied through the same GitOps workflow that manages the Kubernetes cluster. This is the delivery pipeline underneath [the zero-trust default-deny firewall policy](/blog/mikrotik-zero-trust-firewall-terraform/) and [the VLAN matrix](/blog/mikrotik-vlan-filtering-terraform-proxmox/) — this article covers the Atlantis plumbing, not the rules themselves.
+My <AffiliateLink href="/go/4w08b21">MikroTik RB5009</AffiliateLink> has no manual RouterOS configuration. Every firewall rule, every VLAN interface, every DHCP static lease, every NAT port-forward — all of it lives in Terraform, reviewed via Atlantis pull requests, and applied through the same GitOps workflow that manages the Kubernetes cluster. This is the delivery pipeline underneath [the zero-trust default-deny firewall policy](/blog/mikrotik-zero-trust-firewall-terraform/) and [the VLAN matrix](/blog/mikrotik-vlan-filtering-terraform-proxmox/) — this article covers the Atlantis plumbing, not the rules themselves.
 
 This article covers the full implementation: the `locals` block that drives the VLAN matrix, the `place_before` pattern for deterministic firewall ordering, and how a router's LED schedule ended up in Terraform.
 
