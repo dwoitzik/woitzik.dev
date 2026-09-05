@@ -160,12 +160,14 @@ The `restartPolicy: Never` with `backoffLimit: 2` means the CronJob retries twic
 
 ## The Lesson
 
-Silent failures in CronJobs are the most dangerous failure mode in a Kubernetes cluster — the same "reports success but did nothing real" pattern as [ArgoCD showing `Synced/Healthy` on an Application that never actually applied](/blog/gitops-merged-not-applied-argocd-drift/). The job "succeeds," the operator doesn't check, and the dependency update pipeline silently stops working. Weeks pass without updates, security patches don't apply, and nobody notices until a vulnerability is disclosed for a package that Renovate would have updated.
+Silent failures in CronJobs are the most dangerous failure mode in a Kubernetes cluster — the same "reports success but did nothing real" pattern as ArgoCD showing `Synced/Healthy` on an Application that never actually applied. The job "succeeds," the operator doesn't check, and the dependency update pipeline silently stops working. Weeks pass without updates, security patches don't apply, and nobody notices until a vulnerability is disclosed for a package that Renovate would have updated.
 
 The fix isn't just more memory — it's observability on the pipeline itself. Every CronJob that performs a critical function should have a post-run verification that confirms it actually did its job, not just that it exited cleanly.
 
 ---
 
 CronJob observability is the same problem in Azure DevOps: a pipeline that succeeds but produces no artifact is indistinguishable from a pipeline that didn't run. Azure Monitor's Pipeline Analytics tracks success rate, not "did the pipeline produce meaningful output." The fix in both cases is the same: add a verification step that checks for the expected outcome (PRs opened, artifacts published, deployments completed) and alerts on absence.
+
+[The Phoenix Project\*](/go/4f4RHQf) tells the same story from the human side of this exact failure mode - the automated system that everyone assumes is working, until someone finally checks.
 
 <NewsletterCTA />

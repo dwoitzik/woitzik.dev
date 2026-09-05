@@ -133,12 +133,14 @@ PostgreSQL (via CNPG) doesn't have the SQLite lock problem because it uses its o
 
 `local-path` means the PVC is pinned to one node. If the pod reschedules, it loses access to the data. For Garage, this is acceptable: Garage runs on a single node, and if that node goes down, the S3 data is unavailable regardless (it's on the same host).
 
-For databases that need HA (Postgres, Redis), the solution isn't `local-path` or NFS — it's a managed operator ([CNPG for Postgres](/blog/cnpg-postgresql-operator-k3s/)) that handles replication and failover independently of the storage layer.
+For databases that need HA (Postgres, Redis), the solution isn't `local-path` or NFS — it's a managed operator (CNPG for Postgres) that handles replication and failover independently of the storage layer.
 
 The principle: **if the application uses file-level locking (SQLite, BoltDB, LMDB), it goes on local-path. If it uses network-level locking (PostgreSQL, MySQL), it goes on NFS or a managed operator.**
 
 ---
 
 SQLite on NFS is the same failure mode as running SQLite on an SMB share in a Windows domain: the file-locking semantics are fundamentally incompatible. In Azure, this maps to Azure Files (SMB-backed) vs. Azure Disk (block storage). Azure Files supports SMB locks but has the same delegation latency issues under concurrent access — any application that needs tight file-level locking should use Azure Disks, not Azure Files. The principle is identical: embedded databases need local, low-latency storage with native file-locking support.
+
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) covers exactly this class of correctness assumption — what a storage layer actually guarantees about concurrent access versus what an application silently assumes it guarantees — in far more depth than a corrupted `db.sqlite` file teaches you in the moment.
 
 <NewsletterCTA />

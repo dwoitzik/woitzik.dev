@@ -78,7 +78,7 @@ spec:
 
 ## The Backup Sidecar
 
-CNPG uses Barman for backups. The `barmanObjectStore` section points to [a MinIO instance running in the cluster](/blog/minio-s3-storage-k3s-homelab/), kept deliberately separate from the Garage bucket Velero uses. Backups run daily by default. The `retentionPolicy: "30d"` keeps 30 days of backups.
+CNPG uses Barman for backups. The `barmanObjectStore` section points to a MinIO instance running in the cluster, kept deliberately separate from the Garage bucket Velero uses. Backups run daily by default. The `retentionPolicy: "30d"` keeps 30 days of backups.
 
 To trigger a manual backup:
 

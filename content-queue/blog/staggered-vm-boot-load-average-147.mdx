@@ -83,7 +83,7 @@ NFS itself depends on ZFS — the NFS export directory lives on the ZFS pool. ZF
 
 ## The CPU Scheduling Priority
 
-Beyond boot order, k3s VMs get [CPU scheduling priority via `cpu.units`](/blog/cpu-scheduling-etcd-proxmox-units/):
+Beyond boot order, k3s VMs get CPU scheduling priority via `cpu.units`:
 
 ```hcl
 # k3s VMs get 2x scheduling priority
@@ -132,5 +132,7 @@ The staggering didn't add total boot time — it redistributed the I/O load over
 ---
 
 Boot storm mitigation is the same problem in Azure: when you scale out a VMSS from 0 to 50 instances, all 50 hit the Azure fabric simultaneously. Azure handles this with staggered placement and shared disks, but the principle is identical — spread the I/O load over time instead of concentrating it. In a homelab, you do it yourself with `startup.order` and `startup.up` delays.
+
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) has a genuinely useful framing for this kind of thundering-herd problem, even though it's written about databases rather than hypervisors - the queueing math behind "everything wants the same resource at the same instant" doesn't care what the resource actually is.
 
 <NewsletterCTA />

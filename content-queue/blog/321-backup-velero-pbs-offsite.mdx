@@ -89,7 +89,7 @@ spec:
     ttl: 168h  # 7 days
 ```
 
-Waiting on a Cloudflare R2 account with real API credentials. R2 has no egress fees and no API rate limiting for the volume this backup produces (~4 GB/day). Activating it also fixes a second problem beyond throttling: [Garage runs inside the same cluster Velero is protecting](/blog/velero-backup-circularity-garage-r2-offsite/), so an in-cluster-only backup target is circular regardless of how fast it uploads.
+Waiting on a Cloudflare R2 account with real API credentials. R2 has no egress fees and no API rate limiting for the volume this backup produces (~4 GB/day). Activating it also fixes a second problem beyond throttling: Garage runs inside the same cluster Velero is protecting, so an in-cluster-only backup target is circular regardless of how fast it uploads.
 
 ## The Restore Gotcha
 

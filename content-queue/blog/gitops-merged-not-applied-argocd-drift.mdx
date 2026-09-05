@@ -52,7 +52,7 @@ done
 
 The audit found approximately 14 directories with the same untracked-after-bootstrap gap - no current drift in most of them, but nothing preventing drift from accumulating silently if files were added there in the future.
 
-This is the same class of gap that [a GitHub Actions Terraform-plan-to-Slack alert](/blog/github-actions-terraform-plan-slack/) is designed to close on the Terraform side — a green pipeline or a `Synced` badge tells you the command ran, not that the running state matches intent.
+This is the same class of gap that a GitHub Actions Terraform-plan-to-Slack alert is designed to close on the Terraform side — a green pipeline or a `Synced` badge tells you the command ran, not that the running state matches intent.
 
 ## The First Live Finding: Traefik allowCrossNamespace
 
@@ -154,5 +154,7 @@ None of these are expensive. They're all one-liners. The cost of skipping them -
 ---
 
 The same GitOps verification gap exists in Azure DevOps pipelines and GitHub Actions that deploy Terraform or Helm. A pipeline that reports "succeeded" proves that the deployment command ran without error - it doesn't prove that the cluster's running state matches the manifest. Checking the running state directly, after deployment, is the only check that closes the gap.
+
+[The Phoenix Project\*](/go/4f4RHQf) is still the sharpest account I know of exactly this gap between "the change was made" and "the change took effect" - fiction, but painfully accurate about how it actually happens.
 
 <NewsletterCTA />

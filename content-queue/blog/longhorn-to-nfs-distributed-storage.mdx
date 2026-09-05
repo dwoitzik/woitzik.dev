@@ -96,7 +96,7 @@ After migrating from Longhorn to NFS, I defined the rule:
 
 | Application | Storage Class | Reason |
 |---|---|---|
-| PostgreSQL ([CNPG](/blog/cnpg-postgresql-operator-k3s/)) | local-path | CNPG manages its own replication |
+| PostgreSQL (CNPG) | local-path | CNPG manages its own replication |
 | Garage S3 metadata | local-path | [SQLite file-locking (the NFS trap)](/blog/nfs-vs-local-path-sqlite-trap/) |
 | Mealie, Home Assistant | local-path | SQLite databases |
 | Everything else | nfs-client | Default, survives pod rescheduling |
@@ -131,5 +131,7 @@ After the migration, Longhorn was uninstalled. The cluster went from three stora
 ---
 
 Distributed storage on a single host is the same anti-pattern as Azure Zone-Redundant Storage across availability zones that share the same power source. If the underlying infrastructure isn't actually distributed, the replication layer adds complexity without adding resilience. The fix in both cases: match the storage topology to the actual infrastructure topology. Single host = single NFS server. Multi-host = distributed storage.
+
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) has the clearest explanation I've read of why replication only buys you resilience when the replicas are actually independent - which is the whole lesson of this migration in one sentence.
 
 <NewsletterCTA />

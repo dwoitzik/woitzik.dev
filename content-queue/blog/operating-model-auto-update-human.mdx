@@ -33,7 +33,7 @@ Renovate opens a PR, CI runs, and after 3 days of green the PR auto-merges. If t
 
 Stateful and critical services where a bad upgrade can cause data loss or auth outage:
 
-- **Databases:** [CNPG Postgres](/blog/cnpg-postgresql-operator-k3s/), Redis/Valkey
+- **Databases:** CNPG Postgres, Redis/Valkey
 - **Auth:** [Authelia](/blog/k3s-authelia-proxmox-homelab/), [Vault](/blog/vault-auto-unseal-polling-sidecar/)
 - **Storage:** [Garage S3](/blog/velero-garage-k3s-backup/), Velero
 - **Apps with data migrations:** Nextcloud, Paperless, Gitea, Immich
@@ -140,5 +140,7 @@ The operating model is a living document. As the cluster evolves (Cilium CNI, R2
 ---
 
 This operating model maps directly to enterprise SRE practices: SLO-based alerting replaces threshold alerting, runbooks define the human response for each alert type, and change management gates (like Atlantis's `apply` requirement) prevent unreviewed infrastructure changes. The difference is that enterprise environments have teams; a homelab has one person who needs to sleep through the night without Discord notifications.
+
+[The Phoenix Project\*](/go/4f4RHQf) is the book that most shaped this document - it's fiction, but the underlying argument (know exactly what's automated, what's gated, and why) is the same one this operating model tries to make explicit instead of leaving implicit.
 
 <NewsletterCTA />
