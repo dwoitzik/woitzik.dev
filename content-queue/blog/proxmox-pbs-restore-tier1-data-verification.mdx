@@ -1,0 +1,68 @@
+---
+title: "Recovering Tier-1 Data From a Dead Homelab Without Booting a Single Restored VM"
+description: "A full host rebuild starts with proving your data survived, not with booting anything. How I used read-only PBS restores, qemu-nbd disk mounts, and three independent backup layers to verify every stateful dataset before touching the live cluster."
+date: "2026-12-31"
+tags: ["Proxmox", "Backup", "Homelab", "Disaster Recovery"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+When my single [mini PC Proxmox host\*](/go/4bv3yF1) needed a full foundation rebuild - boot disk migration, kernel cleanup, the works - the first rule wasn't "start rebuilding." It was "prove nothing is lost before you touch anything." A rebuild you can't verify is just a slower way to lose data. There's no IPMI or out-of-band console on a consumer mini PC like this one - see the [full hardware tour](/blog/homelab-hardware-tour-physical-rack/) - so every recovery step here had to work over SSH or not at all.
+
+The three VMs at risk were the entire k3s control plane and worker set - every stateful PVC for Vaultwarden, Headscale, Vault, Authelia's Postgres, and more lived on their local-path storage. Before any host-level change happened, all three needed their data extracted and independently verified. Here's the methodology, including the one dataset that looked lost and genuinely wasn't.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Rule One: Restore to Scratch VMIDs, Never Boot Them
+
+Proxmox Backup Server's `qmrestore` will happily overwrite the original VMID, or spin up a fresh one that boots immediately. Neither is what you want when the goal is *inspection*, not *recovery-in-place*. The restore targeted scratch VMIDs (911/912/913, chosen specifically outside the original 211/212/213 range) on HDD-backed storage - not the host's NVMe - so the restore itself wouldn't add wear to the drive whose failure mode you might be trying to diagnose in the first place.
+
+```bash
+# Restore to a scratch VMID, on HDD storage, never the production range
+qmrestore <backup-id> 911 --storage media
+```
+
+None of these three VMs were ever started. A restored VM that boots starts writing to its disk immediately - new logs, DHCP renewals, cron jobs - which is the opposite of what you want when the entire point is a byte-for-byte read of what was actually there at backup time.
+
+## Rule Two: Mount Read-Only, Extract, Then Verify Against a Copy
+
+To actually look inside a restored disk without booting it, `qemu-nbd` maps the qcow2/raw image as a block device, which you then mount read-only:
+
+```bash
+qemu-nbd -r -c /dev/nbd0 /path/to/vm-911-disk-0.raw
+mount -o ro,noload /dev/nbd0p3 /mnt/inspect
+```
+
+`noload` matters here - it skips ext4 journal replay, which would otherwise write to the "read-only" mount to bring it to a consistent state. Without it, `ro` alone doesn't guarantee zero writes.
+
+Once mounted, the actual local-path PVC directories are just filesystem paths (`/var/lib/rancher/k3s/storage/`). A straight `rsync -a` from the read-only mount to a separate HDD-backed extraction directory gets everything off the restored disk without ever touching the mount itself.
+
+One finding this surfaced immediately: a worker node's local-path directory had three PVC directories that were byte-identical, file-count-identical duplicates of what the control-plane node already had - stale, orphaned copies from before those pods were rescheduled. Comparing mtimes settled which copy was current: the control-plane copies were dated to the actual backup window, the worker's copies were three weeks stale. Preserve both if you're not sure, but only trust the one whose timestamp matches reality.
+
+The one class of failure read-only mounts can't help with: databases that need to run their own recovery logic to be queryable. SQLite files opened directly against a `ro,noload` mount failed with locking-protocol errors - the same files opened fine once copied to a writable location, where SQLite could checkpoint its WAL normally. If you need to actually query a database from an extracted PVC, copy first, mount second.
+
+## Rule Three: One Missing Dataset, Three Independent Ways to Check
+
+Not every dataset came back clean. One service's PVC turned up as an empty 44KB skeleton - a config template, no database, no repository data - with a modification time weeks older than the disaster that supposedly caused the loss. That last detail mattered: if the PVC was already empty before anything went wrong, this wasn't a casualty of the rebuild, it was a pre-existing condition.
+
+Proving that took three separate, independent checks, not one:
+
+1. **Every VM disk in the backup set** - checked whether a current copy existed anywhere else in the restored disk set. It didn't; the only copy anywhere was the same stale skeleton.
+2. **The live NFS export layer** - a completely different storage path, unrelated to the k3s VM disks. The Ansible-managed `/etc/exports` listed a path for this exact service, but the directory didn't exist on disk at all - a phantom export, not a live copy.
+3. **The application-level backup layer** (a separate Velero/kopia S3 backup, entirely independent of the Proxmox VM snapshots) - stood up a temporary, single-node, read-only-backed instance of the backup target just to query it directly. It held exactly two snapshots of the matching PVC, both with identical content hashes, both matching the same empty skeleton already found on disk.
+
+Three unrelated recovery paths, three confirmations of the same state. That's what "verified lost" actually requires - not one check that comes back empty, but enough independent checks that a bug in any single one of them can't produce a false negative. The operator confirmed afterward that this service had never held real data worth preserving in the first place, closing it out as expected, not a loss.
+
+## The General Pattern
+
+Everything else - Vault's raft data, Vaultwarden's SQLite database and RSA signing key, Authelia's Postgres cluster - followed the same three rules: scratch VMID, read-only mount, extract to a separate location, verify against a second copy of the tool or method wherever one exists. None of it required booting a single VM, and none of it put a byte of write load on the disk whose health was already in question.
+
+The generalizable lesson: a disaster recovery process that requires booting the thing you're trying to verify is backwards. Prove the data survived first, using tools that only read. Only then start rebuilding the thing that will actually run it - which is exactly what a [tested restore runbook](/blog/backup-restore-test-never-verified-network-conflict/) is supposed to catch before it becomes a real incident, and what a working [Velero + Garage backup layer](/blog/velero-garage-k3s-backup/) exists to make routine instead of a one-time forensic exercise.
+
+---
+
+Enterprise disaster recovery has the identical rule, just with different tools: Azure Backup's recovery points can be mounted and browsed via Instant Restore without provisioning the target VM, and Azure Site Recovery's test failover runs in an isolated network specifically so you can verify a recovery point without ever touching production. The principle carries over exactly - verify before you commit, and never let the verification step be the thing that puts data at risk.
+
+<NewsletterCTA />

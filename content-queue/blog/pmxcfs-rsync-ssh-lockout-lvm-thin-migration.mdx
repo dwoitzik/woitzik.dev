@@ -1,0 +1,61 @@
+---
+title: "How Rsyncing Into a Live Mountpoint Locked Me Out of My Own Proxmox Host"
+description: "Migrating a Proxmox root filesystem from thick to thin-provisioned LVM live is routine. Copying /etc/pve's FUSE-rendered contents as real files onto the new root during that migration is what actually broke pve-cluster and, with it, root SSH access - and the fix wasn't the one first suspected."
+date: "2027-01-07"
+tags: ["Proxmox", "Homelab", "Linux", "Debugging"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Migrating a Proxmox host's root filesystem from a thick LVM volume to a thin-provisioned pool, live, is a well-understood procedure: sync the running root to a new logical volume, verify, swap, reboot. I'd already fixed the groundwork for it - `proxmox-boot-tool` was failing silently because `/etc/kernel/proxmox-boot-uuids` didn't exist, and `/etc/kernel/cmdline` was missing entirely, meaning the bootloader was quietly falling back to whatever the live kernel's command line happened to be. That included two boot parameters (`processor.max_cstate=1 idle=nomwait`) that a previous investigation had already tested and explicitly reverted for making idle temperatures worse - yet they were still sitting in the live config, doing nothing useful. Both got cleaned up before the migration reboot, on the same single physical [mini PC host\*](/go/4bv3yF1) that later needed a full [Tier-1 data verification pass](/blog/proxmox-pbs-restore-tier1-data-verification/) - one host, no IPMI, no out-of-band console, meaning if SSH broke during any of this, physical access was the only way back in.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Mistake: rsync Doesn't Know What a FUSE Mount Is
+
+The final sync step before the LVM swap was a recursive copy of the live root to the new logical volume. `rsync -a /` treats every path under `/` as ordinary files to copy - it has no concept that `/etc/pve` isn't a real directory on disk at all. It's `pmxcfs`, Proxmox's cluster filesystem, a FUSE mount that should always present as an empty mountpoint on a fresh boot; the real data lives in `/var/lib/pve-cluster/config.db` and gets rendered into `/etc/pve` at runtime.
+
+The rsync copied `/etc/pve`'s live, FUSE-rendered contents as real, static files onto the new root. On the next boot, `pve-cluster.service` tried to mount its FUSE filesystem over a directory that was no longer empty - and crash-looped.
+
+## The Lockout, and the Wrong First Hypothesis
+
+With `pve-cluster` down, SSH access to the host broke entirely - every key rejected, from every source tried, including a fresh jump-host hop with its own identity. The first hypothesis was `fail2ban`. The second was `authorized_keys` corruption from the rsync. Neither was right, and chasing both cost real time during an active lockout with no console access.
+
+The actual fix that got the host back required a physical power-cycle - the only recovery path available on hardware with no IPMI. That power-cycle happened to resolve both problems at once: `pve-cluster` came up clean with an empty `/etc/pve` to mount into (a follow-up session had emptied the stray file copy in the meantime), and SSH access worked immediately, with the exact same keys that had just been rejected.
+
+## Root-Causing It Properly, After the Fact
+
+"It started working again" is not a root cause, and leaving it there would mean the same lockout could recur for the same reason with no faster way to diagnose it next time. The actual chain:
+
+`/root/.ssh/authorized_keys` on a Proxmox host is a symlink to `/etc/pve/priv/authorized_keys` - standard `pmxcfs` behavior, so that root's authorized keys are cluster-wide and consistent across every node. `/etc/pve` is a FUSE mount. During the exact window `pve-cluster.service` was crash-looping, `/etc/pve` was unavailable, which means the symlink target resolved to nothing. `sshd` had no authorized key to check against, for any user, regardless of whether the actual key material was intact. This fully explains the "broke, then started working with the same keys for no clear reason" observation: it tracks `pve-cluster`'s health, not key corruption, and the timing lines up exactly with when that service was down.
+
+## The Structural Fix
+
+```bash
+# Root's authorized_keys is normally a symlink into pmxcfs:
+# /root/.ssh/authorized_keys -> /etc/pve/priv/authorized_keys
+
+# Add a plain, non-symlinked fallback with the same keys:
+cp /etc/pve/priv/authorized_keys /root/.ssh/authorized_keys2
+chmod 600 /root/.ssh/authorized_keys2
+```
+
+`sshd`'s compiled-in default `AuthorizedKeysFile` already includes `.ssh/authorized_keys2` as a fallback path - confirmed by checking `sshd_config`, where the directive was present but commented out, meaning the built-in default (`.ssh/authorized_keys .ssh/authorized_keys2`) was already in effect. No `sshd_config` edit was needed at all, which matters: `sshd_config` is exactly the kind of file you don't want to touch as part of a larger batch of changes, since a mistake there can lock you out in a way that's much harder to diagnose than a stale symlink. Validating `sshd -t` and authenticating from a brand-new SSH session - not reusing the one already connected - confirmed the fix before considering it done.
+
+The net effect: root SSH access on this host now survives a `pve-cluster.service` outage. It no longer has a single point of failure sitting between "the cluster filesystem is healthy" and "you can log in at all."
+
+## The Smaller Regression That Came Along for the Ride
+
+Post-reboot verification of the LVM-thin migration itself turned up one more thing: `/etc/fstab`'s root entry had lost its `noatime` flag somewhere in the same incident window - most likely overwritten when the stray `/etc/pve` copy was cleaned up, since that fix touched files in the same area. Re-adding it and doing a live `mount -o remount,noatime /` closed it without needing another reboot. Small on its own, but worth checking explicitly rather than assuming a fstab file untouched by name is actually untouched by content - especially right after an incident that involved multiple sessions editing overlapping areas of the filesystem.
+
+## The Actual Lesson
+
+`rsync -a /` (or any bare `/` source) needs explicit excludes for every FUSE and virtual mountpoint on the host - `/etc/pve`, `/proc`, `/sys`, `/dev` - not just the ones `rsync` happens to skip by convention. And on any host without IPMI, that exclusion list isn't optional cleanup, it's the difference between a routine live migration and an SSH lockout with physical access as the only way out - the same host-level fragility that turned [a restored scratch VM's inherited config flag](/blog/onboot-scratch-vm-io-storm-network-conflict/) into a full network conflict a few weeks later.
+
+---
+
+The Azure parallel is any migration tool that treats a mounted network share, a Key Vault-backed volume, or an Azure Files mount as an ordinary directory during a lift-and-shift - copying its rendered contents as static files instead of preserving the mount. The fix pattern is identical: know which paths on a system are real files and which are a live projection of something else, and never let a generic recursive copy treat the two the same way.
+
+<NewsletterCTA />

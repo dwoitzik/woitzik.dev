@@ -1,0 +1,64 @@
+---
+title: "The Backup VM I Never Started Took Down My Network Anyway"
+description: "Three read-only forensic VMs, never once booted on purpose, came back to life on their own after a host reboot - onboot=1 inherited silently from a PBS restore. The result: an IP conflict with the real production VMs and a symptom pattern that looked like everything except its actual cause."
+date: "2027-01-04"
+tags: ["Proxmox", "Homelab", "Networking", "Debugging"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+I'd already [restored three VMs read-only to inspect their disks](/blog/proxmox-pbs-restore-tier1-data-verification/), extracted what I needed, and never issued a single `qm start` against any of them. So when the newly-provisioned production VMs started failing SSH in a way that made no sense, the last place I looked was the VMs I was certain I'd never turned on.
+
+## The Symptoms Didn't Point at the Real Cause
+
+Two freshly cloned VMs, same IP range as production always used, started misbehaving right after joining the network: one timed out at the TCP/banner-exchange level from every source I tried, including from the Proxmox host itself. The other connected fine but rejected the correct SSH key. Both also threw `REMOTE HOST IDENTIFICATION HAS CHANGED` warnings on repeated connection attempts - normally the sign of a regenerated host key, and cloud-init does regenerate host keys on every "new instance" boot, so that's exactly where I spent the first hour: chasing a cloud-init instance-ID bug that was real, but not the actual cause of the outage.
+
+A hard reset of each VM (`qm reset`) "fixed" the SSH issue - both came back clean immediately after. That should have been the first clue something else was wrong: a reset doesn't fix a cloud-init configuration bug, it just changes which of two machines currently holds the connection.
+
+## The Actual Number That Cracked It
+
+`ping -c10` to one of the VMs returned round-trip times of 7-10 **seconds**. Not milliseconds - seconds. No amount of SSH config tuning explains that; it's a symptom of the host itself being starved, not the network path.
+
+```bash
+cat /proc/pressure/io
+# some avg10=30.40 total=...
+# full avg10=25.24 total=...
+```
+
+A quarter of all time on the host was spent completely blocked on I/O. `ps aux --sort=-%cpu` named the cause immediately: the three read-only forensic VMs from the earlier extraction were running as live, full QEMU processes. One was in D-state consuming 156% CPU. Another sat at 131% CPU, also in D-state. All three had started at the exact moment the host came back up from an unrelated reboot roughly an hour earlier.
+
+## Root Cause: A Config Field That Survives a Restore Verbatim
+
+`qm config` on all three showed `onboot: 1` - and `ipconfig0` set to the exact production IP addresses just assigned to the two new VMs. PBS's `qmrestore` restores the guest's config verbatim, and the original, pre-disaster VMs had `onboot: 1` because that's the correct setting for real production VMs. Nothing about the earlier read-only inspection work turned these on - every action taken against them had been a `qemu-nbd` mount, never a `qm start`. The *host reboot itself* did it, via Proxmox's normal autostart behavior, because a config field meant for production guests came along for free with a restore meant only for forensic inspection.
+
+That single inherited flag explained every symptom that had eaten the previous hour:
+
+- **Two machines answering on the same IP** produces exactly the pattern seen: SSH host-key identity flapping between whichever machine's packets won a given exchange, pubkey rejections when the *other* machine's `authorized_keys` answered, banner-exchange timeouts from I/O starvation delaying every response past client timeouts.
+- **The `qm reset` "fixes"** worked by temporary coincidence - shifting which machine briefly won the IP race - not by touching the underlying conflict.
+- **Two separate Ansible run failures** against the new VMs, both timing out mid-play with the same auth-flapping signature, for the same reason.
+
+## The Fix, and the Actual Process Gap
+
+```bash
+qm stop 911 912 913        # graceful shutdown timed out first - host too I/O-starved
+                            # for QMP to answer; hard stop succeeded
+qm set 911 --onboot 0      # repeat for 912, 913
+```
+
+`/proc/pressure/io` began decaying immediately after the stop. Connectivity to the real production VMs returned to sub-millisecond pings within seconds.
+
+The process fix matters more than the incident itself: **any PBS restore to a scratch or inspection-only VMID needs `onboot` explicitly disabled immediately after the restore completes, before anything else happens** - regardless of what the backed-up config says. The backed-up config is correct for the machine it originally described. It is not automatically correct for a disposable copy of that machine sitting at a different VMID. Verifying this is now a permanent pre-reboot checklist item, not just a lesson from one incident: any scratch or temporary VMID gets a `qm config` sweep for stray `onboot: 1` flags before triggering any host reboot going forward.
+
+None of the actual Tier-1 data was ever at risk - the durable extraction location was untouched by anything these three VMs did while briefly live, and the extraction itself had completed and been verified well before this incident's reboot happened. This was a pure availability incident, not a data integrity one, and it only cost about ninety minutes of host contention rather than anything permanent - but it's a sharp reminder that a restore procedure needs to think about every field in the config, not just the disk contents.
+
+---
+
+This is the same class of failure as [the IP/MAC conflict found while testing a disaster-recovery runbook for the first time](/blog/backup-restore-test-never-verified-network-conflict/) - a restore that faithfully duplicates a source's network identity, landing on a network where the original is still live. That one was found by a deliberate, controlled test; this one was found by an actual incident, which is the more expensive way to learn the same lesson.
+
+The Azure equivalent is a VM Scale Set instance or an Availability Set member that gets restored from a snapshot with its original static IP configuration still baked in, then gets started into a subnet where that IP is already assigned. Azure's own IPAM will usually reject the conflict outright at the platform level - which is exactly the kind of guardrail a bare-metal Proxmox host doesn't have, and exactly why the "disable autostart on every restored scratch resource, immediately, no exceptions" discipline has to be manual and habitual instead of assumed.
+
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) has a genuinely useful chapter on exactly this class of failure - two systems disagreeing about which one owns a piece of shared state - even though it's framed around distributed databases, not IP addresses. The failure mode is the same shape either way.
+
+<NewsletterCTA />
