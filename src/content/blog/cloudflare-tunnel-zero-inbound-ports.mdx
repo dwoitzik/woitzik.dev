@@ -2,6 +2,7 @@
 title: "Cloudflare Tunnel Without Opening a Single Firewall Port"
 description: "Zero inbound firewall rules for external service access. How Cloudflare Tunnel works with split-DNS on AdGuard, the chunked_encoding fix for large Immich uploads, and why routing Atlantis through Traefik matters for Authelia protection."
 date: "2026-08-16"
+updated: "2026-09-06"
 tags: ["Kubernetes", "Networking", "Cloudflare", "Security"]
 ---
 
@@ -9,6 +10,16 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 import AffiliateLink from "@components/AffiliateLink.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+**Update (2026-09-06):** the public allowlist has since narrowed to exactly two hostnames,
+`photos.woitzik.dev` and `headscale.woitzik.dev`. Atlantis's tunnel entry is gone — its public
+webhook was replaced with a self-hosted GitHub Actions runner instead, removing the inbound
+door entirely rather than narrowing it. Jellyfin was also pulled off the public allowlist. The
+Cloudflare Tunnel / split-DNS / Immich chunked-encoding mechanics below are all still accurate
+and still how photos.woitzik.dev is served; the Atlantis-through-Traefik section is left as-is
+for the technique (routing anything through Traefik + Authelia ForwardAuth is still exactly
+right if you do want to expose an unauthenticated service), just note it no longer reflects
+which services are actually tunneled here.
 
 Three services in my homelab need external access: Immich for family photo backup, Atlantis for Terraform webhooks, and Jellyfin for media. None of them have a single inbound firewall rule — the <AffiliateLink href="/go/4w08b21">MikroTik</AffiliateLink> [firewall stays default-deny](/blog/mikrotik-zero-trust-firewall-terraform/) with no WAN-facing accept rules at all. Cloudflare Tunnel handles all external traffic through an outbound-only connection, and split-DNS on AdGuard ensures LAN clients reach services directly without leaving the network.
 
