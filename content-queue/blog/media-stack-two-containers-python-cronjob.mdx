@@ -19,7 +19,7 @@ The solution: move the media stack out of k3s entirely. Jellyfin runs in its own
 
 ### GPU Passthrough
 
-Jellyfin needs GPU access for hardware video transcoding. The [BMAX Mini PC\*](https://amzn.to/4bv3yF1) has an AMD Radeon Vega iGPU that supports VAAPI hardware transcoding. Proxmox GPU passthrough requires IOMMU group isolation — the GPU is passed to a single container or VM exclusively.
+Jellyfin needs GPU access for hardware video transcoding. The [BMAX Mini PC\*](/go/4bv3yF1) has an AMD Radeon Vega iGPU that supports VAAPI hardware transcoding. Proxmox GPU passthrough requires IOMMU group isolation — the GPU is passed to a single container or VM exclusively.
 
 Kubernetes doesn't natively support GPU passthrough for LXCs. The `nvidia-device-plugin` works for NVIDIA GPUs on specific cloud providers, but for AMD iGPU passthrough on bare-metal Proxmox, you need a dedicated LXC with `/dev/dri/renderD128` mapped directly.
 

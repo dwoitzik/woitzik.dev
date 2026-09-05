@@ -15,7 +15,7 @@ Nextcloud's PostgreSQL database ran as a StatefulSet with a Longhorn PVC. When t
 
 ## Why Not Just StatefulSets?
 
-A StatefulSet with a PersistentVolumeClaim works until the node dies. In a single-node homelab (one [BMAX Mini PC*](https://amzn.to/4bv3yF1) running Proxmox with k3s VMs), "node dies" means "Proxmox host reboots." Longhorn reconstructs the volume from replicas, but the reconstruction takes time. During that time, the PostgreSQL pod is in `ContainerCreating` or `CrashLoopBackOff`.
+A StatefulSet with a PersistentVolumeClaim works until the node dies. In a single-node homelab (one [BMAX Mini PC*](/go/4bv3yF1) running Proxmox with k3s VMs), "node dies" means "Proxmox host reboots." Longhorn reconstructs the volume from replicas, but the reconstruction takes time. During that time, the PostgreSQL pod is in `ContainerCreating` or `CrashLoopBackOff`.
 
 CNPG solves this differently: it manages PostgreSQL replication at the database level, not the storage level. A primary and a replica run on different nodes. If the primary's node dies, CNPG promotes the replica to primary. No storage reconstruction needed.
 
@@ -124,6 +124,6 @@ Grafana dashboard: alert if `replication_lag_seconds` exceeds 5 seconds. That me
 
 ## The Trade-off
 
-CNPG adds complexity: an operator, Barman for backups, and streaming replication configuration. The benefit is PostgreSQL that survives node failures without depending on Longhorn's storage reconstruction. For a single-node homelab, this is the right trade-off — the [BMAX Mini PC*](https://amzn.to/4bv3yF1) has enough RAM for two PostgreSQL instances, and the failover is faster than waiting for Longhorn to rebuild.
+CNPG adds complexity: an operator, Barman for backups, and streaming replication configuration. The benefit is PostgreSQL that survives node failures without depending on Longhorn's storage reconstruction. For a single-node homelab, this is the right trade-off — the [BMAX Mini PC*](/go/4bv3yF1) has enough RAM for two PostgreSQL instances, and the failover is faster than waiting for Longhorn to rebuild.
 
 <NewsletterCTA />

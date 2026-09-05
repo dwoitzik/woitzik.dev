@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
-[WireGuard on MikroTik](/blog/mikrotik-wireguard-vpn-terraform/) works. The Terraform-managed firewall rules handle the UDP port forwarding, the peer configurations are in the RouterOS config, and the VPN tunnel comes up in under a second. The problem: every device needs a WireGuard client configured with the correct peer, allowed IPs, and DNS. Tailscale builds on WireGuard but adds NAT traversal, key exchange, and an ACL system — and it can run as an exit node on the [RB5009*](https://amzn.to/4w08b21) so every device on the network gets VPN access automatically. It's a different trade-off than [self-hosting Headscale](/blog/headscale-oidc-k3s-authelia/): Tailscale's coordination server is third-party, Headscale's is yours.
+[WireGuard on MikroTik](/blog/mikrotik-wireguard-vpn-terraform/) works. The Terraform-managed firewall rules handle the UDP port forwarding, the peer configurations are in the RouterOS config, and the VPN tunnel comes up in under a second. The problem: every device needs a WireGuard client configured with the correct peer, allowed IPs, and DNS. Tailscale builds on WireGuard but adds NAT traversal, key exchange, and an ACL system — and it can run as an exit node on the [RB5009*](/go/4w08b21) so every device on the network gets VPN access automatically. It's a different trade-off than [self-hosting Headscale](/blog/headscale-oidc-k3s-authelia/): Tailscale's coordination server is third-party, Headscale's is yours.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -19,7 +19,7 @@ A Tailscale exit node routes all internet traffic through a specific machine. Wh
 
 1. The RB5009 runs Tailscale as an exit node
 2. Every device on the VLANs routes traffic through the RB5009
-3. The RB5009's public IP (behind the [FritzBox*](https://amzn.to/4f5WDEI) CGN) is the exit point
+3. The RB5009's public IP (behind the [FritzBox*](/go/4f5WDEI) CGN) is the exit point
 4. No Tailscale client needed on individual devices
 
 The catch: the FritzBox does CGN (Carrier-Grade NAT). Tailscale's NAT traversal handles this — it uses STUN to discover the external IP and sets up a direct connection if possible. If CGN blocks direct connections, Tailscale falls back to a relay (DERP server).
@@ -102,7 +102,7 @@ For automatic failover, advertise two exit nodes:
 # On the RB5009
 /tailscale/set advertise-exit-node=yes
 
-# On a [Raspberry Pi 5*](https://amzn.to/4wETNfv)
+# On a [Raspberry Pi 5*](/go/4wETNfv)
 /tailscale set advertise-exit-node=yes
 ```
 
