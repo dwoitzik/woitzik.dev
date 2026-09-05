@@ -1,7 +1,7 @@
 ---
 title: "Every Stateful Pod in My Cluster Had Quietly Piled Onto One Node. Nothing Ever Enforced Otherwise."
 description: "A k3s node hung completely under 97-99.9% disk utilization. My first theory — local-path PVCs pinning workloads to one node — was only partly true. The real cause was scheduling inertia: nothing in this cluster had ever enforced pod spread, and a routine Velero backup was enough to tip two nodes NotReady while I was investigating."
-date: "2027-03-01"
+date: "2027-03-08"
 tags: ["Kubernetes", "Homelab", "Debugging", "Performance"]
 ---
 
