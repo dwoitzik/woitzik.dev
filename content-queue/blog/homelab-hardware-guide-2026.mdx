@@ -1,0 +1,82 @@
+---
+title: "Homelab Hardware Guide 2026: What to Buy, in Order"
+description: "A buyer's checklist for starting or upgrading a homelab in 2026 - compute, storage, network, backup, and rack essentials, organized by budget tier with links to the full comparison for each category."
+date: "2026-12-20"
+tags: ["Hardware", "Homelab", "Review"]
+---
+
+import AffiliateLink from "@components/AffiliateLink.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+I've already written the [full tour of my own rack](/blog/homelab-hardware-tour-physical-rack/) - what I run and why. This is a different document: a buying checklist for someone starting from zero or filling a specific gap, organized by category and budget tier, pointing to the deeper comparison article for each category instead of re-litigating individual product reviews here.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Order That Actually Matters
+
+Buy in this order, not by whatever's cheapest first. Compute without a way to network it is useless; a NAS without a backup strategy is a single point of failure with extra steps.
+
+1. **Compute** (a mini PC or a proper server, depending on scale)
+2. **Network** (the router/firewall - retrofitting VLANs onto a flat network later is real work)
+3. **Backup target** (before you have data worth losing, not after)
+4. **Storage/NAS** (once compute and network are settled)
+5. **Rack, cooling, and tools** (quality-of-life, not blocking)
+
+## Tier 1: Starter (~€300-400)
+
+The goal at this tier is one always-on box that can run Proxmox or a bare Docker host, plus a router capable of at least basic VLANs.
+
+**Compute:** an Intel N100 mini PC. I've compared the current options in depth in [Best Mini PC for Homelab 2026](/blog/best-mini-pc-homelab-2026/) - the short version is the [Beelink EQ12*](/go/4gGnuZ3) at ~€190, dual 2.5GbE out of the box, 7-9W idle draw.
+
+**Network:** at this budget, a consumer router with VLAN support is defensible, but if IaC-managed networking is part of the point of the homelab, the [MikroTik RB5009*](/go/4w08b21) at ~€180 is worth stretching for even at this tier - see the full [MikroTik vs Ubiquiti comparison](/blog/mikrotik-vs-ubiquiti-home-network-2026/) for why.
+
+**Backup:** a directly attached external drive is the minimum viable backup target - I use a [Seagate 2TB Portable HDD*](/go/4vxwLpY) for exactly this. Not a real 3-2-1 strategy on its own, but non-negotiable from day one regardless of what you add later.
+
+## Tier 2: Serious Homelab (~€800-1200)
+
+This is where a homelab stops being "a box under the desk" and starts needing actual rack infrastructure, redundant edge devices, and a proper NAS.
+
+**Compute:** step up to a Ryzen mobile chip if you're running more than a handful of containers or any local LLM inference - the [BMAX Ryzen 7 8745HS*](/go/4bv3yF1) is the one I run the successor generation of myself, documented in the [hardware tour](/blog/homelab-hardware-tour-physical-rack/).
+
+**Storage/NAS:** a 2-bay NAS with real RAID 1 redundancy. My pick and the reasoning behind it is in [Best NAS for Home Backup 2026](/blog/best-nas-home-backup-2026/) - currently the Synology DS225+.
+
+**Edge/DNS redundancy:** a pair of Raspberry Pis for DNS and Keepalived failover, not a single point of failure. I'd buy the [Raspberry Pi 5 (8GB)*](/go/4wETNfv) today over the 4B I started with - the performance jump for containerized workloads is worth the difference at this budget tier. If you want the fuller alternatives comparison first, see [Raspberry Pi 5 Alternatives Compared](/blog/raspberry-pi-5-alternatives-2026/).
+
+**Rack basics:** a compact enclosure keeps cable chaos contained once you're past two or three devices. I use a [DIGITUS 10-Inch 6U Wall Mounting Cabinet*](/go/4pGBkxb) - full reasoning on 10" vs 19" in the hardware tour above.
+
+## Tier 3: Full Rack (~€1500+)
+
+At this point you're running a real Proxmox + k3s stack with proper cooling, power monitoring, and cable management - the full setup documented in the hardware tour.
+
+**Cooling:** a closed rack traps heat faster than it looks like it should. I added [ARCTIC P12 120mm Fans*](/go/44vgXJy) as exhaust after watching NVMe temperatures hit 72°C under sustained summer load - full story in the hardware tour.
+
+**Power:** a rack PDU ([DIGITUS 4-Way 10-Inch PDU*](/go/3RiBttM)) and a power monitoring smart plug ([TP-Link Tapo P110*](/go/3STKPwD)) - the latter matters more than it sounds like in Germany specifically, where knowing your actual idle-vs-load wattage answers whether the next upgrade is worth the electricity cost.
+
+**Tools:** an [iFixit Pro Tech Toolkit*](/go/4wKbVEW) for opening mini PCs and swapping M.2 drives, a [Brother PT-H110 Label Maker*](/go/4wcr4PG) (buy this before you have a rack, not after the third time you trace an unlabeled cable), and reusable [Velcro cable ties*](/go/4bnvY3K) instead of zip ties you'll cut off and rebuy.
+
+## What This Guide Deliberately Skips
+
+This is a buying checklist, not a deployment guide. For the actual Terraform, Ansible, and Kubernetes configuration that turns this hardware into a working homelab, the [full source is on GitHub](https://github.com/dwoitzik/homelab-infrastructure), and the [enterprise-grade architecture writeup](/blog/enterprise-homelab-architecture-ansible/) covers how the Ansible layer ties it together. The [3-2-1 backup pillar](/blog/velero-garage-k3s-backup/) covers what to actually do with the backup target once it's plugged in - buying the drive is step one, not the whole strategy.
+
+## Frequently Asked Questions
+
+### Do I need to buy everything in Tier 3 to have a "real" homelab?
+
+No. Tier 1 is a genuinely useful homelab - one box, basic backup, a network you understand. Tiers 2 and 3 solve problems (redundancy, thermal headroom, cable sanity) you'll only actually hit once you're running enough services to notice them.
+
+### Is the MikroTik RB5009 overkill for a Tier 1 budget?
+
+For pure routing, yes - a cheaper router works. But retrofitting VLANs and Terraform-managed firewall rules onto a network you built without them later is real, avoidable rework. If infrastructure-as-code is part of why you're building a homelab at all, front-loading the router purchase is the one Tier 1 recommendation worth stretching the budget for.
+
+### What's the single highest-value upgrade from Tier 1 to Tier 2?
+
+The second Raspberry Pi for DNS redundancy. A single DNS resolver going down takes the whole network's name resolution with it - active/passive Keepalived failover is cheap insurance relative to almost anything else on this list.
+
+### Should I buy new or used mini PCs / NAS units?
+
+Used mini PCs are generally fine if you can verify actual hours of use and check for thermal paste degradation; used NAS units are riskier because you're inheriting unknown drive history alongside the enclosure. For the NAS specifically, I'd buy new.
+
+## Conclusion
+
+Buy compute and network first, backup before you have data worth losing, storage once the foundation is settled, and treat rack/cooling/tools as the layer that turns "it works" into "it works reliably and I can maintain it." Every individual product recommendation above links to the deeper comparison article where I actually justify the pick - this guide is the map, not the destination.
