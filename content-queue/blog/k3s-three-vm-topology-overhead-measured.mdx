@@ -1,0 +1,66 @@
+---
+title: "Is Splitting One Host Into 3 k3s VMs Worth the Overhead? I Actually Measured It."
+description: "My whole k3s cluster runs as three VMs on a single Ryzen mini PC. I'd always assumed the split cost more than it was worth. The real numbers — CPU allocation, steady-state usage, and where two real incidents actually came from — said otherwise."
+date: "2027-02-04"
+tags: ["Kubernetes", "Proxmox", "Homelab", "Performance"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+import AffiliateLink from "@components/AffiliateLink.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+My whole k3s cluster runs as three VMs on one Proxmox host — a single mini PC, one NVMe disk, nothing else. That's a documented, deliberate constraint: real zero-downtime HA isn't achievable on this hardware, full stop. What was never actually measured, just assumed, was whether splitting that one host's resources into three virtualized nodes cost more than it was worth versus running k3s on fewer VMs, or bare-metal on the host directly. I finally sat down and got a real answer instead of continuing to guess.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Allocation vs. What's Actually Used
+
+| Resource | Host total | k3s-11 | k3s-12 | k3s-13 | Sum allocated | % of host |
+|---|---|---|---|---|---|---|
+| vCPU | 16 threads | 6 | 4 | 4 | 14 | 87.5% |
+| RAM | 62GiB | 16GiB | 8GiB | 8GiB | 32GiB | ~52% |
+
+CPU allocation is genuinely tight — 14 of 16 threads committed to the three VMs alone, leaving two threads' worth of headroom for the Proxmox host itself and every LXC guest sharing this box (Backup server, Docker apps, the AI stack, both DMZ containers). RAM has far more slack.
+
+But allocated isn't the same as used. `kubectl top nodes` in steady state, post-incident-recovery:
+
+| Node | CPU used | CPU % | Memory used | Memory % |
+|---|---|---|---|---|
+| k3s-11 | 675m | 11% | 10.4GiB | 66% |
+| k3s-12 | 384m | 9% | 3.9GiB | 48% |
+| k3s-13 | 271m | 6% | 5.0GiB | 63% |
+
+Total in-cluster compute demand is small — roughly 1.3 cores out of 14 allocated vCPUs, under 10% average. CPU is not the binding constraint day-to-day. Memory sits comfortably provisioned without being overcommitted the way CPU allocation nominally is.
+
+## The Actual Cost of Splitting Into Three VMs
+
+All three VMs run with hardware virtualization extensions enabled, which puts raw KVM compute overhead in the low single digits versus bare metal — well-established, nothing worth re-benchmarking here. The real, measurable per-VM cost is fixed: each QEMU process itself plus the guest kernel/OS baseline, on the order of a few hundred MB of RAM per VM. Against a 62GiB host, that's noise.
+
+## What Two Real Incidents Actually Revealed
+
+Two separate incidents on this host — an earlier storage-repair incident, and a `KubeAPIServerHighLatency` alert triggered by concurrent `trivy-operator` scans and a Renovate job running at once — both showed up the same way: contention across the shared LVM thin pool. `iostat` during the second incident showed **more than ten separate thin-pool logical volumes — one per VM virtual disk — all pegged near 100% utilization simultaneously.**
+
+That's the finding that actually mattered here: splitting into three VMs gave me **zero real disk I/O isolation** between them, because all three virtual disks still funnel through the same single physical NVMe and the same thin-pool's shared metadata/allocation path. Whatever was hurting me in these incidents was never "too many VMs" — it was one physical disk serving everything, regardless of how many guests sit on top of it.
+
+## Consolidating Wouldn't Have Fixed Either Incident
+
+I considered collapsing to a single-node k3s, and to two VMs (merging the two workers). Both would reclaim the fixed per-VM overhead — maybe 500MB–1GB of RAM total, a fraction of a CPU core — and simplify day-to-day operations to one or two nodes instead of three.
+
+Neither addresses the actual failure mode. A single-node k3s still has every piece of state — the embedded datastore, every PV — on the exact same one physical disk; consolidating wouldn't touch the shared-disk contention at all, and it would *also* throw away the one real benefit the split gives me: k3s's own node-level fault tolerance actually functions with three VMs. A kernel panic or OOM on one worker doesn't take the control plane down with it, matching Kubernetes' own HA assumptions even though the hypervisor underneath remains a single point of failure. Each VM's OS can be patched, drained, and rebooted independently too. Merging to two VMs is the same trade, just smaller — my two workers are already right-sized to their actual load (9% and 6% CPU, 48% and 63% memory), so merging them wouldn't even free meaningful capacity, just concentrate two already-modest workloads onto one VM.
+
+Trading real fault isolation for a resource savings measured in single-digit percent of host capacity, against a contention problem the VM count was never actually causing, is a bad trade.
+
+## Decision: Keep the Three VMs, Watch CPU Allocation Instead
+
+I'm keeping the topology as-is. The measured overhead of the split — a few hundred MB of fixed RAM, negligible CPU tax under KVM hardware acceleration — is real but small, and buys genuine node-level fault isolation this hardware would otherwise never have. Both real incidents I've had were the single shared physical disk, and that problem already has its own, more targeted mitigations at the I/O-scheduling layer rather than anything topology-shaped.
+
+The genuinely actionable finding from measuring this is the CPU side, not the VM count: 87.5% of host threads already committed is the tighter of the two resources, and it's worth a separate pass at right-sizing each VM's core allocation against the low observed utilization above (11%/9%/6%) — that frees real host-level headroom without touching the three-VM structure at all, which is exactly the kind of change [staggering VM boot order](/blog/staggered-vm-boot-load-average-147/) and [tuning etcd's CPU priority](/blog/cpu-scheduling-etcd-proxmox-units/) already showed real value on this same host.
+
+---
+
+The Azure equivalent of this question is whether to run three smaller AKS node pool VMs or one larger one for the same total vCPU/RAM budget — and the answer follows the same shape: node-level fault isolation and independent patching are real, measurable benefits that a raw resource-overhead comparison misses entirely, and the actual bottleneck on a single-disk or single-availability-zone deployment is almost never the VM count.
+
+If you're running a Proxmox homelab on similarly constrained hardware, my own <AffiliateLink href="/go/4bv3yF1">mini PC</AffiliateLink> is the older Ryzen 5825U revision of this exact product line — the currently-sold model has moved to a newer chip, but the CPU-allocation math above scales the same way regardless of which generation you're on.
+
+<NewsletterCTA />

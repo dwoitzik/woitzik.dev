@@ -1,0 +1,42 @@
+---
+title: "When Your Cluster Resolves Its Own Public Hostname: Three OIDC and DNS Gotchas From the Same Week"
+description: "Headscale crash-looped because its OIDC startup check hairpinned through my own public VIP and got intermittently refused. Fixing it meant a CoreDNS split-horizon override — and led straight into two more decisions about weakening SSRF guards and bypassing Authelia for a public analytics tracker, all the same underlying problem: what happens when a hostname means something different depending on who's asking."
+date: "2027-03-04"
+tags: ["Kubernetes", "DNS", "Security", "Homelab"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+[Headscale](/blog/headscale-oidc-k3s-authelia/) crash-looped with a startup fetch failure. It does a one-time OIDC discovery request to Authelia's issuer URL — `auth.woitzik.dev` — on boot. In-cluster, that hostname resolves to its public A record: Traefik's external LoadBalancer VIP, the same address my [split-DNS setup](/blog/cloudflare-tunnel-zero-inbound-ports/) uses for external clients. The request hairpins out to that VIP and back in — and that path proved intermittently unreliable. Repeated probes from an in-cluster pod showed the first request succeeding and the next several instantly returning connection refused, which was enough to trigger both an availability alert and a probe-failure alert for Headscale.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Fix: A CoreDNS Override, Not a Workaround on the One Pod
+
+Traefik's own ClusterIP doesn't go through the VIP/hairpin path at all — it's plain in-cluster Service routing via kube-proxy, which doesn't share the VIP's failure mode. Traefik routes by Host header and SNI, not by which of its own IPs the request arrived on, so reaching it via ClusterIP instead of the external VIP changes nothing about which backend actually serves the request. That made the fix straightforward once I understood the actual routing: any hostname called service-to-service from inside the cluster gets a CoreDNS override pointing it straight at Traefik's ClusterIP, via k3s's standard `coredns-custom` ConfigMap extension point — keys ending `.override` get imported into CoreDNS's main server block, no image fork or Corefile rewrite needed.
+
+I kept the scope narrow and additive on purpose: only hostnames with a confirmed in-cluster caller get an entry — at the time, just `auth.woitzik.dev`, for Headscale's own OIDC check. External clients still resolve the same names publicly and still hit the real external VIP; this only changes what pods *inside* the cluster resolve to.
+
+I considered two alternatives and rejected both. Pointing Headscale's OIDC issuer straight at Authelia's ClusterIP would mean serving plain HTTP internally — Authelia's ClusterIP doesn't terminate TLS, that happens at Traefik — and OIDC discovery requires HTTPS with a certificate matching the issuer URL. Downgrading that for reliability would have been a real security regression dressed up as a fix. Adding a second Traefik replica would reduce single-point-of-failure risk generally, which is worth doing separately, but it doesn't fix the hairpin path itself — the flakiness reproduced against a single healthy replica in testing, so a second one wouldn't have prevented this specific incident.
+
+## The Same Underlying Question, Twice More the Same Week
+
+Once I'd actually internalized "a hostname can mean something different depending on who's resolving it," two more decisions from the same investigation window turned out to be the exact same question wearing different clothes.
+
+**Rybbit's tracker API needs to bypass Authelia entirely.** Rybbit (my self-hosted analytics for this site) needs its tracker script and event-ingest endpoint reachable by anonymous browsers — every client-side analytics tool has this same structural requirement, since a visitor's browser has no Authelia session and can't complete an SSO redirect. I bypassed Authelia's forward-auth for the tracker's API paths on the LAN/Tailscale side; the public Cloudflare Tunnel path already bypasses Traefik and Authelia entirely by design, [per the same allowlist model everything else on this list follows](/blog/public-exposure-allowlist-two-hostnames/). This is safe specifically because Rybbit's own backend independently gates real dashboard reads — I verified this directly rather than assuming it, hitting the dashboard API unauthenticated and confirming it returns a hard `403` with no Authelia involved at all. Authelia was only ever a redundant outer layer for the dashboard *UI*, never the actual authorization boundary for the API — bypassing it exposes nothing Rybbit wasn't already going to protect on its own. The residual risk (anyone can POST junk events to the ingest endpoint) is inherent to this whole class of tool, not a gap specific to my setup, and Rybbit's own bot-detection filters non-browser traffic into a separate table rather than polluting real analytics.
+
+**Jellyfin and Nextcloud's OIDC integrations both ship default SSRF guards that block requests to private IP ranges** — correct behavior in general, and exactly the kind of guard you want on by default. But Authelia's own issuer resolves to an internal address, so OIDC discovery and token exchange can't complete with the guard on. I weakened it narrowly for Jellyfin, scoped to the single Authelia provider config only. Nextcloud has no equivalent per-provider setting — its guard is global, so disabling it affects every remote-URL feature the app has, not just OIDC. Both changes are admin-configured, not reachable via any anonymous or user-input path, so this isn't new attack surface for an external actor. It is a real, intentional reduction in defense-in-depth, and worth knowing about before adding a third OIDC provider on another internal hostname without re-checking whether the same trade-off still makes sense at that point.
+
+## The Pattern Worth Naming
+
+All three of these are the same root shape: a hostname or an auth boundary that means one thing from outside the network and something structurally different from inside it, and a piece of software that assumed those two views would always agree. Headscale assumed `auth.woitzik.dev` would resolve to something it could reliably reach twice in a row. Jellyfin and Nextcloud's SSRF guards assumed "private IP" always means "untrusted." None of those assumptions are wrong in general — they're just wrong for a homelab that deliberately runs the same hostnames both publicly and internally, on purpose, for exactly the reasons in the allowlist post above. Every new service that calls another `*.woitzik.dev` hostname from inside the cluster needs to be checked against this same failure mode — it's not automatic, it has to be noticed each time, the same way Headscale's crash loop is what actually surfaced it here.
+
+---
+
+The Azure-shaped version of the CoreDNS fix is Azure Private DNS zones resolving a service's own custom domain to its Private Endpoint IP for in-VNet callers, while the public zone still resolves it to the public Front Door or Application Gateway address — split-horizon DNS by another name, solving the exact same "don't hairpin through the public edge for calls that never needed to leave the network" problem.
+
+[Netzwerke: Verstehen, Einrichten, Administrieren\*](/go/4f3kTar) is still where I go to double-check DNS resolution-order edge cases like this one in plain German terms before writing them up — split-horizon setups are exactly the kind of thing that's easy to configure wrong in a way that looks fine until one specific caller hits it.
+
+<NewsletterCTA />

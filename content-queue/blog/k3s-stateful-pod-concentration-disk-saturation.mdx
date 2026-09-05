@@ -1,0 +1,60 @@
+---
+title: "Every Stateful Pod in My Cluster Had Quietly Piled Onto One Node. Nothing Ever Enforced Otherwise."
+description: "A k3s node hung completely under 97-99.9% disk utilization. My first theory — local-path PVCs pinning workloads to one node — was only partly true. The real cause was scheduling inertia: nothing in this cluster had ever enforced pod spread, and a routine Velero backup was enough to tip two nodes NotReady while I was investigating."
+date: "2027-03-01"
+tags: ["Kubernetes", "Homelab", "Debugging", "Performance"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+One of [my three k3s VMs](/blog/k3s-three-vm-topology-overhead-measured/) hung completely — SSH, the guest agent, and QEMU's own block-device query all timed out, while `info status` still answered, meaning the QEMU process was alive but the guest OS underneath it was wedged, not the hypervisor. A force stop and restart brought the API server and all three nodes back `Ready`. That fixed the symptom. It didn't answer why it happened, and the answer turned out to be bigger than the one node.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Storage Was Still Saturated After the Restart
+
+I didn't assume the restart had fixed the underlying problem — I checked. `iostat -x` on the Proxmox host showed the LVM-thin data and metadata devices sitting at 97–99.9% utilization, with discard latency spiking to 734ms on the physical NVMe. Whatever caused the hang was still actively happening.
+
+## My First Theory Was Only Partly Right
+
+My working assumption was that `local-path`-provisioned PVCs — the genuinely node-affine StorageClass in this cluster — had pinned nearly the entire stateful workload onto this one node over time. Checked directly rather than trusted: the `local-path` PVCs turned out to be **already reasonably distributed**, six on the hung node, four and four on the other two. Not "essentially everything," a real but modest 6-of-14 share.
+
+I'd also assumed Garage's and Immich's library volumes were node-pinned, since they're statically provisioned rather than dynamically via a StorageClass. Wrong — both are actually **NFS-backed**, confirmed via each PV's mount options, and follow the pod to wherever it's scheduled, same as any other NFS PVC. (Garage does have a second, genuinely pinned volume for its metadata store — [the dedicated-disk migration I wrote about separately](/blog/garage-lmdb-metadata-dedicated-disk/) — but that one's a deliberate, documented exception, not part of this finding.)
+
+Cross-referencing live pod placement against this told the real story: the workloads actually concentrated on the hung node — Garage, two Postgres instances, every ArgoCD component, Alertmanager, Grafana, all five Loki pods, several exporters, Tempo — were overwhelmingly backed by NFS or no persistent storage at all, not `local-path`. Storage type wasn't the constraint keeping them there.
+
+## The Real Cause: Nothing Had Ever Enforced Spread
+
+A full grep across every Helm values block and every plain manifest in the cluster came back with zero matches for `topologySpreadConstraints` or `podAntiAffinity`, anywhere. These workloads weren't stuck by a storage constraint — they'd simply never been moved since whenever they first landed, most plausibly because this node was the original control-plane node and existed before the two workers were fully loaded up, and the default scheduler has no reason to actively rebalance already-running pods away from a node once they're placed. Scheduling inertia, not a hard constraint — which is actually good news, because most of it is safe to fix by rescheduling, not by migrating data.
+
+## Demonstrated Live, Not Just Inferred
+
+While investigating this, I triggered a one-off manual backup to verify the onsite path end-to-end. Partway through, **the hung node and one other both went briefly `NotReady`** — a single routine operation, the same kind that runs on schedule every night, was enough to destabilize a cluster this concentrated. I deleted the backup immediately and both nodes recovered within seconds, with no lasting damage elsewhere. Not conclusive proof of causation on its own, but strong enough correlation that I deliberately didn't retry it a second time outside a watched window. This is very likely the same mechanism behind disk-contention symptoms I'd already seen from earlier incidents, and it lines up with restart counts I found while investigating — one Postgres pod alone had 121 restarts.
+
+## The Fix: Reschedule the Safe Ones, Add Soft Anti-Affinity, Leave the Rest Alone
+
+Three parts, done in order of risk:
+
+**1. Reschedule the NFS-backed and storage-less pods, one at a time, verified healthy before moving to the next.** No PV-level data migration needed — deleting the pod (or a rollout restart for a Deployment) is sufficient, since NFS-backed data follows the pod wherever it lands. Given how many of the affected workloads are core cluster infrastructure — ArgoCD, the entire monitoring stack, Velero itself — I treated this as its own deliberate, watched session, not something folded into an unrelated change, and not run unattended given what the manual backup test had just shown.
+
+**2. Add a soft node-affinity preference away from the hot node, so it doesn't silently re-accumulate.** I reached for `topologySpreadConstraints` first and it doesn't do what I needed: it spreads *replicas of the same workload* apart from each other, but every pod on my reschedule list was a single-replica, unrelated workload — there's nothing for a spread constraint to balance against. Soft `nodeAffinity` instead, `preferredDuringSchedulingIgnoredDuringExecution`, weight 100, excluding the hot node by hostname. Soft rather than hard, deliberately: this is a three-node cluster with one control-plane node and two workers of genuinely different sizes, and a hard requirement risks pods going `Pending` when an uneven placement is actually justified — a worse failure mode than an imperfect spread.
+
+**3. Leave the genuinely `local-path`-pinned pods where they are, for now.** They're a smaller, already-not-wildly-unbalanced share of the real imbalance, and migrating them needs a real data-copy procedure through a throwaway pod — no CSI snapshot capability on this cluster means no cheap rollback if it goes wrong. Sequencing the lower-risk fix first and revisiting this only if the cluster is still hot afterward was the right call, even though two of the pinned pods are arguably higher-value to rebalance than some of the ones I did move.
+
+**One deliberate gap, disclosed rather than hidden:** ArgoCD's own core components — server, repo-server, redis, dex, the controllers — aren't sourced from this repo's manifests at all, just their ConfigMaps, RBAC, and networking. There's no GitOps-tracked manifest to add `affinity:` to. Fixing that properly means either vendoring ArgoCD's install manifest into the repo or an untracked imperative patch, which conflicts with the whole point of managing this cluster as code. Flagged as a real, separate gap rather than quietly patched around.
+
+## The Follow-Up That Almost Repeated the Same Mistake
+
+A few days after landing the fix above, my smallest worker node hit 100% memory utilization, causing containerd kill-timeouts and cascading restarts of unrelated pods scheduled there. Cause: my soft anti-affinity only excluded the *original* hot node, treating my two workers as interchangeable landing spots. They aren't — Prometheus alone, with no resource requests or limits ever set, was using over a third of that smaller node's entire allocatable memory, on top of everything else I'd just soft-preferred onto it. [I'd already done a separate pass on Prometheus's own memory growth](/blog/prometheus-sizing-homelab-ram/) for a different reason; this was a fresh instance of the same lesson — an unbounded resource footprint eventually becomes someone else's outage, one way or another.
+
+Fix: Prometheus's own affinity now also excludes the smaller worker specifically, forcing it onto the larger one, plus explicit memory requests and limits so the scheduler finally accounts for its real footprint instead of treating it as free. A completely unrelated app turned out to be contributing to the same pressure too — pinned to the smallest node specifically *because* it's memory-heavy, which is backwards. Moved it to the original hot node instead, which — after the reschedule above — finally had headroom to spare.
+
+---
+
+The Azure equivalent of "nothing ever enforced spread, so everything piled onto the original node" is an AKS cluster where every workload landed on the system node pool because nobody ever set up a user node pool with taints to force separation — the failure mode isn't unique to bare-metal k3s, it's what happens by default any time a scheduler is never told to actively prefer spreading.
+
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) covers exactly this class of problem from the database side — what happens when a system has no active rebalancing mechanism and simply accretes load wherever it first landed — and the parallel to Kubernetes scheduling inertia is closer than the book's own framing suggests.
+
+<NewsletterCTA />

@@ -1,0 +1,54 @@
+---
+title: "Warm Standby for SQLite Apps on a Single-Host Homelab: Litestream to a Raspberry Pi"
+description: "My whole k3s cluster is one Proxmox host — a real, documented single point of failure. True HA isn't achievable on this hardware, but Headscale and Vaultwarden going down together with everything else didn't have to be accepted as fully unavoidable. Here's the warm-standby design, what's actually running, and what's still an honest gap."
+date: "2027-02-15"
+tags: ["Kubernetes", "Backup", "Homelab", "Disaster Recovery"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+My entire k3s cluster runs on one Proxmox host. That's not an oversight — it's a documented, accepted constraint: real zero-downtime HA is not achievable on this hardware, and pretending otherwise would be dishonest about what this homelab actually is. But "no zero-downtime HA" isn't the same as "everything critical goes down together with no plan." A NetworkPolicy drift once took my Tailscale subnet router and Cloudflare tunnel down for days, and every incident like that needs someone noticing and hand-diagnosing it with the whole cluster unreachable in the meantime. I wanted [Headscale](/blog/headscale-oidc-k3s-authelia/) and Vaultwarden specifically to survive that.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Warm Standby, Manual Failover — Not Automatic
+
+True zero-downtime HA was never the actual goal, and isn't really what a single-operator homelab needs anyway — it needs the outage to be short and the data loss near-zero, not automatic failover with its own false-positive and split-brain risk on a stack this small. So: continuous data replication keeps a standby current, and a documented, **human-triggered** failover avoids split-brain by construction. Only one copy is ever accepting writes at a time, because starting the standby containers is itself the first deliberate step of failover, not an always-on second replica quietly waiting to race the primary.
+
+**Replication: Litestream, SQLite WAL streaming, primary → standby**, for Headscale and Vaultwarden specifically. Both are single SQLite-backed processes with tiny resource footprints — a clean fit for a tool built exactly for this. I chose it over periodic backup-and-restore failover because it gets recovery point objective down to seconds instead of "however old the last backup is," and over Postgres-style replication because there's no Postgres involved for either app.
+
+**Replica destination: [`rpi-srv-02`](/blog/raspberry-pi-dns-edge-not-k3s-worker/), plain LAN SFTP, not through the tailnet.** Using Headscale's own control plane as a dependency for replicating Headscale's own data would be circular and fragile — if the tailnet mesh is degraded, that's exactly when this replication matters most. The restricted SFTP user is chrooted, key-auth-only, no shell, which keeps a plain LAN path from meaningfully widening the attack surface versus tunneling it over Tailscale would have.
+
+**Standby runtime: Docker on `rpi-srv-02`, containers present but stopped.** That Pi isn't a k3s node and doesn't need to become one for two containers — Docker's already there for DNS. Standby containers are deployed and configured but never auto-started; starting them is the first step of the failover runbook, on purpose, so there's never a moment with two writers live at once.
+
+## What I Investigated and Explicitly Didn't Build
+
+I extended the scope to consider Authelia too, and checked rather than assumed: Authelia's storage config points at CNPG-managed Postgres, not SQLite. Litestream is SQLite-specific — it simply doesn't apply here. A real Postgres-backed warm standby (native streaming replication to an ARM Postgres instance, or WAL-shipping in a similar spirit) is a heavier, architecturally different lift on a Raspberry Pi 4B than the SQLite sidecar pattern above, with a different resource footprint and different failure modes. I flagged it rather than forcing the SQLite pattern onto something it doesn't fit, or rushing a Postgres-replication design into the same pass. Traefik, Garage, and the whole CNPG Postgres cluster are the same category — real, architecturally bigger asks, not natural extensions of this design, and not built here.
+
+## What's Actually Live
+
+The replica target on `rpi-srv-02` — a dedicated system user, chrooted via an sshd `Match` block with `ForceCommand internal-sftp`, replica directories under the Pi's own SSD. Litestream sidecars on both the Headscale and Vaultwarden Deployments, continuously shipping WAL segments — verified live, not assumed: both sidecars logging real replica-sync activity, an SFTP check confirming the files actually landed, both apps still serving real traffic throughout. Host-key pinning — Litestream's own docs call it strongly recommended — was tried and reverted after a genuine, confirmed Go-ssh-client host-key-type incompatibility, not skipped carelessly; accepted for a LAN-only hop already scoped by NetworkPolicy to exactly this one destination, with a key-auth-only, chrooted, shell-restricted account backing it.
+
+The Docker Compose standby definitions themselves, and the actual failover runbook — confirm-primary-down, reach the Pi, `litestream restore`, start the standby, flip AdGuard's DNS rewrites and the Cloudflare Tunnel target, verify against a real client, and the mirror-image failback — are both written and deployed.
+
+## The Gap I Found While Building the Standby, Not Before
+
+Headscale's private key and noise private key, and Vaultwarden's RSA key, are static identity and signing material that live on the same volume as the SQLite database but *outside* it. Litestream only replicates the SQLite file itself — these three files are outside its scope entirely. Without them, a standby restored from the SQLite replica alone would generate fresh keys on first start, which breaks every existing device's trust relationship with Headscale (a full tailnet re-registration) and invalidates every existing Vaultwarden auth token.
+
+I tried extracting these files to seed the standby, and my own credential-safety tooling — [the same PreToolUse hook system I built after a string of secret-exposure incidents](/blog/claude-code-pretooluse-hook-credential-safety/) — correctly blocked it. That's exactly the shape of read it exists to prevent: pulling a key-shaped file out of a running pod. I didn't route around it. **These three files still need a human to copy them to the standby once, before it's genuinely usable.** They rotate essentially never in practice, so this is a one-time bootstrap step, not an ongoing burden — but it's a real, disclosed gap, not a solved one.
+
+## Honest Status: Not Yet Rehearsed Against Live Traffic
+
+Everything above is real and deployed. What I haven't done is the actual induced-failure verification pass — stopping a primary, confirming the standby serves real traffic, confirming failback is clean, with a real DNS and tunnel flip against production routing. That's deliberately not something I rehearsed quietly against live traffic in the same pass as building it; it's the highest-risk, least-rehearsed part of the whole design specifically because it touches live routing, and it belongs in a scheduled game-day exercise or a real incident, not a quiet unattended test. The two one-time manual prerequisites — the three static identity files above, and Headscale's OIDC client secret — are also still outstanding, and both need a human with real access, not this agent.
+
+Failover, when it happens, takes minutes, not milliseconds. By design, not oversight — see above for why automatic failover was the wrong goal for a single-operator setup in the first place.
+
+---
+
+The Azure-shaped version of this pattern is a warm-standby VM in a paired region with continuous log shipping and a documented, human-approved failover runbook — cheaper and simpler than an active-active multi-region deployment, and the right trade for workloads where "outage measured in minutes, orchestrated by a human" is an acceptable target and "always-on, always-consistent, zero human involvement" is not worth the added failure surface.
+
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) has the clearest treatment I know of why log-based replication (exactly what Litestream is doing with SQLite's WAL) is both simpler and more honest about its consistency guarantees than most people assume — worth reading before you design your own version of this.
+
+<NewsletterCTA />

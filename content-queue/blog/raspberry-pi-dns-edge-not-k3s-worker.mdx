@@ -1,0 +1,58 @@
+---
+title: "Why My Raspberry Pis Stay Out of the k3s Cluster (Even as Workers)"
+description: "k3s-agent has been installed and disabled on both my DNS Raspberry Pis for months, a half-finished integration nobody ever removed. Here's why they're staying single-purpose DNS boxes instead — and why I decided to give one of them Headscale instead of a cluster role."
+date: "2027-01-22"
+tags: ["Homelab", "Networking", "DNS", "Kubernetes"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+import AffiliateLink from "@components/AffiliateLink.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Both of my <AffiliateLink href="/go/4wNS0oI">Raspberry Pi 4Bs</AffiliateLink> — the pair running [AdGuard Home and Unbound in an active/passive Keepalived pair](/blog/unbound-adguard-keepalived-homelab/) — have had `k3s-agent` installed on them for months. Disabled, never joined, just sitting there. Nobody had made an actual decision about it; it was leftover from an earlier attempt at "maybe the Pis should do double duty" that never got finished one way or the other. During a recovery pass I finally had to answer the question directly: should these boxes be k3s workers, or not?
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Question Wasn't New, Just Never Fully Closed
+
+An earlier decision had already ruled out putting the Pis into etcd for two reasons: SD-card write fragility against etcd's fsync-heavy raft log, and mixing a critical-path responsibility (DNS) with Kubernetes blast radius on the same small boxes. Separately, etcd got pulled out of this cluster entirely in favor of k3s's embedded SQLite datastore — which resolves the first objection structurally, since there's no etcd role left to consider putting on the Pis at all.
+
+But that earlier ruling was scoped to etcd *membership*. It never directly addressed the option that was actually still live on disk: the Pis as plain k3s **agents** — workers, no control-plane role. Nothing about being agent-only instead of server-only changes the blast-radius argument, but the original decision genuinely didn't say so out loud, and a disabled-but-installed agent binary is exactly the kind of half-finished state that invites a future me (or a future automated recovery pass) to assume it was meant to be finished.
+
+## Why Agent-Only Doesn't Dodge the Real Problem
+
+DNS is the single most critical shared dependency on this network. Every other host — including the k3s VMs themselves and my own SSH access to anything — resolves through these two Pis. A k3s agent problem on one of them (an OOM, a bad pod, a kubelet bug) risks degrading DNS network-wide, and that risk doesn't scale down just because the Pi is a worker instead of a control-plane member. It's the same shared-blast-radius argument as the etcd case, just weaker in degree.
+
+SD-card write fragility is smaller here too, but not zero: a k3s agent still writes kubelet state, container logs, and image layers locally. Less write pressure than etcd, meaningfully more than "run AdGuard and nothing else." I already treat these SD cards as disposable, write-fragile hardware as a hard rule, not a soft preference, and adding *any* new source of sustained writes cuts against that rule for a benefit I don't actually need.
+
+And I don't need the compute. My two k3s VM workers already provide plenty of worker capacity on the host's own fast local NVMe storage. Adding two low-powered, high-latency, write-fragile ARM boxes to the scheduler's pool doesn't relieve any resource pressure that actually exists — it just adds two more places for something to go wrong, for marginal scheduling headroom I'm not using.
+
+## Decision: DNS/Edge Only, Uninstall Don't Just Disable
+
+Both Pis stay out of k3s entirely — no control-plane role, no agent role. Their job stays DNS (AdGuard + Unbound) plus light, non-critical Docker workloads, same as documented in [the DNS hardening writeup](/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables/). The dormant `k3s-agent` install gets **uninstalled**, not left disabled — an unused install is attack surface and confusion for no benefit, and "disabled" isn't the same thing as "gone."
+
+```bash
+# rpi1, rpi2 — remove the dormant install, don't just leave it disabled
+/usr/local/bin/k3s-agent-uninstall.sh
+```
+
+If Pi compute is ever genuinely needed for cluster workloads, the actual prerequisite is USB-SSD boot for both Pis first — not a config flag, a real hardware migration, followed by a multi-night stable baseline before trusting anything critical to it, and joining as workers only, never control-plane. Given the two k3s VM workers' current utilization, I'm not close to needing that.
+
+## The Part That Looks Like a Contradiction (But Isn't)
+
+Here's the wrinkle: around the same time I was ruling the Pis *out* of the cluster, I also decided to give one of them — `rpi-srv-02`, which now has a USB-SATA SSD attached — a genuinely important job: hosting [Headscale](/blog/headscale-oidc-k3s-authelia/), the Tailscale control plane that gates remote access to this whole network, as a standalone Docker Compose service.
+
+That's not actually inconsistent with "keep the Pis out of k3s." Joining a k3s cluster means becoming part of a shared scheduler, a shared control plane, a shared blast radius with every other pod on that cluster. Running one specific, well-understood, low-resource service in its own container is the opposite: an isolated, single-purpose workload with none of that coupling — exactly the same operating model DNS already uses on these boxes.
+
+The reasoning for moving Headscale specifically: my whole homelab runs on a single physical Proxmox host, and there's no getting around that being a single point of failure for everything k3s-hosted, Headscale included. Of the two candidates worth moving off that host — Headscale and Vaultwarden — I picked Headscale, not Vaultwarden. Vaultwarden holds Tier-1 password data with an existing, already-proven Longhorn-replication-plus-Velero-backup story; the downside of a botched live migration of actual vault data is asymmetric with the upside of moving it off one host that already has redundancy in front of it. Headscale's dataset is small, SQLite-backed, and cheap to verify via backup and restore — and losing it temporarily just means new device registration and DERP coordination pause, not that existing Tailscale peers lose connectivity to each other. Lower blast radius if the migration goes wrong, higher value from being reachable independently of the one host most likely to need a reboot — including reachable to fix everything else on that host.
+
+**Status honestly: decided, not yet executed.** This is the plan, not a completed migration — I haven't partitioned the SSD, migrated the SQLite database, or cut DNS over yet, and I'm not going to claim otherwise. Headscale gates remote access to this entire network; that's Tier-1-adjacent enough to deserve its own careful, verified pass, not something to rush into the same session as the decision.
+
+---
+
+The Azure-shaped version of this same argument is deciding what belongs on an AKS cluster's system node pool versus a dedicated Azure Container Instance or a small VM outside the cluster entirely: shared scheduler membership isn't free just because the hardware has spare capacity, and a service the rest of your infrastructure depends on for basic reachability (DNS here, arguably a DNS-based service discovery layer there) is exactly the kind of thing you don't want coupled to a shared blast radius with everything else you're running.
+
+[The Linux Command Line\*](/go/4gEAhv9) is still the book I hand people who ask why I bother hand-rolling systemd units and uninstall scripts on "just two Raspberry Pis" instead of treating them as disposable cattle — on hardware this constrained, understanding exactly what's running and why is cheaper than automating around a mystery.
+
+<NewsletterCTA />
