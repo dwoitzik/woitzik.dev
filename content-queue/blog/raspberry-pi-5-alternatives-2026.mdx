@@ -1,0 +1,117 @@
+---
+title: "Raspberry Pi 5 Alternatives Compared 2026"
+description: "Radxa Rock 5B, Orange Pi 5 Plus, and a budget mini PC compared against the Raspberry Pi 5 for homelab edge workloads - real specs, real prices, and an honest answer to when the Pi is still the right call."
+date: "2026-12-17"
+tags: ["Hardware", "Homelab", "Review"]
+---
+
+import AffiliateLink from "@components/AffiliateLink.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Every time Raspberry Pi stock tightens or prices creep up, the same question resurfaces: is there a better SBC for homelab edge work in 2026? I run [Raspberry Pi 4B units for DNS and Keepalived](/blog/homelab-hardware-tour-physical-rack/) in my own rack, hardened per my [watchdog/fail2ban/nftables setup](/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables/), and I'd recommend the Pi 5 to anyone building that same role today. This article is the comparison I'd want before spending money on an alternative instead - what the actual competing boards offer, where they win, and where the Pi's ecosystem still makes it the safer default.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+> **A note on what's hands-on here and what isn't:** I have direct, daily-driver experience with the Raspberry Pi 4B and 5. I have not personally run the Radxa Rock 5B or Orange Pi 5 Plus in production - the comparison below on those two is built from their published specifications and current pricing, not a personal test. Where that matters for a claim, I've said so explicitly rather than implying hands-on testing I haven't done.
+
+## TL;DR — The Picks
+
+| Model | SoC | RAM options | Price (approx.) | Best For |
+|---|---|---|---|---|
+| [Raspberry Pi 5 (8GB)*](/go/4wETNfv) | Broadcom BCM2712 (4x Cortex-A76) | 4/8GB | ~€90 (board only) | Best Overall / Ecosystem |
+| Radxa Rock 5B | Rockchip RK3588 (4x A76 + 4x A55) | 4/8/16GB | ~€110-170 | Best Raw Performance |
+| Orange Pi 5 Plus | Rockchip RK3588 (4x A76 + 4x A55) | 4/8/16/32GB | ~€100-190 | Best Specs-per-Euro |
+| [Beelink EQ12 mini PC*](/go/4gGnuZ3) | Intel N100 | 16GB (SO-DIMM) | ~€190 | Best "Just Skip SBCs" Option |
+
+If you want the short version: the **Raspberry Pi 5** remains the right default for anything that needs to just work with the widest possible software and community support - DNS, Keepalived, Home Assistant, PiKVM-style appliances. If the workload is genuinely CPU- or RAM-bound (local inference, heavier containerized services, multiple VMs via KVM), the **RK3588 boards** (Rock 5B or Orange Pi 5 Plus) offer meaningfully more silicon per euro. And if the form factor doesn't actually need to be SBC-sized, a **budget N100 mini PC** often beats all of them on real-world reliability per euro.
+
+## Why This Comparison Exists at All
+
+The Pi 5 is a good board. The reason "alternatives" is even a search people run is availability and price, not a spec deficiency - Raspberry Pi's retail pricing has crept up since the Pi 4 era, and RK3588-based boards from Radxa, Orange Pi, and others now genuinely outperform it on paper for similar or lower money. Whether that theoretical advantage survives contact with actual homelab use is the real question.
+
+## Selection Criteria for Homelab Edge Use
+
+**Software and driver maturity** — This is where the Pi wins before specs even enter the conversation. Raspberry Pi OS, the mainline kernel, and a decade of community documentation mean almost everything just works, including obscure GPIO/HAT hardware. RK3588 boards run mainline Linux reasonably well in 2026, but VPU/NPU acceleration, some peripheral drivers, and firmware quirks still lag behind - vendor-specific kernel forks and less-tested distro images are common.
+
+**Actual (not marketed) idle power draw** — For anything running 24/7 on a homelab shelf, idle wattage matters more than peak benchmark numbers.
+
+**Long-term software support** — Raspberry Pi Foundation has committed multi-year support windows publicly. Smaller board vendors' support lifecycle is real but shorter and less predictable - relevant if you're building something you don't want to re-flash and re-provision in two years.
+
+**Networking** — A single 1GbE port is the bottleneck on the base Pi 5; some RK3588 boards ship 2.5GbE, which matters if the device is doing anything network-intensive (routing, NAS-adjacent duties).
+
+**Price at the RAM tier you actually need** — SBC pricing is not linear across RAM tiers, and the RK3588 boards' advertised low prices are usually the 4GB variant, not the 16GB one you'd actually want for anything beyond DNS.
+
+## The Boards
+
+### Raspberry Pi 5 (8GB) — Best Overall
+
+Broadcom BCM2712, 4x Cortex-A76 @ 2.4GHz, 8GB LPDDR4X, single 1GbE (with PCIe 2.0 x1 available via the official M.2 HAT for NVMe boot), ~€90 for the board alone.
+
+The Pi 5's actual advantage over its predecessor and over most alternatives isn't raw compute - it's the PCIe lane exposed through the official HAT ecosystem, which finally makes NVMe boot a first-class, well-documented option instead of a community hack. For homelab edge roles - DNS, Keepalived, Home Assistant, lightweight k3s agents - the Pi 5 has enough CPU headroom, and the driver/software maturity means you spend your time on the actual service instead of debugging why a specific USB Wi-Fi dongle or camera module doesn't work on this particular board revision.
+
+**Pros:** unmatched software/community support, official case and HAT ecosystem, predictable long-term support window, official PoE options
+**Cons:** single 1GbE only, RAM tops out at 8GB, price has crept up from Pi 4 era
+
+### Radxa Rock 5B — Best Raw Performance
+
+Rockchip RK3588, 4x Cortex-A76 + 4x Cortex-A55, up to 16GB LPDDR4, 2.5GbE + Gigabit dual NIC on some SKUs, NVMe via M.2 slot on-board (no separate HAT needed), ~€110-170 depending on RAM.
+
+On paper, this is a materially more powerful board than the Pi 5 - the big.LITTLE core arrangement and RK3588's NPU give it a real edge for anything that can use hardware acceleration (video transcoding, some ML inference workloads), and the on-board M.2 slot without a separate HAT purchase is a genuine convenience. The tradeoff is software maturity: mainline kernel support has improved significantly, but you're more likely to hit a driver gap or need a vendor-specific image for full hardware support (NPU acceleration in particular is still the least mature part of the RK3588 software stack across the whole ecosystem, not just this board).
+
+**Pros:** genuinely more compute and RAM headroom than the Pi 5, on-board NVMe slot, 2.5GbE on higher SKUs
+**Cons:** smaller community than Pi, less mature driver/firmware stack, shorter/less predictable support window, fewer case/accessory options
+
+### Orange Pi 5 Plus — Best Specs-per-Euro
+
+Same RK3588 SoC as the Rock 5B, up to 32GB RAM on the top SKU, dual 2.5GbE, on-board M.2 NVMe slot, ~€100-190 depending on configuration.
+
+Orange Pi consistently undercuts Radxa on price for the same silicon, and the 32GB top-end configuration is unusual in this class - genuinely useful if the plan is running multiple lightweight VMs via KVM rather than bare containers. The Orange Pi ecosystem's documentation and image quality has historically been rougher than Radxa's, which itself is rougher than Raspberry Pi's - if you hit a hardware quirk, expect to spend more time in forum threads and less time in polished documentation.
+
+**Pros:** best RAM-per-euro in this comparison, dual 2.5GbE standard, on-board NVMe
+**Cons:** documentation and image quality noticeably behind Radxa and Pi, smallest community of the three, thermal management under sustained load needs an active cooler (passive cases undersell this)
+
+### The Honest Alternative: Skip the SBC Entirely
+
+For a homelab specifically - as opposed to embedded/GPIO-driven projects, where SBCs have no real substitute - the comparison that actually matters most often isn't Pi vs. RK3588 board, it's SBC vs. a budget x86 mini PC. A [Beelink EQ12*](/go/4gGnuZ3) with an Intel N100, 16GB DDR5, and dual 2.5GbE costs about the same as a well-specced RK3588 board plus case and power supply, runs full x86 Linux with zero driver-maturity questions, and I've covered it in more depth in the [full mini PC comparison](/blog/best-mini-pc-homelab-2026/). If the workload doesn't specifically need GPIO, camera interfaces, or the smallest possible physical footprint, the N100 box removes the entire "will this peripheral work on this SBC" category of problem.
+
+## Quick Comparison
+
+| | Pi 5 (8GB) | Rock 5B (16GB) | Orange Pi 5 Plus (16GB) |
+|---|---|---|---|
+| CPU | 4x A76 | 4x A76 + 4x A55 | 4x A76 + 4x A55 |
+| NPU | None (VideoCore only) | 6 TOPS | 6 TOPS |
+| Networking | 1x GbE | 1x GbE + 1x 2.5GbE (some SKUs) | 2x 2.5GbE |
+| Storage | microSD / NVMe via HAT | microSD / on-board M.2 | microSD / on-board M.2 |
+| Software maturity | Excellent | Good, improving | Fair, improving |
+| Community/support | Largest by far | Moderate | Smaller |
+
+## Who Should Buy Which
+
+**Buy the Raspberry Pi 5 if:** you want the widest hardware/software compatibility, you're running GPIO or camera peripherals, or the workload is genuinely light (DNS, Keepalived, Home Assistant) and driver headaches aren't worth risking for compute you don't need.
+
+**Buy the Rock 5B or Orange Pi 5 Plus if:** the workload is CPU- or RAM-bound (multiple KVM VMs, video transcoding, light ML inference) and you're comfortable troubleshooting a smaller community's documentation when something doesn't work out of the box.
+
+**Buy an N100 mini PC instead if:** the project doesn't need GPIO or the smallest physical footprint - x86 driver maturity beats every SBC option here for pure homelab service hosting.
+
+## Frequently Asked Questions
+
+### Is the Rock 5B actually faster than the Raspberry Pi 5?
+
+In multi-threaded benchmarks and anything that can use the RK3588's NPU, yes, meaningfully. In real-world homelab service hosting - reverse proxies, DNS, lightweight containers - the difference is far less noticeable than the spec sheet suggests, because those workloads rarely saturate either board's CPU.
+
+### Should I buy an RK3588 board for k3s?
+
+For a worker node running a handful of lightweight pods, either family works fine. For anything RAM-hungry, the 16GB+ RK3588 options have a real edge over the Pi 5's 8GB ceiling - just budget extra time for kernel/driver troubleshooting if you hit an edge case.
+
+### Does the Raspberry Pi 5 support NVMe boot?
+
+Yes, via the official M.2 HAT (or third-party equivalents) using the exposed PCIe 2.0 x1 lane. It's a separate purchase, unlike the Rock 5B and Orange Pi 5 Plus, which have the M.2 slot on-board.
+
+### What about power draw?
+
+The Pi 5 idles lower than either RK3588 board in most published measurements, though the gap is a few watts, not a category difference - not enough on its own to be the deciding factor for a homelab running a handful of these devices.
+
+## Conclusion
+
+The Raspberry Pi 5 is not the best SBC on paper anymore - the RK3588-based boards from Radxa and Orange Pi genuinely out-spec it for similar money. What the Pi still wins decisively is the thing that actually costs you time in a homelab: software and driver maturity. For DNS, Keepalived, and similar edge roles, I'm sticking with the Pi 5. For anything CPU- or RAM-bound where you're willing to trade some driver risk for more silicon, the Rock 5B or Orange Pi 5 Plus are worth the alternative. And for pure service hosting with no GPIO requirement, don't overlook that a budget x86 mini PC often beats every SBC in this comparison on total reliability per euro.

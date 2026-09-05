@@ -1,0 +1,169 @@
+---
+title: "EU AI Act Compliance for RAG Systems: Mapping Requirements to Azure Terraform"
+description: "The EU AI Act's logging, data governance, and cybersecurity obligations for high-risk AI systems, mapped to concrete Terraform resources in a Zero-Trust Azure OpenAI RAG architecture."
+date: "2026-12-06"
+tags: ["Azure", "Terraform", "AI", "Compliance"]
+---
+
+import AffiliateLink from "@components/AffiliateLink.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+The EU AI Act's obligations for high-risk AI systems read like a checklist written by people who have never deployed a RAG pipeline: risk management systems, data governance, record-keeping, transparency, human oversight, accuracy and cybersecurity. None of it says "Terraform" or "Private Endpoint." All of it is directly implementable in infrastructure code if you already have a properly network-isolated Azure OpenAI deployment.
+
+This article maps the technical obligations most relevant to a Retrieval-Augmented Generation system to the [Zero-Trust Azure OpenAI RAG architecture](/blog/azure-rag-shared-private-link-automation/) already covered on this blog - concrete resource blocks, not legal summary.
+
+> **Disclaimer:** Whether a given RAG deployment counts as "high-risk" under the AI Act depends on its use case (Annex III), not its infrastructure - a customer-support RAG bot and one used for credit decisions are treated very differently. This article covers the technical logging, data governance, and cybersecurity controls relevant once a system is in scope; it is not legal classification advice.
+
+## The Obligations That Actually Touch Infrastructure
+
+Of the AI Act's requirements for high-risk systems, four map directly onto how the system is built and deployed rather than onto model choice or documentation alone:
+
+**Article 12 - Record-keeping**
+High-risk AI systems must automatically log events "over the duration of the system's lifecycle" - enough to identify risks and enable post-market monitoring. This is an infrastructure logging requirement, not a paperwork one.
+
+**Article 10 - Data governance**
+Training, validation, and (for RAG specifically) retrieval data must be subject to appropriate data governance - relevant, representative, and free of errors "to the best extent possible," with documented provenance. For RAG, this extends naturally to the data sources the retrieval layer is allowed to pull from.
+
+**Article 15 - Accuracy, robustness and cybersecurity**
+High-risk systems must achieve "an appropriate level of accuracy, robustness and cybersecurity" and be resilient against attempts to alter their behavior - which for an LLM-backed system explicitly includes data poisoning and prompt injection via retrieved content.
+
+**Article 14 - Human oversight**
+Systems must be designed so a human can effectively oversee them, including the ability to intervene or halt operation.
+
+## Mapping to the RAG Architecture
+
+```
+AI Act Requirement              →    Azure Control
+──────────────────────────────────────────────────────────
+Record-keeping (Art. 12)        →    Diagnostic Settings on OpenAI + AI Search
+                                      Log Analytics with immutable retention
+Data governance (Art. 10)       →    Scoped RBAC on retrieval data sources
+                                      Private Endpoints - no unvetted ingestion path
+Cybersecurity (Art. 15)         →    Zero static keys (Identity Chaining)
+                                      Network isolation (no public attack surface)
+                                      Content filtering on the OpenAI resource
+Human oversight (Art. 14)       →    Azure Monitor alerting on anomalous request volume
+                                      Feature flags to disable inference without redeploy
+```
+
+**[Get the base Zero-Trust RAG module free on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-openai-rag)**
+
+## Control 1: Automatic Record-Keeping via Diagnostic Settings
+
+Article 12 requires logging sufficient to reconstruct what the system did and why - which for a RAG pipeline means both the OpenAI inference calls and the AI Search retrieval queries, not just one half of the pipeline:
+
+```hcl
+resource "azurerm_monitor_diagnostic_setting" "openai_logs" {
+  name                       = "diag-openai-${var.environment}"
+  target_resource_id         = azurerm_cognitive_account.openai.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.ai_governance.id
+
+  enabled_log {
+    category = "RequestResponse"
+  }
+  enabled_log {
+    category = "Audit"
+  }
+}
+
+resource "azurerm_monitor_diagnostic_setting" "search_logs" {
+  name                       = "diag-search-${var.environment}"
+  target_resource_id         = azurerm_search_service.search.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.ai_governance.id
+
+  enabled_log {
+    category = "OperationLogs"
+  }
+}
+```
+
+The `RequestResponse` category on the OpenAI resource is the one that actually satisfies Article 12 in practice - it captures the prompt/completion pairs, not just that a call was made. Set retention deliberately: long enough to support post-market monitoring, but paired with a documented data-minimization policy for anything containing personal data, since Article 12 logging obligations don't override GDPR.
+
+## Control 2: Data Governance at the Retrieval Boundary
+
+For a standard ML system, Article 10 is about training data curation. For RAG, the equivalent surface is the retrieval corpus - the documents AI Search is allowed to pull into context. An unrestricted ingestion pipeline where any service principal can write to the search index is a governance gap the Act is specifically aimed at.
+
+```hcl
+resource "azurerm_role_assignment" "ingestion_writer_only" {
+  scope                = azurerm_search_service.search.id
+  role_definition_name = "Search Index Data Contributor"
+  principal_id          = azurerm_user_assigned_identity.ingestion_pipeline.principal_id
+}
+
+resource "azurerm_role_assignment" "app_reader_only" {
+  scope                = azurerm_search_service.search.id
+  role_definition_name = "Search Index Data Reader"
+  principal_id          = azurerm_linux_web_app.rag_frontend.identity[0].principal_id
+}
+```
+
+Only the ingestion pipeline's identity can write to the index; the application serving end-user queries can only read. This is the same least-privilege RBAC pattern from the base module's Identity Chaining, applied specifically to satisfy the data-governance boundary Article 10 asks for: a documented, enforced answer to "what can add data this system will treat as ground truth."
+
+## Control 3: Cybersecurity - Network Isolation as a Legal Requirement, Not Just Best Practice
+
+Article 15 explicitly calls out resilience against attempts to manipulate a system's behavior. For an LLM pipeline, that includes indirect prompt injection via retrieved documents and outright data poisoning of the search index. Neither is solved by better prompts - both need the same network isolation this blog has covered as a security default, now doing double duty as a compliance control:
+
+```hcl
+resource "azurerm_cognitive_account" "openai" {
+  name                           = "oai-${var.environment}"
+  kind                           = "OpenAI"
+  public_network_access_enabled  = false
+  local_auth_enabled             = false
+
+  network_acls {
+    default_action = "Deny"
+  }
+}
+```
+
+Combine this with Azure OpenAI's built-in content filtering (enabled by default, and deliberately not something you should be disabling for latency reasons on a high-risk system) and the attack surface for both prompt injection and data exfiltration through the model's own outputs shrinks to what's actually reachable inside the VNet - the same [Private Endpoint and Identity Chaining setup](/blog/azure-rag-shared-private-link-automation/) already documented for this module.
+
+## Control 4: Human Oversight Without a Human in the Loop for Every Call
+
+Article 14 does not require a human approving every inference - that's not viable for most RAG use cases - but it does require the ability to detect abnormal behavior and intervene. An Azure Monitor alert on request volume anomalies, wired to actually page someone, is the infrastructure-level answer:
+
+```hcl
+resource "azurerm_monitor_metric_alert" "anomalous_request_volume" {
+  name                = "alert-openai-anomaly-${var.environment}"
+  resource_group_name = var.resource_group_name
+  scopes              = [azurerm_cognitive_account.openai.id]
+  severity            = 2
+
+  criteria {
+    metric_namespace = "Microsoft.CognitiveServices/accounts"
+    metric_name      = "TotalCalls"
+    aggregation      = "Total"
+    operator         = "GreaterThan"
+    threshold        = var.expected_max_hourly_calls
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.oncall.id
+  }
+}
+```
+
+Paired with a feature flag or App Configuration setting that can disable the inference endpoint without a redeploy, this gives a human the actual ability the Act asks for: to notice something is wrong and stop it, on a timescale that matters.
+
+## What This Covers - and What It Doesn't
+
+This covers the technical logging, data-governance, and cybersecurity infrastructure behind a compliant RAG deployment. Full AI Act compliance for a genuinely high-risk system also requires:
+
+- **Conformity assessment and CE marking** where applicable - an organizational and legal process, not an infrastructure one
+- **The risk management system itself (Article 9)** - documented, iterative risk assessment, which infrastructure supports but does not replace
+- **Technical documentation (Article 11)** describing the system's purpose, architecture, and limitations
+- **Transparency obligations toward end users (Article 13)** where they interact with the system directly
+
+## The Result
+
+A Zero-Trust RAG deployment built with the AI Act's technical obligations in mind gives you:
+
+- Full request/response logging satisfying Article 12's record-keeping requirement
+- Least-privilege RBAC separating ingestion from serving, satisfying Article 10's data-governance intent
+- Network isolation and content filtering as concrete Article 15 cybersecurity controls
+- Automated anomaly alerting giving a human the actual oversight capability Article 14 asks for
+
+None of this required new infrastructure - it's the same [Zero-Trust RAG module](https://github.com/dwoitzik/terraform-azurerm-openai-rag) already documented on this blog, with the logging and RBAC boundaries drawn deliberately instead of incidentally.
+
+If the underlying data-pipeline thinking behind "what should this system be allowed to retrieve, and how would you know if it went wrong" is the unfamiliar part, [Designing Data-Intensive Applications*](/go/4aUtkCs) is the book I'd point at - it's not AI-specific, but the reliability and provenance thinking transfers directly.
