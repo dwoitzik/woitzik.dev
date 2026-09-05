@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-The 3-2-1 rule: 3 copies of your data, on 2 different media, with 1 offsite. Proxmox Backup Server (PBS) handles the first two — it deduplicates, compresses, and verifies backups of Proxmox VMs and LXC containers. The offsite copy goes to Cloudflare R2, an S3-compatible object store with no egress fees. Unlike [Garage](/blog/velero-garage-k3s-backup/), the self-hosted S3 store running inside my k3s cluster, R2 lives entirely outside the cluster and the host — which matters, because [backing up to a bucket that lives on the thing you're backing up defeats the point](/blog/velero-backup-circularity-garage-r2-offsite/). The whole setup costs a [BMAX Mini PC*](https://amzn.to/4bv3yF1), a [2TB Seagate External HDD*](https://amzn.to/4vxwLpY), and R2's free tier (10GB, more than enough for PBS's deduplicated chunks).
+The 3-2-1 rule: 3 copies of your data, on 2 different media, with 1 offsite. Proxmox Backup Server (PBS) handles the first two — it deduplicates, compresses, and verifies backups of Proxmox VMs and LXC containers. The offsite copy goes to Cloudflare R2, an S3-compatible object store with no egress fees. Unlike [Garage](/blog/velero-garage-k3s-backup/), the self-hosted S3 store running inside my k3s cluster, R2 lives entirely outside the cluster and the host — which matters, because [backing up to a bucket that lives on the thing you're backing up defeats the point](/blog/velero-backup-circularity-garage-r2-offsite/). The whole setup costs a [BMAX Mini PC*](/go/4bv3yF1), a [2TB Seagate External HDD*](/go/4vxwLpY), and R2's free tier (10GB, more than enough for PBS's deduplicated chunks).
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -53,7 +53,7 @@ The backup job runs daily at 3am via a Proxmox cron job:
 
 ## The Local Disk
 
-The [Seagate 2TB External HDD*](https://amzn.to/4vxwLpY) connects via USB 3.0 to the [BMAX Mini PC*](https://amzn.to/4bv3yF1). PBS stores the primary backup repository on this disk:
+The [Seagate 2TB External HDD*](/go/4vxwLpY) connects via USB 3.0 to the [BMAX Mini PC*](/go/4bv3yF1). PBS stores the primary backup repository on this disk:
 
 ```
 /mnt/backup/pbs/
@@ -136,8 +136,8 @@ In the Proxmox web UI, go to the VM/Container → Backup → Restore. Select the
 
 | Component | Cost |
 |---|---|
-| [BMAX Mini PC*](https://amzn.to/4bv3yF1) (host) | ~€180 (one-time) |
-| [Seagate 2TB External HDD*](https://amzn.to/4vxwLpY) | ~€60 (one-time) |
+| [BMAX Mini PC*](/go/4bv3yF1) (host) | ~€180 (one-time) |
+| [Seagate 2TB External HDD*](/go/4vxwLpY) | ~€60 (one-time) |
 | Cloudflare R2 (PBS chunks fit in the 10GB free tier) | ~€0/month |
 | **Total first year** | ~€240 |
 | **Total ongoing** | ~€0/year (until you outgrow the free tier) |

@@ -120,7 +120,7 @@ This is a common Helm gotcha across many charts, not just Kyverno:
 
 The fix is always the same: if the chart expects a map, use map syntax. If you're unsure, `helm template` will show you exactly what the binary receives.
 
-**Further reading:** If you're debugging Kubernetes issues like this regularly, [Kubernetes Patterns by Bilgin Ibryam and Roland Huß&#42;](https://amzn.to/3QdWfkH) covers the operational patterns (including policy-as-code and leader-election) that prevent entire classes of these problems. For a deeper dive into distributed systems failure modes, [Designing Data-Intensive Applications by Martin Kleppmann&#42;](https://amzn.to/4aUtkCs) explains why leader-election timeouts behave the way they do under I/O pressure.
+**Further reading:** For a deeper dive into distributed systems failure modes, [Designing Data-Intensive Applications by Martin Kleppmann&#42;](/go/4aUtkCs) explains why leader-election timeouts behave the way they do under I/O pressure.
 
 ---
 

@@ -150,7 +150,7 @@ CNPG streams WAL segments to MinIO continuously, not just on a schedule. When th
 
 MinIO on a single node with local-path storage is not HA. If the disk dies, the data is gone. The mitigation: CNPG's WAL archiving writes to MinIO and to local disk simultaneously, and Gitea's artifacts are reconstructible from Git — neither consumer treats this MinIO bucket as its only copy.
 
-The real risk is the 100Gi PVC. On a [BMAX Mini PC*](https://amzn.to/4bv3yF1) with a 512GB NVMe, 100Gi is 20% of the disk. That's acceptable for a homelab where the alternative is paying for S3.
+The real risk is the 100Gi PVC. On a [BMAX Mini PC*](/go/4bv3yF1) with a 512GB NVMe, 100Gi is 20% of the disk. That's acceptable for a homelab where the alternative is paying for S3.
 
 ## Monitoring
 

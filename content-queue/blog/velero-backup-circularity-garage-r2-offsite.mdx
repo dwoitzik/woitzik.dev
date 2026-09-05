@@ -27,7 +27,7 @@ Velero's backup storage location points to Garage, an S3-compatible object store
 Cluster lost → Garage PVC lost → Velero backup bucket gone → nothing to restore from
 ```
 
-PBS backs up the VM/LXC disks to a [Seagate 2TB External HDD*](https://amzn.to/4vxwLpY), but PBS runs on the same physical host — a [BMAX Mini PC*](https://amzn.to/4bv3yF1). Simultaneous loss of host + USB HDD means total unrecoverability at the VM layer. Velero was the last safety net — except it was circular.
+PBS backs up the VM/LXC disks to a [Seagate 2TB External HDD*](/go/4vxwLpY), but PBS runs on the same physical host — a [BMAX Mini PC*](/go/4bv3yF1). Simultaneous loss of host + USB HDD means total unrecoverability at the VM layer. Velero was the last safety net — except it was circular.
 
 ### Problem 2: Torn-State Hazard
 
@@ -118,6 +118,6 @@ The in-cluster Garage target stays. Velero now writes to both: Garage for fast l
 
 Backup circularity is the most common structural flaw in self-hosted Kubernetes: the tool that protects you depends on the thing you're protecting. The fix is always the same — add an independent offsite layer. Cloudflare R2 costs nothing at homelab scale, and the R2 egress-free model means you're not penalized for actually using the restore. The hardest part isn't the implementation. It's admitting your current backup doesn't survive the scenario you built it for.
 
-**Further reading:** For understanding the full recovery architecture, [Designing Data-Intensive Applications by Martin Kleppmann*](https://amzn.to/4aUtkCs) covers replication, backup strategies, and the failure modes that make torn-state hazards so dangerous. The Velero circularity is a specific case of the general problem Kleppmann describes: systems that depend on their own recovery path.
+**Further reading:** For understanding the full recovery architecture, [Designing Data-Intensive Applications by Martin Kleppmann*](/go/4aUtkCs) covers replication, backup strategies, and the failure modes that make torn-state hazards so dangerous. The Velero circularity is a specific case of the general problem Kleppmann describes: systems that depend on their own recovery path.
 
 <NewsletterCTA />

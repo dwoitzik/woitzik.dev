@@ -143,7 +143,7 @@ This ensures new VMs don't inherit the PVE node's search domain. Existing VMs ne
 
 **4. Proxmox cloud-init is a hidden config source.** If you leave `initialization.dns.domain` unset, Proxmox fills it from the PVE node. Always declare it explicitly. It's the same category of hidden-layer surprise as [Proxmox's `onboot` attribute silently not round-tripping through Terraform](/blog/staggered-vm-boot-load-average-147/) — the provider abstraction has gaps that only show up once you go looking for drift that isn't there.
 
-**Further reading:** DNS debugging is a deep topic — [DNS and BIND by Paul Albitz and Cricket Liu&#42;](https://amzn.to/3QdWfkH) is the definitive reference for understanding search domains, ndots, and recursive resolution behavior. For the Proxmox/ Terraform side, [Proxmox Cookbook by Carla Schroder&#42;](https://amzn.to/4aUtkCs) covers cloud-init configuration and the subtle fallback behaviors that cause drift like this.
+**Further reading:** DNS debugging keeps coming back to the same fundamentals — search domains, ndots, resolution order. [Netzwerke: Verstehen, Einrichten, Administrieren&#42;](/go/4f3kTar) covers those fundamentals in more depth than this Proxmox-specific drift case gets into.
 
 ---
 
