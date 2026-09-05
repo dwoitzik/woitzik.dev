@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
-My Proxmox host froze three times in one week. The root cause was RAM pressure pushing ZFS into an I/O stall on a single shared NVMe. After fixing the freeze (ZFS tuning, cache=none+aio=native), I needed a way to prevent it from ever happening again — a CI guard that catches memory overcommit before it hits the host. It's the same host where [uncontrolled boot storms once pushed load average to 147](/blog/staggered-vm-boot-load-average-147/); memory pressure and I/O pressure are two versions of the same single-host bottleneck.
+My Proxmox host froze three times in one week. The root cause was RAM pressure pushing ZFS into an I/O stall on a single shared NVMe. After fixing the freeze (ZFS tuning, cache=none+aio=native), I needed a way to prevent it from ever happening again — a CI guard that catches memory overcommit before it hits the host. It's the same host where uncontrolled boot storms once pushed load average to 147; memory pressure and I/O pressure are two versions of the same single-host bottleneck.
 
 The first version of the guard was wrong. It summed VM and LXC memory allocations together against one ceiling, and flagged 85 GB as "allocated" on a host with 62 GB of physical RAM. A live check showed only 41 GB actually in use — 21 GB available. The guard was overstating pressure by 40 GB because it treated two different memory physics as the same thing.
 
@@ -123,10 +123,12 @@ The guard exists because `mini` — the single Proxmox host running this entire 
 
 REL-016 (the ZFS freeze) happened because RAM pressure pushed ZFS into a stall-wait state on the shared NVMe. The hard gate catches the most common path to that state: a VM `dedicated` change that leaves insufficient headroom for the kernel, ZFS, and LXC workloads.
 
-It doesn't prevent every possible freeze — a runaway process inside a VM can still consume all its allocated memory and cause host pressure. But it prevents the *planned* overcommit: the Terraform change that accidentally pushes past the ceiling because someone added a new VM without checking the math. CPU has the same two-tier problem; see [how `cpu.units` scheduling priority solved it for etcd](/blog/cpu-scheduling-etcd-proxmox-units/).
+It doesn't prevent every possible freeze — a runaway process inside a VM can still consume all its allocated memory and cause host pressure. But it prevents the *planned* overcommit: the Terraform change that accidentally pushes past the ceiling because someone added a new VM without checking the math. CPU has the same two-tier problem; `cpu.units` scheduling priority solves it for etcd the same way this guard solves it for memory.
 
 ---
 
 Memory overcommit modeling is the same problem in Azure: Reserved VM instances guarantee physical memory allocation, while Burstable VMs share host memory and can be throttled. Mixing both in the same Availability Set without understanding the difference produces the same false-sense-of-security that my original guard had. The fix is the same: separate hard reservations from soft ceilings, and never sum them together.
+
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) is the book I keep coming back to for exactly this kind of problem - modeling what a system actually guarantees versus what it merely appears to guarantee under load.
 
 <NewsletterCTA />

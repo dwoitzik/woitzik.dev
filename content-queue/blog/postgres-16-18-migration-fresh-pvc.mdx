@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 PostgreSQL major version upgrades are not swap-the-image operations. You can't change `postgres:16` to `postgres:18` in a Deployment and expect it to work. The data directory format changes, system catalogs are incompatible, and extensions need to be rebuilt.
 
-When [CNPG (CloudNativePG)](/blog/cnpg-postgresql-operator-k3s/) upgraded from PG16 to PG18, the procedure required a fresh PVC, a full dump and restore, and a role discovery bug that nearly locked me out of the [Authelia](/blog/k3s-authelia-proxmox-homelab/) database.
+When CNPG (CloudNativePG) upgraded from PG16 to PG18, the procedure required a fresh PVC, a full dump and restore, and a role discovery bug that nearly locked me out of the [Authelia](/blog/k3s-authelia-proxmox-homelab/) database.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -164,5 +164,7 @@ pg_restore --verbose --no-owner --no-privileges --dry-run ./authelia.dump
 ---
 
 PostgreSQL major version upgrades on Kubernetes are the same challenge as Azure Database for PostgreSQL Flexible Server upgrades: Azure handles the in-place upgrade automatically, but the same data directory format incompatibility exists. The difference is that Azure abstracts the dump-and-restore behind a API call, while Kubernetes requires you to do it manually. The underlying PostgreSQL constraint is identical: major versions are not backward-compatible at the storage layer.
+
+[The Linux Command Line\*](/go/4gEAhv9) is worth having on the shelf for exactly this kind of migration - `pg_dump`, `pg_restore`, `kubectl cp`, and a dozen other shell tools chained together under time pressure go a lot smoother when the shell itself isn't also something you're learning in the moment.
 
 <NewsletterCTA />

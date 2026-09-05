@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 *Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
 
-Every DNS lookup from every pod in my k3s cluster was appending `home.lan` to the query. External lookups like `registry-1.docker.io` became `registry-1.docker.io.home.lan`, failed locally, recursed all the way out, and added ~341ms of latency to every image pull, every API call, every webhook — traffic that should have gone straight to [Unbound](/blog/adguard-unbound-dns-filtering-leaks/) for recursive resolution, not round-tripped through a phantom search domain. I assumed DHCP was the source, wrote a Terraform fix, and watched the plan show zero diff against live state.
+Every DNS lookup from every pod in my k3s cluster was appending `home.lan` to the query. External lookups like `registry-1.docker.io` became `registry-1.docker.io.home.lan`, failed locally, recursed all the way out, and added ~341ms of latency to every image pull, every API call, every webhook — traffic that should have gone straight to Unbound for recursive resolution, not round-tripped through a phantom search domain. I assumed DHCP was the source, wrote a Terraform fix, and watched the plan show zero diff against live state.
 
 The real source was Proxmox's cloud-init generator — three layers above the DHCP server.
 

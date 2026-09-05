@@ -114,4 +114,6 @@ The RAM allocation is a hard reservation — 12 GB is always available for the k
 
 CPU scheduling priority is the same concept as Azure VM series selection: E-series VMs are memory-optimized, F-series are compute-optimized, and Dv5-series offer balanced resources. Choosing the wrong series for etcd (a latency-sensitive, write-heavy workload) produces the same performance degradation as running it without `cpu.units` on Proxmox. The difference is that Azure makes the choice at VM creation time, while Proxmox lets you adjust it dynamically.
 
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) is the best resource I know for understanding why a consensus system like etcd is so much more latency-sensitive than an ordinary stateless workload in the first place.
+
 <NewsletterCTA />
