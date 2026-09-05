@@ -1,0 +1,64 @@
+---
+title: "The NFS Exports That Were Never Real: Chasing Phantom Mounts Twice in the Same Rebuild"
+description: "An Ansible-managed /etc/exports file listed eighteen paths. None of the directories behind them existed on disk. The same silent drift between declared config and actual filesystem state caused one app's data to look permanently lost, and later blocked a completely different app's storage from mounting at all."
+date: "2027-01-18"
+tags: ["Kubernetes", "Homelab", "Debugging", "Linux"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+The same specific bug hit twice in one rebuild, in two completely different applications, weeks apart. Both times the root cause was identical: an `/etc/exports` file that had been correct once, and had silently stopped matching reality without ever producing an error - until something actually tried to use the paths it described.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## First Occurrence: A Gitea PVC That Looked Permanently Empty
+
+While [verifying restored Tier-1 data](/blog/proxmox-pbs-restore-tier1-data-verification/), one app's local-path PVC turned up as a 44KB skeleton - a config template, no real data, weeks older than the incident that supposedly caused the loss. One of three independent checks run to confirm this wasn't recoverable was the live NFS export layer: `/etc/exports`, Ansible-managed, listed an export path for this exact application among roughly eighteen entries covering the apps that had migrated from NFS-backed storage to `local-path` at some point.
+
+None of those eighteen directories existed on the NFS server's actual filesystem. The export config declared paths that the local-path migration had made obsolete, and nobody had gone back to remove the corresponding lines from `/etc/exports` - or, as it turned out, had ever verified the directories existed in the first place. This ruled out "current data lives on the NFS path instead" as a hypothesis (there was nothing there to find), but it also surfaced a separate, real, previously invisible problem: eighteen phantom exports sitting in a config file that had never once been exercised.
+
+## Second Occurrence: A Redis Deployment That Wouldn't Mount
+
+Weeks later, deploying Redis for Authelia's session storage needed a PVC on the `nfs-client` storage class - one of the exact eighteen paths flagged as phantom the first time around, because nobody had gone back to fix the underlying gap yet; it had been logged, not resolved, since it wasn't blocking anything at the time.
+
+This time it did block something. The PVC provisioner tried to mount an export path that genuinely did not exist on the NFS server, and failed outright - not "data missing," but "there is nowhere to write to at all."
+
+```bash
+# What the export config declared:
+cat /etc/exports
+# /nfs-data/redis  10.0.20.0/24(rw,sync,no_subtree_check)
+# ...seventeen more identical-looking lines
+
+# What actually existed on disk:
+ls /nfs-data/
+# (nothing - the parent directory itself had never been created)
+```
+
+The fix was additive and mechanical once identified: create every declared export directory that was missing, then re-export.
+
+```bash
+mkdir -p /nfs-data/redis
+exportfs -ra
+```
+
+Eighteen phantom exports, fixed in one pass, rather than waiting for each one to individually block whatever app happened to need it next.
+
+## The Second, Unrelated Bug in the Same Deployment
+
+Getting Redis's PVC to mount at all uncovered a second, genuinely separate gap: `nfs-common` - the client-side NFS tooling - was missing from the k3s node base image entirely. The minimal Debian cloud template these nodes were cloned from never had it installed, so any `nfs-client` PVC on a freshly-provisioned node would fail to mount regardless of whether the export itself was correct. Fixed manually on both current nodes as an immediate unblock; the durable fix is baking `nfs-common` into the base template (or an Ansible task that runs before anything else needs NFS), so it stops being a per-node surprise on every future node join.
+
+One more small, specific gotcha hit in the same pass, worth naming since it looks like a bug the first time you see it: an `ExternalSecret` using `creationPolicy: Merge` (used here for Authelia's secrets, which need some values from Vault and others already present) requires the target Kubernetes Secret to already exist - External Secrets Operator won't create one from scratch under `Merge`. The fix is to bootstrap an empty seed Secret first, every time this policy is used. It's documented Operator behavior, not a bug, but it fails silently enough on first encounter that it's worth calling out explicitly rather than rediscovering it per app.
+
+## Why the Same Root Cause Hid for So Long
+
+Config drift between a declared state (`/etc/exports`, Ansible-managed) and actual filesystem reality (whether the directories exist) produces zero errors as long as nothing tries to use the stale entries. `exportfs` doesn't validate that its export paths exist on disk before advertising them - it will happily export a path with nothing behind it, and an NFS client mounting that export gets a generic mount failure that looks identical to a dozen other possible causes. The gap sat invisible through however many Ansible runs re-applied that same `/etc/exports` file, because re-applying an already-correct-looking config doesn't check whether the world underneath it still matches.
+
+The practical lesson: a storage migration (NFS-backed to `local-path`, in this case) needs a corresponding cleanup pass on the *old* storage's export/config layer, not just a cutover of the apps that used it. Leaving the old declarations in place "just in case" doesn't preserve a safety net - it creates a set of confident-looking exports with nothing real behind any of them, waiting to fail the next time something actually tries to use one, the same way [an NFS-backed PVC turning out to double as a backup target](/blog/velero-nfs-provisioner-root-mount-redundant-backup/) only becomes visible once someone actually traces what's mounted where.
+
+---
+
+The direct Azure analogue is an Azure Files share or a private endpoint DNS zone that gets referenced in a Bicep template long after the underlying storage account or resource was decommissioned - the template deploys "successfully" because nothing validates that a referenced resource ID still resolves to something real, and the failure only surfaces at the moment a workload actually tries to mount or connect. [The Linux Command Line\*](/go/4gEAhv9) is still the fastest path to being comfortable enough with `mount`, `exportfs`, and `showmount -e` to diagnose exactly this class of bug from first principles instead of guessing.
+
+<NewsletterCTA />

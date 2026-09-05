@@ -1,0 +1,93 @@
+---
+title: "Recovering Vault's Raft Data (and a Lost Root Token) After Rebuilding the Cluster That Made Them"
+description: "Restoring Vault after a full k3s rebuild hits a circular dependency: you need the old cluster's data to get the unseal keys, but you don't want to boot the old cluster's control plane. Breaking that cycle with a disposable, isolated k3s instance - and recovering a root token that was never written down anywhere."
+date: "2027-01-11"
+tags: ["Kubernetes", "Vault", "Security", "Homelab"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Rebuilding [Vault with External Secrets Operator](/blog/external-secrets-operator-vault-kubernetes/) from scratch is one thing when you're setting it up for the first time. It's a different problem entirely when Vault held real, pre-existing secrets for 25+ services, and the cluster that originally created it is gone. A fresh Vault install gives you a fresh, empty secret store - which is exactly the wrong outcome if the goal is disaster recovery, not a clean slate.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Circular Dependency
+
+The old Vault's unseal keys were stored, correctly, as a Kubernetes Secret in the old cluster - a reasonable choice for a homelab, and exactly the [polling-sidecar auto-unseal pattern](/blog/vault-auto-unseal-polling-sidecar/) already documented here depends on that Secret existing. The problem: to read a Kubernetes Secret, you need a running Kubernetes API server. To get a running API server for the *old* cluster, you need its datastore. And booting the old cluster's full control plane back up - the thing that just went through a disaster - is exactly the kind of unnecessary risk a careful recovery avoids.
+
+The chain: **old k3s datastore → unseal keys → new Vault.** Breaking it meant getting exactly one object out of the old datastore without standing up everything that depended on it.
+
+## Breaking the Cycle With a Disposable, Isolated Node
+
+The datastore itself - a single SQLite file, already safely extracted during the read-only Tier-1 verification pass, dated to before any later incident touched the VM it came from - doesn't need a full multi-node cluster to be readable. It needs exactly one thing: a k3s server process willing to read it and answer API requests.
+
+```bash
+# On a throwaway VM, with no role in the real cluster:
+# 1. Copy the extracted (clean, pre-incident) datastore and the original join token
+scp pve:/mnt/extracted/vm-k3s-server/k3s-db/state.db  ./state.db
+scp pve:/mnt/extracted/vm-k3s-server/token             ./token
+
+# 2. Install k3s pointed at that datastore, fully isolated
+INSTALL_K3S_EXEC="server --disable-agent --bind-address=127.0.0.1 \
+  --disable=coredns,servicelb,traefik,metrics-server,local-storage" \
+  ./install.sh
+```
+
+One real snag: the fresh install's own auto-generated TLS and credential material was newer than the copied datastore, and k3s correctly refused to start rather than risk masking a real outage condition - "files newer than datastore" is exactly the kind of self-check you want a system to have, even when it's inconvenient in the moment. Deleting the fresh install's own generated cert/cred files first, so the copied datastore's originals were the only version present, resolved it cleanly.
+
+With that single-node, network-isolated instance running, the target object came out with one command:
+
+```bash
+kubectl get secret vault-unseal-keys -n vault -o yaml > unseal-keys.yaml
+```
+
+Never echoed, never catted to a terminal - redirected straight to a file. That file was relayed to the real cluster, stripped of stale metadata (`resourceVersion`, `uid`, `managedFields` - identified and removed by field *name* only, not by ever reading the actual key material) via a small script, and applied into the new cluster's `vault` namespace. The throwaway VM was discarded afterward; it never touched anything except a copy of a copy of already-extracted data.
+
+## Verifying It's Actually the Old Vault, Not a Coincidence
+
+The Vault Helm chart deploys with a fresh, empty PVC by default - there's no way for Helm to know old data should go there instead. Getting the real raft data into that PVC meant scaling Vault to zero, moving the fresh-empty PVC contents aside (kept, not deleted, in case anything needed to be rolled back), and copying in the preserved raft directory from the extraction.
+
+Scaling back to one and checking `vault status` is the actual proof, not just a subjective "looks right":
+
+```
+Initialized     true
+Sealed          true
+HA Enabled      true
+Raft Committed Index    48213
+Cluster ID              7f2a1e88-...
+```
+
+A freshly initialized Vault reports `Initialized: false`. This one reported `true`, with a real, non-trivial raft index and a Cluster ID matching the pre-incident cluster - not "a Vault came up," but genuinely the same Vault, continuing from where its data left off. Applying the transplanted unseal-keys Secret and letting the [polling sidecar](/blog/vault-auto-unseal-polling-sidecar/) do its normal job unsealed it on the first attempt.
+
+## The Root Token Was a Different Problem
+
+Unlike the unseal keys, the original root token had never been written to a Kubernetes Secret anywhere - by design, root tokens are meant to be used once for bootstrap and then either revoked or stored somewhere outside the cluster entirely. That's the correct security practice, and it also meant there was no copy to recover.
+
+Vault has a documented procedure for exactly this: `generate-root`. With a quorum of unseal key shares already available (2 of the 3 restored above are enough to authorize this), Vault can mint a brand-new root token without needing the old one at all:
+
+```bash
+vault operator generate-root -init
+# Vault returns a nonce and an OTP
+
+vault operator generate-root -nonce=<nonce>
+# Provide unseal key shares, one at a time, until threshold is met
+
+# Final output includes an encoded token - decode with the OTP from step 1
+vault operator generate-root -decode=<encoded-token> -otp=<otp>
+```
+
+This isn't a workaround or a lesser option compared to recovering the original - it's Vault's own supported lost-root-token recovery path, gated by the same unseal-key quorum that protects everything else. The new token was captured to a file and never displayed in a terminal session, same discipline as the unseal keys, then applied directly into the `ClusterSecretStore`'s token Secret so External Secrets Operator could resume syncing.
+
+## What Made This Recoverable at All
+
+Two things, neither of which were dramatic in the moment: the datastore extraction happened read-only, before any later incident could touch it, so there was a known-clean copy to work from. And the unseal keys had been stored as a Kubernetes object in the first place, rather than only ever existing on a piece of paper or in someone's head - a Secret object is at least *theoretically* recoverable through a path like this one; a value that only ever existed in one person's memory is not.
+
+---
+
+The Azure equivalent of this circular dependency shows up with Key Vault soft-delete and purge protection: if a Key Vault's own access policy or RBAC role assignment lives in the same subscription that just had a catastrophic failure, recovering the Key Vault can require the very access it's supposed to grant. Azure's answer is the same shape as Vault's - a break-glass path (an emergency access account with Key Vault Administrator scoped outside the normal RBAC chain) that exists specifically so a circular dependency can't become a permanent lockout.
+
+[Zero Trust Networks\*](/go/zero-trust-networks-book) is the book I'd point at for the underlying principle here - the whole idea of a break-glass recovery path only works if it was designed in before you needed it, not improvised during the incident.
+
+<NewsletterCTA />
