@@ -1,0 +1,48 @@
+---
+title: "Atlantis's Public Webhook Was the Last Reason My Terraform Runner Was Exposed. So I'm Removing It."
+description: "GitHub's webhook delivery is inbound-push: it has to reach Atlantis, not the other way around. That's the one structural reason Atlantis needed any public exposure at all. A self-hosted GitHub Actions runner, which connects outbound instead, removes the reason entirely."
+date: "2027-01-25"
+tags: ["Terraform", "GitOps", "Atlantis", "Security"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Every other public hostname in my homelab exists because a human wants to reach something from outside the LAN. Atlantis was the one exception, and for a boring, structural reason: GitHub's webhook delivery is inbound-push. When a PR opens or someone comments `atlantis plan`, GitHub has to be able to reach Atlantis to tell it — there's no way for Atlantis to poll GitHub for that event instead, not with the classic webhook-driven design. That's a machine-to-machine direction problem, not a "someone needs this from their phone" need, and it's the whole reason `atlantis.woitzik.dev` ever had a public Cloudflare Tunnel entry in the first place.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Exposure Audit Already Pulled the Rug Out
+
+I'd [already migrated Atlantis to its own LXC once and accidentally made it fully public](/blog/infra-migration-silently-removed-auth-atlantis/) — a mistake I fixed by routing it back through Traefik with Authelia in front. But a later exposure audit went further: I moved my public surface from an opt-out wildcard tunnel to an explicit two-hostname allowlist, and Atlantis isn't structurally required to be on that list the way, say, a device-registration endpoint is. Its DNS record and tunnel ingress rule got dropped.
+
+That created a real, self-inflicted chicken-and-egg: the same change that closed Atlantis's public exposure also removed the one path GitHub's webhook needs to tell it "a PR was opened, go reconcile." Not dangerous — the risky state was already closed — but genuinely parked: `atlantis plan`/`apply` PR comments had nowhere to land until I fixed the direction problem properly, instead of re-opening the hole every time I needed to unstick a webhook.
+
+## Two Options, and Why the Obvious One Loses
+
+**Option B — keep Atlantis public, narrow the door.** Cloudflare Access in front of the hostname, a WAF rule restricting source IPs to GitHub's published webhook ranges, HMAC signature verification on the payload (already present via the webhook secret Atlantis ships with). This is a legitimate, standard pattern — it's literally what GitHub itself recommends for securing inbound webhooks — and I took it seriously rather than dismissing it. But every piece of it is an ongoing configuration surface that has to stay correctly wired forever: the IP-range allowlist has to track GitHub's published ranges as they change, Access has to stay correctly configured, HMAC verification has to stay implemented correctly. Every one of those is a way to silently regress back to "actually open," which is exactly how the wildcard-tunnel mistake happened in the first place — one bad day, one skipped review, and the door's wide open again.
+
+**Option A — self-hosted GitHub Actions runner.** A runner inside my network polls GitHub outbound for work; GitHub never initiates a connection inward. `atlantis.woitzik.dev`'s tunnel entry is gone outright, not narrowed. Atlantis itself, or a GitHub Actions workflow doing the equivalent `terraform plan`/`apply`-on-PR-comment flow, runs on that runner instead.
+
+I picked Option A. It has no ongoing configuration surface to regress — there's simply nothing listening on the public internet, full stop, not "nothing listening as long as five separate things stay correctly configured."
+
+## The Side Benefit I Didn't Expect
+
+Atlantis's current deployment holds the Proxmox API token, the Cloudflare API token, and RouterOS credentials directly in its running container — reachable by anything that can reach Atlantis's own API, which until this decision meant "anyone on the public internet who gets past HMAC verification." A self-hosted runner with no inbound path at all removes an entire class of "what if Atlantis's own auth has a bug" risk for the most sensitive credentials in the whole stack. That's not a hypothetical improvement I'm hoping for later — it's a structural property of not being reachable from outside in the first place, and it directly shrinks the same credential-exposure risk that [a separate pass through this homelab's Vault access ended up tackling from the opposite direction](/blog/vault-terraform-config-staged-migration/).
+
+GitHub Actions can also reproduce Atlantis's actual UX losslessly: `workflow_dispatch` and `issue_comment`-triggered workflows cover the PR-comment-driven `plan`/`apply` flow, `gh pr comment` posts plan output back to the PR the same way Atlantis does, and GitHub Environments' required-reviewers feature is a direct substitute for Atlantis's own apply gate. Nothing about the actual day-to-day workflow gets worse — the thing I lose is Atlantis's own web UI for viewing all locked PRs/plans across the repo at once, which for a homelab-scale repo with a handful of concurrent PRs is a reasonable trade.
+
+## Honest Status: Decided, Not Yet Migrated
+
+This is a decision, not a finished migration. Until the actual GitHub Actions workflows exist and the runner is registered, `atlantis plan`/`apply` PR comments have nowhere to go — I'm treating that as a known, tracked gap rather than pretending it's already resolved. The webhook secret that's currently unused stays in Vault until the migration lands and I can actually rotate it out; ripping it out early with nothing yet consuming it would just be housekeeping theater.
+
+The migration itself is real, sequenced work: one GitHub Actions workflow (or one parameterized workflow) per Terraform stack, a runner to register and keep patched like any other host in this inventory, and a decommissioning step for Atlantis's webhook listener once the workflows are proven. I'm treating it as its own project, not something to rush through in the same session as deciding to do it — [the last time I rushed an Atlantis change](/blog/atlantis-terraform-destroyed-itself-mid-apply/), it went badly.
+
+---
+
+The Azure equivalent of this exact trade-off is choosing a self-hosted Azure DevOps or GitHub Actions agent inside a private VNet over exposing a build-service webhook endpoint through an Application Gateway with IP restrictions — same two options, same asymmetry: the agent-polls-outbound model has no listener to misconfigure, the exposed-endpoint model works fine right up until someone forgets to update an IP range during a provider's address rotation.
+
+[The Phoenix Project\*](/go/4f4RHQf) is the book I keep coming back to for exactly this kind of decision — not because it's about Terraform or Kubernetes at all, but because it's the sharpest account I know of choosing the boring, structurally-sound fix over the clever, more-defensible-in-a-postmortem one.
+
+<NewsletterCTA />

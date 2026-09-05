@@ -1,0 +1,56 @@
+---
+title: "The Drift ArgoCD Can Never Catch: A Dead Man's Switch That Was Merged and Never Applied"
+description: "A dead man's switch CronJob sat merged to main for who knows how long, never once kubectl-applied, found only by a manual audit. ArgoCD's selfHeal can't protect a file it never wrapped. Here's the scheduled GitHub Actions checker I built to catch that specific gap automatically."
+date: "2027-02-08"
+tags: ["Kubernetes", "GitOps", "Homelab", "CI/CD"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+I've [already written about the drift class where ArgoCD says `Synced` but the live cluster is actually stale or running an inert config](/blog/gitops-merged-not-applied-argocd-drift/) — a stuck sync timestamp, a Helm values typo that silently no-ops. This is the mirror-image problem, and it's worse in one specific way: it's invisible to ArgoCD *by construction*, not by bug. A raw manifest that was never wrapped in an ArgoCD `Application` at all has no sync status to be wrong about. Nothing reconciles it. A `kubectl apply` that never happened — a forgotten step after a merge, an agent session that ran out of context mid-task — sits there looking correct in git, doing nothing on the cluster, until something downstream breaks and someone goes looking.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Four Incidents, Same Root Cause
+
+This bit me four separate times, across four different resource kinds: a `pve-exporter` ExternalSecret, a Kyverno ClusterPolicy, a NetworkPolicy on my database namespace, and — the worst instance — a dead man's switch CronJob that was merged via a real, reviewed PR and then simply never `kubectl apply`'d. Found only by a manual live-vs-git sweep during an unrelated repo audit. The entire point of a dead man's switch is to catch the cluster going silent, and a manifest sitting in git provides exactly zero protection against that failure mode until it's actually running.
+
+All four share the same root cause: they're standalone raw manifests, not wrapped in an ArgoCD `Application`. ArgoCD's `selfHeal` keeps everything it manages in sync with git automatically — but nothing reconciles the files nobody wrapped in an `Application` in the first place.
+
+A useful boundary case turned up while building this, worth naming honestly: my `postgres` system directory *is* ArgoCD-managed, and its own sync was stuck in a loop on one resource that still wasn't live despite nine auto-heal attempts — a real, separate bug, not something this guard is meant to fix. This checker's job is reporting ground truth, declared versus live. It isn't diagnosing why an ArgoCD-managed resource that should self-heal isn't; I flagged that one separately instead of trying to fix it here.
+
+## What I Built
+
+A scheduled check, running every 30 minutes plus manual dispatch, that walks every YAML file under my raw-manifest directory, extracts every declared object that isn't an ArgoCD `Application`/`AppProject`/`ApplicationSet` (already self-healed, out of scope) or a `Secret` (see below), and confirms each one actually exists live via `kubectl get`. Any gap fails the job and pushes an alert.
+
+I considered the more thorough-sounding fix — bringing every standalone CronJob, PrometheusRule, and ExternalSecret under ArgoCD's scope properly — and rejected it. Some of these files are deliberately direct-`kubectl`-apply on purpose: Kyverno's own policy file needs to be hand-editable live during an incident without fighting `selfHeal`. Re-architecting how a wide variety of already-working files are managed, for a benefit ArgoCD-wrapping doesn't actually provide, was the wrong scope for this fix. The failure mode isn't "these files drift from git" — it's "nobody ever ran the first apply." A diff-based guard catches that regardless of *why* a file is standalone, and it extends automatically to any new standalone file added later without a design decision about how to bring it into ArgoCD's world.
+
+### Why a Scheduled GitHub Actions Job, Not an In-Cluster CronJob
+
+The [self-hosted runner I'm already building for Atlantis](/blog/atlantis-self-hosted-github-actions-runner/) already has network access to the apiserver, so this piggybacks on it rather than adding a new piece of infrastructure. Running the check from outside the cluster is also closer to what it's actually verifying — "is this really live," not "does a pod inside the cluster agree it's live" — a distinction that matters if the apiserver itself, or the cluster's own alerting path, is what's actually broken.
+
+### Credential Scoping
+
+A dedicated ServiceAccount bound to the built-in `view` ClusterRole, plus a narrow, explicit read-only addition for every CRD group `view` doesn't aggregate automatically — Kyverno, CNPG, Traefik, MetalLB, cert-manager, Velero, the Prometheus Operator, and RBAC resources themselves, since `view` deliberately excludes Role/ClusterRole read by design. I found this gap the hard way: the checker's first properly-configured run came back with 69 out of 211 objects reported "missing" that were entirely false positives from this one RBAC gap.
+
+`Secret` is excluded from the guard's scope entirely, on purpose. Checking whether a Secret exists needs `get`/`list` RBAC on secrets — which grants the same credential the ability to read secret *values* too. Not a trade worth making for a read-only credential that lives on a CI runner's disk, especially since a missing Secret is the least silent of the four incident classes this guard targets — it crash-loops its consumer pod visibly, which is a different (and less dangerous) failure mode than the other three.
+
+## Proof It Actually Catches the Gap
+
+I proved this by deliberately deleting a fully-applied, non-ArgoCD-managed resource and re-running the checker: it reported the missing CronJob immediately, exit code 1. Re-applied it straight after — never left the real dead man's switch down for the test. Separately, the guard's very first properly-RBAC'd run found three genuine, pre-existing gaps with zero prompting: a PodMonitor and two chaos-mesh Schedules, all declared in git and never applied. The exact failure class this guard exists to catch, caught on day one, with no incident required to surface it.
+
+## What This Guard Still Can't See
+
+Found the same night I built this, while resolving an unrelated PR to migrate a service off the cluster: a real, currently-running native Docker container on one of my Raspberry Pis, entirely outside git, from an apparently-abandoned earlier attempt at exactly the migration that PR was proposing. Two stale registrations, both confirmed offline before I decommissioned them.
+
+That's the mirror image of everything above: **undeclared and manually run**, rather than **declared and never applied**. This guard only ever looks at what's declared in the manifest directory and asks "is this live" — it has no way to notice something running that was never declared anywhere, on a host it doesn't look at at all. Worth naming as a real, separate gap rather than pretending this guard covers more ground than it does. Closing it needs a genuinely different mechanism — an inventory sweep of every host's running containers against what Ansible and Kubernetes together declare — which is a much bigger undertaking than this guard, and not something I've built.
+
+---
+
+The Azure DevOps equivalent is a scheduled pipeline that diffs `az resource list` against what's declared in your Bicep/Terraform templates, independent of whatever deployment history the pipeline itself reports — a green "deployment succeeded" run proves the command executed, not that the resource is actually sitting there afterward. Same gap, same fix shape.
+
+[The Phoenix Project\*](/go/4f4RHQf) is, again, the book I keep pointing at for this exact class of problem — the gap between "we did the work" and "the work is actually protecting anything" is the whole plot.
+
+<NewsletterCTA />

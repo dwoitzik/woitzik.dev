@@ -1,0 +1,55 @@
+---
+title: "Self-Hosted Network Topology Mapping With Scanopy, Without the Privileged Docker Socket"
+description: "Scanopy's own docker-compose.yml asks for privileged: true and a read-only Docker socket mount. Neither is actually required for ARP discovery and TCP fingerprinting. Here's the narrower deployment I run instead, and why I still deliberately left two VLANs unscanned."
+date: "2027-02-25"
+tags: ["Networking", "Homelab", "Security"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Architecture documentation drifts from reality — I've already run into this at the Terraform level with [firewall rules Terraform didn't know about](/blog/mikrotik-firewall-rule-drift-orphaned-rules/), and network topology diagrams have the exact same problem, just less visible until someone actually needs the diagram to be right. [Scanopy](https://scanopy.net) (AGPL-3.0, self-hosted) fixes this by automating it: per-VLAN daemons do ARP discovery and TCP service fingerprinting, and a central server builds a self-updating topology map instead of a Visio diagram nobody's touched in six months.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Two VLANs I Deliberately Didn't Scan
+
+I deployed daemons on my management, general-application, and DMZ VLANs. I left my IoT and admin-workstation VLANs out entirely, on purpose. Both have zero persistent self-hosted compute today — IoT is untrusted consumer devices, admin is just my own workstation — and a scanner's value is proportional to how much self-hosted infrastructure a segment actually has. Standing up new, dedicated scanning infrastructure for two segments with nothing worth documenting isn't worth the added attack surface.
+
+I also considered scanning those two remotely — a Layer-3-only scan from an existing VLAN's daemon instead of placing new daemons on them — and rejected that too: it would still need a new firewall hole from one VLAN into segments that currently have none at all, for subnets with nothing in them worth the hole.
+
+## DaemonPoll, Not ServerPoll
+
+Scanopy offers two connection modes: DaemonPoll, where the daemon connects outbound to the server and nothing ever reaches in to it, and ServerPoll, where the server connects inbound to the daemon on a fixed port. Upstream's own docs actually suggest ServerPoll specifically for DMZ deployments, reasoning that a DMZ host "cannot make outbound connections." That reasoning doesn't hold for my DMZ — that box already makes narrow, deliberate outbound connections (to CrowdSec's central API, for one) — and DaemonPoll is strictly the safer direction regardless: nothing ever initiates a connection *into* the DMZ daemon from anywhere else on the network. I run DaemonPoll everywhere, including the two internal VLANs where upstream's suggested default would have been fine either way.
+
+## No `privileged: true`, No Docker-Socket Mount
+
+Upstream's own `docker-compose.yml` runs the daemon with `privileged: true` and a read-only Docker-socket bind mount — the latter is there so the daemon can auto-tag which containers are running behind a discovered open port. Neither is actually required for the job Scanopy is doing: ARP discovery and raw TCP port scanning need `NET_RAW` and `NET_ADMIN` capabilities, not full privileged mode.
+
+```yaml
+# what I run instead of upstream's default
+cap_add:
+  - NET_RAW
+  - NET_ADMIN
+# no privileged: true
+# no /var/run/docker.sock mount
+```
+
+A read-only Docker-socket bind mount is still full Docker API access — the daemon's own file-mount permissions don't gate what the Docker API itself allows over that socket, so a "read-only mount" is misleading shorthand for "effectively root over whatever host it's mounted on." Granting that to a network scanner sitting right next to my DMZ's CrowdSec stack would defeat the entire point of running a scanner carefully. I accepted the real trade-off instead: no automatic correlation between an open port and which container owns it. Confirming that manually is slower, but it's a manual, contained cost — not a standing root-equivalent credential sitting on a DMZ host.
+
+## The Narrowest Firewall Rule Per Daemon, No WAN Exposure at All
+
+The management and DMZ daemons reach the central server through a dedicated LoadBalancer service scoped via source-IP ranges to exactly those two hosts' addresses, matched by equally narrow MikroTik forward rules — single source host, single destination, single port, nothing broader. Unlike Headscale's deliberate public exposure, [documented as one of exactly two hostnames on my public allowlist](/blog/public-exposure-allowlist-two-hostnames/), this has zero public or WAN-facing component. It's fully internal by design, and it should stay that way — a topology scanner that could itself be reached from the internet would be an ironic way to hand an attacker a map of everything else worth attacking.
+
+## Consequences Worth Knowing If You Copy This
+
+The general-application-VLAN daemon runs with host networking, which means it's not covered by the same NetworkPolicy egress rules everything else on that node is subject to — its egress is governed by the node's OS and the MikroTik firewall only, and anyone editing that NetworkPolicy file later shouldn't assume it touches this daemon. I also stood up one new, minimal, single-purpose host purely to run the management-VLAN daemon, since that's the one segment with no existing host to piggyback on.
+
+---
+
+The Azure equivalent of self-updating topology mapping is Azure Network Watcher's topology view plus NSG flow logs — the same instinct (stop trusting a hand-maintained diagram, generate the real picture from what's actually observed) applies whether the network underneath is a homelab VLAN trunk or a set of peered VNets.
+
+If you're setting up your own segmented homelab network from scratch, [Netzwerke: Verstehen, Einrichten, Administrieren\*](/go/4f3kTar) is the reference I still reach for when I need to double check VLAN/trunk terminology in German for documentation like this — genuinely useful even past the basics.
+
+<NewsletterCTA />

@@ -1,0 +1,54 @@
+---
+title: "Since I Wrote About Zero Inbound Ports: Why My Public Allowlist Shrank to Two Hostnames"
+description: "A wildcard Cloudflare Tunnel rule meant every new IngressRoute I ever declared became internet-reachable automatically. An exposure audit found real gaps accumulate in under a day. Here's why I moved to an explicit two-hostname allowlist, and why Atlantis and my own agent's terminal dropped off the public internet entirely."
+date: "2027-02-18"
+tags: ["Kubernetes", "Networking", "Cloudflare", "Security"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+import AffiliateLink from "@components/AffiliateLink.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+I've [written before about zero-inbound-port Cloudflare Tunnel access](/blog/cloudflare-tunnel-zero-inbound-ports/) for Immich, Atlantis, and Jellyfin. Since then I've narrowed the public surface considerably, and it's worth explaining why — the wildcard ingress rule that made those three hostnames reachable at all turned out to be the wrong default, and the reasoning for what stays public has only gotten stricter since.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Wildcard Was an Opt-Out Model
+
+A single wildcard tunnel ingress rule plus a wildcard DNS record meant any hostname declared in an IngressRoute anywhere in this repo automatically became internet-reachable, gated only by whatever Traefik middleware that specific route happened to declare. That's opt-out: public by default, private only if something explicitly narrowed it. It fixed a real problem fast — several services simply weren't reachable at all — but it traded that for a worse one.
+
+An exposure audit across all ~46 hostnames declared at the time, cross-referenced against Traefik middleware, found the concern was justified. Several hostnames had no Authelia gate and relied on their own app-level auth; at least one — a media-request UI with no auth of any kind — had zero protection whatsoever, not even basic rate-limiting. That table is itself the argument for what came next: an opt-out model means every new app, every IngressRoute added without thinking hard about exposure, is public until someone notices and narrows it. Three real gaps had accumulated in under a single day of that wildcard existing.
+
+## The Allowlist: Two Hostnames, Everything Else LAN/VPN-Only
+
+The Cloudflare Tunnel's ingress config is now an explicit allowlist of exactly two hostnames:
+
+- **`photos.woitzik.dev`** (Immich) — family access to the photo library from outside the LAN or VPN is a real, named use case, not a hypothetical one.
+- **`headscale.woitzik.dev`** — structurally required. A device re-authenticating or joining the Tailscale mesh has to reach the control plane *before* any VPN path to it exists. This is the one hostname on the list that categorically can't be VPN-only.
+
+Every other hostname across the whole repo — Atlantis, Jellyfin, Vaultwarden, Nextcloud, Grafana, Vault, Authelia itself, all of it — gets no Cloudflare DNS record and no tunnel ingress rule at all. Reachable via LAN or the Tailscale/Headscale VPN only, through the same AdGuard split-horizon rewrite to Traefik's internal LoadBalancer every internal client already uses — a path that never touches Cloudflare or the public internet.
+
+I checked Authelia specifically before dropping it, rather than assuming: with only these two hostnames public, and neither Headscale's nor Immich's Traefik route using the Authelia forward-auth middleware, nothing publicly reachable depends on Authelia's login flow completing against a publicly-resolvable hostname. Safe to drop. Internal Authelia login is completely unaffected — that path never touches Cloudflare either.
+
+## Why Atlantis Specifically Dropped Off
+
+If you read [the original tunnel article](/blog/cloudflare-tunnel-zero-inbound-ports/), Atlantis was one of the three hostnames routed through Traefik with Authelia in front of it. It isn't anymore, and the reasoning is the same default-deny instinct applied one layer further: **only one hostname on this whole network is structurally required to be public.** Atlantis's "need" to be public was never a real user-facing need at all — it existed purely because GitHub's webhook delivery is inbound-push. [I've since removed that requirement entirely by moving to a self-hosted GitHub Actions runner](/blog/atlantis-self-hosted-github-actions-runner/), which connects outbound instead of needing GitHub to reach in. Once that migration lands, there's no plausible argument left for Atlantis to have a public hostname of any kind, allowlisted or otherwise. Vaultwarden, Nextcloud, and Grafana were never a hard requirement either — all are usable via the Tailscale app from anywhere with the client installed, which is exactly the operator experience I actually want here.
+
+## The Related Decision I Almost Got Wrong First: My Own Agent's Terminal
+
+Before landing on the allowlist model, I'd already made a narrower, related call about giving my AI coding agent's own web terminal a public hostname. The naive fix for "it 502s because a firewall rule blocks cross-VLAN traffic" would have been to open a hole from my general-purpose application VLAN into the trusted-admin VLAN that host lives on — a hole any one of the ~45 apps on the lower-trust side could potentially use as a path toward the same network segment as this agent's SSH key, GitHub token, and Tailscale identity. I gave that hostname its own dedicated Cloudflare Tunnel instead, running directly on the agent's own host, so the admin VLAN never has to accept an inbound connection from anywhere lower-trust — it only ever originates connections outward, exactly like it already does for GitHub and Cloudflare API calls.
+
+That held up for about two weeks. Then I dropped it entirely: a dedicated tunnel avoids the cross-VLAN firewall problem, but it doesn't answer the more basic question of whether a control-plane web terminal — something that can run arbitrary commands against my infrastructure — should be publicly routable *at all*, regardless of what's sitting in front of it. The host already carries its own Tailscale identity. That's the remote-access path now; the tunnel and its DNS record are gone. Sometimes the right fix to "how do I expose this more carefully" is "don't expose it."
+
+## The Trade-off, Stated Plainly
+
+Away-from-home access to anything except photos and the Tailscale control plane itself now requires the VPN client running. That's a real convenience cost against "just open the URL" — and it's exactly the intended outcome. Every future new service needs a deliberate decision to add it to this allowlist, not just an IngressRoute — a small amount of added process in exchange for a default that can't silently accumulate gaps the way the wildcard did.
+
+---
+
+The Azure equivalent is choosing an explicit allowlist on your Application Gateway or Front Door listener config over a wildcard-hostname rule that auto-exposes anything with a matching custom domain — same principle, one layer up from network security groups: default-deny at the DNS/ingress layer, not just the firewall layer underneath it.
+
+The <AffiliateLink href="/go/4w08b21">MikroTik</AffiliateLink> firewall backing all of this [still runs its own default-deny posture at the network layer](/blog/mikrotik-zero-trust-firewall-terraform/) — this allowlist is the same instinct applied one layer up, at DNS and tunnel ingress instead of packet filtering.
+
+<NewsletterCTA />

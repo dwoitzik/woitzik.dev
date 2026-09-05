@@ -1,0 +1,73 @@
+---
+title: "Moving Off local-path Wasn't Enough: Garage's Metadata Needed Its Own Disk, Not Just Its Own Engine"
+description: "SQLite corruption crash-looped my S3 store for 14+ hours a second time, even after I'd already moved its metadata off NFS. The real fix was two changes at once: LMDB instead of SQLite, and a dedicated disk instead of local-path's shared directory tree."
+date: "2027-01-29"
+tags: ["Kubernetes", "Storage", "Homelab", "Debugging"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+I already wrote about [moving Garage's SQLite metadata off NFS after it corrupted from lock-delegation failures](/blog/nfs-vs-local-path-sqlite-trap/). That fix — `local-path` instead of `nfs-client` — was correct as far as it went. It also wasn't the end of Garage's metadata problems, just the end of *that specific* one. Garage runs my self-hosted S3-compatible store, which backs [Terraform's remote state](https://github.com/dwoitzik/homelab-infrastructure), [Velero's backup index](/blog/velero-garage-k3s-backup/), and Atlantis's lock table — a corrupted or unavailable metadata store here doesn't just lose object listings, it stalls Terraform applies and backup verification at the same time.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Two Separate, Real Problems, Not One
+
+**Problem one: it corrupted again.** This time root-caused as downstream fallout from an earlier `.recover` repair operation — the same SQLite recovery tool that saved the database once ended up contributing to a second, unrelated crash-loop. Garage sat crash-looping for 14+ hours before I gave up on an in-place repair and did a full wipe and re-provision instead.
+
+**Problem two, found while investigating the first: `garage-meta`'s `local-path` PVC had no explicit node pinning anywhere in the Deployment.** It lived wherever the pod happened to first schedule, sharing that node's generic, undifferentiated local-lvm-backed storage directory with every other `local-path` consumer on that node — no isolated capacity accounting, no discard behavior of its own. I confirmed this had actually drifted in practice: an earlier design doc had it recorded on one k3s worker; by the time I looked again, it had silently moved to a completely different node — the **control-plane** node — with nothing in git driving that placement either way. `local-path`'s own PV affinity just follows wherever the pod first landed.
+
+Garage's metadata is on the hot path for every S3 request my backups and Terraform state depend on. Sharing an undifferentiated directory tree with whatever else happens to land on the same node, with no discard behavior and no capacity ceiling of its own, was never a deliberate choice — it was just what `local-path` defaults to.
+
+## The Fix: Two Changes, Done Together
+
+**1. `db_engine`: `sqlite` → `lmdb`.** LMDB has been Garage's own documented default since v0.9.0 — SQLite was purely this cluster's historical choice, not a deliberate pick against LMDB. I migrated live metadata (4 buckets, 4 keys, existing objects) with Garage's own `garage convert-db` command, not a fresh empty reinit:
+
+```bash
+garage convert-db -a lmdb -i /path/to/db.sqlite -b sqlite -o /path/to/db.lmdb
+```
+
+LMDB's own documentation is upfront that it's "prone to database corruption after an unclean shutdown," so I added Garage's documented mitigation on top:
+
+```toml
+metadata_auto_snapshot_interval = "6h"
+```
+
+The other documented mitigation — `replication_factor >= 2` — isn't available to me on single-node hardware, so the snapshot interval is doing the whole job here.
+
+**2. Storage: `local-path` PVC → dedicated hostPath.** A new 8G virtio-scsi disk (`discard=on`), attached directly to the node running Garage, formatted ext4 with `noatime` and `discard`, mounted at `/mnt/garage-meta-dedicated`. The Deployment now carries an explicit `nodeSelector` pinning it to that exact node — previously only incidental via `local-path`'s own PV affinity — and mounts the new path via `hostPath` instead of a PVC:
+
+```yaml
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: vm-srv-k3s-11
+      volumes:
+        - name: meta
+          hostPath:
+            path: /mnt/garage-meta-dedicated
+            type: Directory
+```
+
+## What This Isn't
+
+This is **not** a relocation off my one fast NVMe onto something slower. I still have exactly one fast disk in this host, and Garage's metadata store is squarely the kind of low-latency, corruption-sensitive workload that belongs there — nothing about this migration changes that. What changed is *isolation*: a dedicated volume instead of sharing `local-path`'s common directory tree with whatever else lands on the node.
+
+I looked at two other options for "off local-path" and rejected both. Moving to my only other StorageClass, NFS, was a non-starter — I'd already found direct, real evidence that NFS locking isn't harmless for embedded databases, and LMDB's memory-mapped file access is at least as exposed to network-filesystem coherency hazards as SQLite's WAL, likely more. Moving to my USB-attached archive HDD was ruled out by my own standing rule: never place stateful PVs or databases on USB-attached storage or SD cards. Garage's actual object blobs already live there deliberately (large sequential writes, slow-is-fine); metadata is the opposite access pattern.
+
+## The Honest Trade-off
+
+Applied live via `qm set` rather than through Terraform — Atlantis's own Garage API key credentials were invalidated by this same wipe-and-reprovision, so nothing could plan or apply against any stack regardless of which one this touched. The new disk attach isn't reflected in Terraform yet, which is a known, tracked gap, not a silent one — same "apply now, codify in IaC once the credential gap closes" pattern I've used for a few other emergency fixes on this host. It needs a follow-up PR before this counts as fully drift-free.
+
+The Deployment is now hard-pinned to one specific node. If that VM is ever rebuilt, the disk attach and hostPath have to be recreated first, or the pod fails to schedule — `hostPath` with `type: Directory` fails closed if the path doesn't exist, rather than silently falling back to something else. I'd rather have that fail loudly than silently run without the isolation I just built.
+
+---
+
+The Azure-shaped version of "an embedded database that's corruption-sensitive to shared storage" is choosing Premium SSD v2 with a dedicated disk for a self-managed database VM instead of Azure Files — same principle, different cloud: file-level locking and low-latency writes want dedicated block storage, not a shared, network-backed filesystem, no matter how convenient the shared option looks on day one.
+
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) has the clearest explanation I've read of why an embedded key-value store's on-disk format (B-tree vs. log-structured, LMDB vs. SQLite's own page cache) matters as much for corruption-resistance as it does for performance — worth reading before you pick a `db_engine` value and move on.
+
+<NewsletterCTA />
