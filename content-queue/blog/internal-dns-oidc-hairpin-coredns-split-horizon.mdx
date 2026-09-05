@@ -1,7 +1,7 @@
 ---
 title: "When Your Cluster Resolves Its Own Public Hostname: Three OIDC and DNS Gotchas From the Same Week"
 description: "Headscale crash-looped because its OIDC startup check hairpinned through my own public VIP and got intermittently refused. Fixing it meant a CoreDNS split-horizon override — and led straight into two more decisions about weakening SSRF guards and bypassing Authelia for a public analytics tracker, all the same underlying problem: what happens when a hostname means something different depending on who's asking."
-date: "2027-03-04"
+date: "2027-03-11"
 tags: ["Kubernetes", "DNS", "Security", "Homelab"]
 ---
 
