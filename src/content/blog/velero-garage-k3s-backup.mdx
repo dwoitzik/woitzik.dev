@@ -2,12 +2,20 @@
 title: "k3s Backup Without the Complexity: Velero + Garage S3 on Longhorn"
 description: "Replace MinIO with Garage - a single 50MB binary - as the Velero backup target. Full daily cluster backups with Longhorn volume snapshots, deployed via ArgoCD."
 date: "2026-06-20"
+updated: "2026-09-05"
 tags: ["Kubernetes", "Homelab"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+**Update (2026-09-05):** this cluster has since moved Garage's storage off Longhorn onto a
+static host-NFS-backed PV/PVC pair — a separate post covers that migration and the reasoning
+behind it. The Velero/Garage setup described below (architecture, `replication_factor = 1`,
+the Deployment itself) is unaffected either way; only the two PVCs' `storageClassName` changed.
+Left as-is below since it was accurate for the Longhorn-based setup this cluster ran at the
+time and the backup logic itself didn't change.
 
 Every Kubernetes cluster needs a backup strategy. For a homelab running on bare metal, a [BMAX Mini PC\*](/go/4bv3yF1) with Longhorn for distributed storage, the options are limited: `etcd` snapshots cover cluster state but not persistent volumes, and MinIO is the standard S3 target for Velero - but MinIO is large, opinionated, and overkill for a single-node homelab.
 

@@ -9,6 +9,14 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
+**Update:** this cluster has since moved off etcd entirely — a single-server k3s setup uses the
+embedded SQLite datastore by default, and the multi-server HA path that would have used etcd
+was never turned on here. The CPU-contention problem and the `cpu.units` fix below were real
+while etcd was in play, and the underlying lesson (latency-sensitive, write-heavy workloads need
+scheduling priority when they share a host with bursty ones like LLM inference or game servers)
+still holds for anyone running real multi-server etcd today. Left as a historical/general
+reference rather than a description of this cluster's current architecture.
+
 etcd is the brain of Kubernetes. Every API call, every configmap update, every pod scheduling decision goes through etcd. When etcd is slow, everything is slow. When etcd times out, the API server becomes unreachable.
 
 On a single Proxmox host running k3s VMs alongside Ollama LLM inference, Minecraft game servers, and Docker media workloads, etcd shares CPU with everything else. Without scheduling priority, a Minecraft player join and an Ollama model load can delay etcd's fdatasync calls enough to trigger leader-election timeouts.
