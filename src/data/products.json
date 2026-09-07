@@ -68,5 +68,22 @@
       "ISO 27001 & NIS2 compliant architecture on day one"
     ],
     "available": true
+  },
+  {
+    "slug": "azure-private-aks-zero-trust",
+    "badge": "Terraform Module",
+    "title": "Private AKS - Zero-Trust Edition",
+    "description": "No public API server, no public node IPs, no default outbound path. Forced-tunneled egress via Route Table, private-endpoint-only ACR and Key Vault - the workload cluster behind your Hub & Spoke.",
+    "repoHref": "https://github.com/dwoitzik/terraform-azurerm-private-aks",
+    "articleHref": "/blog/azure-private-aks-zero-trust",
+    "tags": ["Azure", "Terraform", "Kubernetes", "Zero-Trust"],
+    "bullets": [
+      "private_cluster_enabled with no public FQDN at all",
+      "Forced tunneling via userDefinedRouting - no default outbound path",
+      "Private-endpoint-only ACR (Premium) and Key Vault, kubelet identity RBAC only",
+      "Zero-Trust node subnet NSG, DINE-policy-safe Private DNS Zones",
+      "Full source code - no lock-in, no black box"
+    ],
+    "available": true
   }
 ]
