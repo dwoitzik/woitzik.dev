@@ -19,7 +19,7 @@ Every time Raspberry Pi stock tightens or prices creep up, the same question res
 
 | Model | SoC | RAM options | Price (approx.) | Best For |
 |---|---|---|---|---|
-| [Raspberry Pi 5 (8GB)*](/go/4wETNfv) | Broadcom BCM2712 (4x Cortex-A76) | 4/8GB | ~€90 (board only) | Best Overall / Ecosystem |
+| [Raspberry Pi 5 (8GB) Starter Kit*](/go/4wETNfv) | Broadcom BCM2712 (4x Cortex-A76) | 4/8GB | ~€90 for a bare board, ~€200+ for the linked starter kit (case, PSU, SD card) | Best Overall / Ecosystem |
 | Radxa Rock 5B | Rockchip RK3588 (4x A76 + 4x A55) | 4/8/16GB | ~€110-170 | Best Raw Performance |
 | Orange Pi 5 Plus | Rockchip RK3588 (4x A76 + 4x A55) | 4/8/16/32GB | ~€100-190 | Best Specs-per-Euro |
 | [Beelink EQ12 mini PC*](/go/4gGnuZ3) | Intel N100 | 16GB (SO-DIMM) | ~€190 | Best "Just Skip SBCs" Option |
@@ -46,7 +46,7 @@ The Pi 5 is a good board. The reason "alternatives" is even a search people run 
 
 ### Raspberry Pi 5 (8GB) — Best Overall
 
-Broadcom BCM2712, 4x Cortex-A76 @ 2.4GHz, 8GB LPDDR4X, single 1GbE (with PCIe 2.0 x1 available via the official M.2 HAT for NVMe boot), ~€90 for the board alone.
+Broadcom BCM2712, 4x Cortex-A76 @ 2.4GHz, 8GB LPDDR4X, single 1GbE (with PCIe 2.0 x1 available via the official M.2 HAT for NVMe boot). The bare board runs ~€90; the [db-tronic starter kit I've linked throughout this site*](/go/4wETNfv) bundles a case, fan, official power supply, and SD card for ~€200+, which is the easier no-separate-shopping-list option if you don't already have those parts lying around.
 
 The Pi 5's actual advantage over its predecessor and over most alternatives isn't raw compute - it's the PCIe lane exposed through the official HAT ecosystem, which finally makes NVMe boot a first-class, well-documented option instead of a community hack. For homelab edge roles - DNS, Keepalived, Home Assistant, lightweight k3s agents - the Pi 5 has enough CPU headroom, and the driver/software maturity means you spend your time on the actual service instead of debugging why a specific USB Wi-Fi dongle or camera module doesn't work on this particular board revision.
 
