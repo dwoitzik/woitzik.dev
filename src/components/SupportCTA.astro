@@ -42,9 +42,9 @@ import { SITE } from "@consts";
             data: { page: location.pathname },
           });
         }
-        if (typeof analytics.gtag === "function") {
-          analytics.gtag("event", "support_click", {
-            page_path: location.pathname,
+        if (analytics.rybbit && typeof analytics.rybbit.event === "function") {
+          analytics.rybbit.event("support_click", {
+            page: location.pathname,
           });
         }
       });

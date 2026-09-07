@@ -360,11 +360,11 @@ const ctaHref = withUTM(product.repoHref, Astro.url.pathname);
             data: { product, page: location.pathname, postSlug },
           });
         }
-        if (typeof analytics.gtag === "function") {
-          analytics.gtag("event", "product_click", {
+        if (analytics.rybbit && typeof analytics.rybbit.event === "function") {
+          analytics.rybbit.event("product_click", {
             product,
-            post_slug: postSlug,
-            page_path: location.pathname,
+            page: location.pathname,
+            postSlug,
           });
         }
       });
