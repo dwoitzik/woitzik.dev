@@ -1,0 +1,69 @@
+---
+title: "Vault's Backup Looked Fine. The Restore Proved It Wasn't."
+description: "A scheduled Velero backup of Vault reported Completed for weeks. Restoring it into a scratch namespace came back Initialized: false. The cause: filesystem-level snapshots of a live raft/bolt store aren't crash-consistent, and a configured backup schedule is not the same claim as a restorable backup."
+date: "2027-03-22"
+tags: ["Kubernetes", "Vault", "Backup", "Homelab"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+[Velero was already backing up the cluster nightly](/blog/velero-backup-false-positive-no-data/), and after fixing the earlier false-positive bug, `velero backup describe --details` showed real `Pod Volume Backups: Completed` counts for every namespace, Vault included. That looked like proof the backup worked. It wasn't — a scheduled backup that reports success is not the same claim as a backup you can actually restore from, and the only way to tell the difference is to actually restore it.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Restore Drill
+
+The plan was simple: pick a namespace, restore its latest backup into a scratch namespace via `namespaceMapping`, and check the data is actually usable — not just present.
+
+```bash
+velero restore create vault-restore-proof \
+  --from-backup daily-backup-20270301050012 \
+  --namespace-mappings vault:vault-restore-proof
+```
+
+The PVC bound. The pod came up `Running`. On paper, that's a green check. Then:
+
+```
+$ kubectl exec -n vault-restore-proof vault-0 -- vault status
+Initialized     false
+Sealed          true
+```
+
+`Initialized: false` on a namespace restored from a Vault that had been initialized, unsealed, and in daily use for months. The files were there — correct size, correct ownership, nothing obviously missing — but Vault itself didn't recognize its own data.
+
+## Why: Filesystem Snapshots Aren't Crash-Consistent
+
+Velero's default filesystem backup (Kopia, via the node-agent sidecar) works by walking the PVC's files and copying them, live, while the pod that owns them keeps running. For stateless config or plain files, that's fine. For a database engine's own on-disk files — which is exactly what Vault's raft storage backend is, a BoltDB file wrapped in a raft log — it's a real problem: the copy can land mid-write, capturing some pages from before a transaction and some from after, with no guarantee the result is a state the engine ever actually had on disk at any single point in time.
+
+This is the generic version of a class of bug that's easy to miss because most of what you back up in a homelab genuinely doesn't care: Postgres, Vaultwarden's SQLite file, and Paperless's document store all restore cleanly through the same generic path because their write patterns and Velero's timing happened not to collide badly enough to matter, or their engines tolerate a torn file better than raft/bolt does. Vault's `Initialized: false` wasn't a Vault-specific fluke — it was the one place in this cluster where the timing problem that's *always* theoretically possible actually surfaced as a visible failure.
+
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) covers exactly this distinction in its chapter on replication and consistency: a copy of a system's on-disk state taken without coordinating with that system's own write path is not the same thing as a consistent snapshot, no matter how correct the copy tool is. The tool did its job perfectly — it copied the file that existed on disk at the moment it read it. The file itself just wasn't a state Vault ever considered final.
+
+## The Fix: Stop Using the Path That Doesn't Work, Then Build the One That Does
+
+The immediate fix was the same annotation used elsewhere in this cluster for a completely different reason — [excluding a redundant NFS root-mount volume](/blog/velero-nfs-provisioner-root-mount-redundant-backup/) — but applied here for the opposite kind of concern: not "this data is redundant," but "this data cannot be safely captured this way at all."
+
+```yaml
+# Vault StatefulSet pod template
+metadata:
+  annotations:
+    backup.velero.io/backup-volumes-excludes: data
+```
+
+This stops the daily schedule from producing a Vault backup that looks successful in `velero backup describe` but can't actually be restored — a false sense of coverage is worse than no coverage, because no coverage at least prompts you to go build something.
+
+**What this doesn't do:** give Vault an actual working backup. Right now Vault's raft data is fine on the live cluster — the unseal-key-recoverable transplant approach [used to recover a lost root token after a full rebuild](/blog/vault-raft-recovery-disposable-k3s-lost-root-token/) proves the live data itself is sound. What's missing is an *ongoing, verified-working* backup path specifically for it. The correct tool is Vault's own `vault operator raft snapshot save` — an application-level, consistent snapshot taken through Vault's own API rather than a raw file copy underneath it — written somewhere Velero/Garage can pick up on a schedule. That part isn't built yet. Writing it down here as the honest state of things rather than a solved problem: the exclusion stops a broken backup from lying about its own health, it doesn't replace the backup Vault still needs.
+
+## What This Proves About the Rest of the Cluster
+
+The restore drill wasn't scoped to Vault specifically — it also targeted a normal `apps` namespace (vaultwarden, garage, cloudflared, headscale, authelia, tailscale-subnet-router) and came back clean: PVC bound, pod running, and vaultwarden's `db.sqlite3` restored at exactly the same byte count as the live database. That's the actual bar a backup claim needs to clear — not "the schedule ran," not "the API returned success," but a byte-for-byte match after a real restore into a namespace that had nothing else already there to fall back on.
+
+The lesson generalizes past Vault: any stateful engine that owns its own on-disk write path — not just key-value databases, any process with its own consistency model for its files — is a candidate for the same failure mode. A generic filesystem backup tool has no way to know which of your PVCs fall into that category. You have to know your own stack well enough to ask the question per-service, then go prove the answer with an actual restore, not assume a green backup status answers it for you.
+
+---
+
+Azure Backup has the same distinction, worded differently: application-consistent vs. crash-consistent snapshots. A crash-consistent snapshot (the default for most VM backup policies) is exactly the filesystem-level copy problem above — fine for stateless disks, risky for a database VM unless you enable application-consistent snapshots via the VM agent's VSS integration. The failure mode is identical: the backup dashboard shows green either way, and only a real restore test tells you which kind you actually have.
+
+<NewsletterCTA />
