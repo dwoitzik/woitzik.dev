@@ -1,0 +1,51 @@
+---
+title: "Prepping a Postgres Warm Standby for Authelia: A Placeholder That Fails on Purpose"
+description: "ADR-030 groundwork for an Authelia Postgres warm standby: why the standby's own LoadBalancer IP literally cannot be known ahead of time, the deliberate REPLACE-ME default that fails fast instead of guessing, and a three-layer containment model scoped to a single trusted LAN host."
+date: "2027-03-18"
+tags: ["Kubernetes", "Homelab", "Backup", "Security"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Authelia is the single sign-on gate in front of every service on my [BMAX Mini PC\*](/go/4bv3yF1)-based k3s cluster - if its Postgres backend is down, nothing behind it is reachable either, credentials or not. I already built a warm standby for the SQLite-backed side of this homelab (Headscale, Vaultwarden), and explicitly flagged Authelia's Postgres backend at the time as a heavier, architecturally different lift that didn't belong in the same pass. ADR-030 is that follow-up: the groundwork for a Postgres warm standby, done properly rather than bolted on. It's prep work, not a finished, tested failover yet - and one of the constraints it ran into is worth writing up on its own.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## A Different Secrets Convention for This One Component
+
+Most of this cluster's secrets flow through [HashiCorp Vault and External Secrets Operator](/blog/external-secrets-operator-vault-kubernetes/) - store it in Vault, let ESO sync a real Kubernetes `Secret` into the cluster, nothing sensitive ever touches Git. The standby's replication password doesn't follow that path. This component's role generates and stores its password through the repo's **Ansible Vault** convention instead - encrypted directly in the Ansible variable tree, decrypted at playbook run time - which is the pattern this particular CNPG/Authelia role was already built around before ESO existed in this cluster, and there was no forcing function to migrate it just for this change.
+
+It's a real inconsistency, and worth naming as one rather than glossing over: two different "vault" words, two different secrets-management conventions, both legitimately live in the same repo depending on which component you're touching. The practical lesson isn't "pick one" in the abstract - it's **check which convention actually applies to the specific role you're editing before assuming it's the ESO path**, because guessing wrong here means a manifest that looks correct but references a `Secret` ESO never created.
+
+## The IP You Can't Put in the Config Yet
+
+The standby's Postgres instance gets exposed via a `LoadBalancer` Service, same [MetalLB L2 pattern](/blog/metallb-traefik-k3s-argocd/) as everything else on this cluster. The problem: MetalLB doesn't assign that IP until the Service object actually exists in the cluster. There is no way to know the standby's own address ahead of time to bake it into `pg_hba.conf` rules, NetworkPolicy allowlists, or anywhere else that needs it - the IP is a consequence of applying the config, not an input to writing it.
+
+The role's default handles this by not guessing:
+
+```yaml
+# roles/authelia_postgres_standby/defaults/main.yml
+standby_loadbalancer_ip: "REPLACE-ME-AFTER-METALLB-ASSIGNS-IP"
+```
+
+Running the role with that default in place fails immediately and legibly - a bad IP literal, not a silent misconfiguration that only shows up later as a connection that mysteriously doesn't work. The actual sequence has to be: apply the standby Service first, read back whatever IP MetalLB actually handed it, feed that real value into the second pass that locks down `pg_hba` and the NetworkPolicy. A placeholder that fails loudly beats a default that looks plausible enough to skip questioning - which for a database replication credential path is exactly the kind of shortcut that fails silently until a failover you actually need doesn't work.
+
+## Three Layers, One Trusted Host, Never the Tailnet
+
+Because the standby's Postgres port has to be reachable at all (streaming replication needs a real network path, unlike the SQLite-over-SFTP design used for Headscale and Vaultwarden), the exposure gets contained three separate, independent ways rather than trusted to any single control:
+
+1. **`loadBalancerSourceRanges` on the Service itself** - MetalLB only answers ARP for the assigned IP to begin with, but the Service spec also restricts which source addresses are allowed to reach it, scoped to exactly one already-trusted LAN host's `/32`.
+2. **A NetworkPolicy `ipBlock` rule** - the same single-host restriction enforced again, independently, inside the cluster's own network layer rather than relying on the LoadBalancer's source-range filtering alone.
+3. **A `pg_hba.conf` entry** - Postgres's own connection-level access control, scoped to that same host and the specific replication user, so even a connection that somehow cleared the first two layers still has to authenticate as a role with only replication privileges.
+
+None of these three individually would be enough on its own to call this "contained" - a `loadBalancerSourceRanges` bypass, a NetworkPolicy misconfiguration, or an overly permissive `pg_hba` line would each, alone, leave a real gap. Together, a failure in any one layer still leaves two independent controls standing. All three point at the same single already-trusted LAN address - this never crosses the Tailscale tailnet or the public internet, on purpose; expanding the standby's reachability beyond one specific host wasn't part of the actual requirement, so it isn't part of the design.
+
+## What This Is (and Isn't) Yet
+
+This is groundwork, not a completed, drilled failover path. The password convention is decided, the placeholder-that-fails-fast pattern is in place and working as designed, and the three-layer containment model is defined. What isn't in this pass: an actual tested failover runbook, and verification that streaming replication holds up under a real primary-down drill the way the SQLite/Litestream standby's did. That's honestly the harder half of "warm standby" as a claim, and it's still ahead, not behind.
+
+Streaming replication is a fundamentally different reliability model than the WAL-shipping-to-a-file approach used for the SQLite side of this homelab - continuous connection-based replication instead of periodic segment shipping, with its own failure modes around connection stability and replication lag rather than file-sync timing. [Designing Data-Intensive Applications\*](/go/4aUtkCs) is still the clearest treatment I know of why those two replication models fail differently under the same kind of network interruption, and it's exactly the reading that shaped how cautiously this pass treated "the IP isn't known yet" rather than working around it with a guess.
+
+<NewsletterCTA />
