@@ -29,7 +29,7 @@ The first two freezes produced no useful logs. `journalctl` cut off mid-entry. N
 
 ## The PSU Theory
 
-The [BMAX Mini PC\*](/go/4bv3yF1) ships with a 90W PSU. Under normal operation, the Ryzen 7 5825U draws 15W TDP and the NVMe pulls another 8W. But when all cores are loaded — k3s workers, Ollama inference, OCR workers — the CPU can boost well above base TDP.
+My [BMAX Mini PC\*](/go/4bv3yF1) — an older B5A Pro (Ryzen 7 5825U) — ships with a 90W PSU. (The linked current model has moved on to the newer 8745HS chip; the PSU/TDP numbers below are specific to my older unit.) Under normal operation, the Ryzen 7 5825U draws 15W TDP and the NVMe pulls another 8W. But when all cores are loaded — k3s workers, Ollama inference, OCR workers — the CPU can boost well above base TDP.
 
 I added power monitoring via a [TP-Link Tapo P110\*](/go/3STKPwD) to track actual draw:
 
