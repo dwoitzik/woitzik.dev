@@ -2,12 +2,22 @@
 title: "GitOps on K3s: Managing a Complete Homelab with ArgoCD"
 description: "How to manage an entire Kubernetes homelab - MetalLB, Traefik, Longhorn, Authelia, and more - as a Git repository using ArgoCD's App-of-Apps pattern."
 date: "2026-05-20"
+updated: "2026-09-09"
 tags: ["Kubernetes", "GitOps", "Homelab"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+**Update (2026-09-09):** this specific cluster's persistent storage has since moved off Longhorn
+onto NFS (same change documented in the [K3s/Authelia/Longhorn homelab article](/blog/k3s-authelia-proxmox-homelab/)).
+The `kubernetes/system/longhorn/` and `longhorn-config/` Applications below no longer exist in the
+live repository. The GitOps mechanics this article is actually about - the App-of-Apps pattern,
+the Helm-chart-plus-config-Application split, the bootstrap sequence - are unaffected by that
+change and still accurate; Longhorn is left in place below purely as the worked example of
+"Pattern 1 / Pattern 2," which remains a correct illustration for anyone running it on genuinely
+distributed nodes.
 
 Most Kubernetes tutorials end with `kubectl apply -f`. You deploy something, it works, and you move on. Three weeks later you have no idea what's running in your cluster, why it's configured that way, or how to recreate it if something breaks. My cluster runs on a [BMAX Mini PC\*](/go/4bv3yF1): small enough to sit in a 10" rack, powerful enough for a full k3s stack.
 
