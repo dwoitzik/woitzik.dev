@@ -2,12 +2,23 @@
 title: "Enterprise Homelab: K3s, Authelia & Longhorn on Proxmox with Terraform"
 description: "How to build a production-grade Kubernetes homelab with K3s, Authelia SSO, Longhorn storage, and ArgoCD - and the five painful mistakes that will cost you hours if you don't know about them."
 date: "2026-05-16"
+updated: "2026-09-09"
 tags: ["Kubernetes", "Homelab", "Security"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+**Update (2026-09-09):** this cluster has since moved persistent storage off Longhorn onto NFS.
+All three k3s nodes here run as VMs on a single physical host, so Longhorn's replica-distribution
+guarantee was never real — every "replica" landed on the same underlying NVMe. When a node dropped
+out briefly, Longhorn's RWO failover logic tried to attach the volume on a second node while the
+first was still recovering, producing a Multi-Attach error that needed a manual detach to clear —
+overhead a single-host cluster doesn't need to carry. NFS doesn't have an attachment state to
+conflict, so that failure mode is gone. Mistake 2 below (Longhorn + iSCSI) and the Longhorn
+Application manifest are left as-is - the troubleshooting is accurate for anyone running Longhorn
+on genuinely distributed nodes, just not what this specific cluster runs anymore.
 
 Most Kubernetes homelab guides stop at "kubectl get pods" and call it a day. This one doesn't.
 

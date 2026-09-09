@@ -2,12 +2,21 @@
 title: "Architecting an Enterprise-Grade Homelab: My Ansible Master Playbook"
 description: "Take a tour of a fully automated, segmented, and highly available homelab architecture orchestrated entirely via Ansible and GitOps."
 date: "2026-05-06"
+updated: "2026-09-09"
 tags: ["Homelab", "Ansible"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+**Update (2026-09-09):** the Atlantis/Cloudflared exposure described in section 3 below is no
+longer how this runs. Atlantis's public webhook has since been removed entirely and replaced
+with a self-hosted GitHub Actions runner that polls outbound instead of accepting inbound PR
+webhooks, and the public tunnel allowlist has narrowed to exactly two hostnames, neither of them
+Atlantis — see the [Cloudflare Tunnel post](/blog/cloudflare-tunnel-zero-inbound-ports/) for the
+full timeline. The role-based Ansible structure and the rest of the tiering below (HA DNS core,
+DMZ isolation, CrowdSec) are still accurate.
 
 Many homelabs start as a single Docker host or a messy Proxmox node where services are spun up manually. But as your infrastructure grows to include reverse proxies, DNS blocklists, network storage, and AI models, manual management becomes a nightmare. My stack runs on a [BMAX Mini PC\*](/go/4bv3yF1) (64GB RAM, Ryzen 7) for compute and [Raspberry Pi 4Bs\*](/go/4wNS0oI) for edge DNS, physical hardware, not cloud VMs.
 
