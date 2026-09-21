@@ -297,6 +297,18 @@ async function crosspostOne(slug) {
   const fm = parseFrontmatter(raw);
   const markdown = mdxToMarkdown(raw, slug);
 
+  if (fm.lang === "de") {
+    console.log(`⏭️   ${slug}: deutsch → kein dev.to-Crosspost (bleibt auf woitzik.dev)`);
+    const masto = flags.includes("--mastodon");
+    if (dryRun) {
+      console.log(`   (dry-run) Mastodon ${masto ? "wäre" : "nicht"} gesendet`);
+    }
+    if (masto && !dryRun) {
+      await postToMastodon(slug, fm, dryRun);
+    }
+    return;
+  }
+
   console.log(`\n📝  Crossposting: ${fm.title}`);
   console.log(`🔗  Canonical: https://woitzik.dev/blog/${slug}/`);
   console.log(`🏷️   Tags: ${(fm.tags || []).join(", ")}\n`);

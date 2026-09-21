@@ -1,0 +1,64 @@
+---
+title: "NIS2 für Homelab & gehostete Dienste: Was (d)ein Server wirklich einhalten muss"
+description: "NIS2 betrifft lange nicht jeden, der einen Server daheim betreibt. Wann du als Selbstständiger, Dienstebetreiber oder Homelab-Betreiber wirklich in den Anwendungsbereich fällst — und was die drei konkreten Pflichten sind, die dann gelten."
+lang: de
+date: 2026-09-21
+draft: false
+pinned: false
+tags: ["NIS2", "Selbstständigkeit", "Homelab", "Compliance"]
+---
+
+> _Hinweis: Keine Rechtsberatung. Das hier ist die öffentlich zugängliche Einordnung von BSI, Bundesrats-Drucksachen und der NIS2-Umsetzung (NIS2UmsuCG), laienhaft aufgeschlüsselt. Für deinen konkreten Fall: Anwalt._
+
+Wenn du einen Homelab betreibst und in Deutschland selbstständig bist, kommt irgendwann die Frage: **Bin ich überhaupt von NIS2 betroffen?**
+
+Die ehrliche Antwort, nachdem ich die Umsetzungsverordnung und die öffentlichen BSI-Papiere durchgearbeitet habe: **Wahrscheinlich nicht. Aber die Ausnahme ist genau da, wo dein Geld liegt.**
+
+## Wo NIS2 überhaupt ansetzt
+
+NIS2 richtet sich an **Organisationen** — juristische und natürliche Personen, die einen kritischen bzw. wichtigen Dienst anbieten. Der Anwendungsbereich hängt an zwei Hebeln:
+
+1. **Sektor-Zugehörigkeit** (Anlage 1 NIS2UmsuCG: Energie, Transport, Gesundheit, digitale Infrastruktur, u.a.)
+2. **Größenkriterium** — in der Regel **Mittelstandsschwelle überschritten** (per Definition der Empfehlung 2003/361/EG: >50 Beschäftigte **oder** >10 Mio. € Jahresumsatz)
+
+Ein privater Homelab, eine kleine Agentur, ein Einzelunternehmer ohne nennenswerte Belegschaft: **fällt in der Regel nicht in den Anwendungsbereich.** Punkt.
+
+Aber drei Fälle ändern das — und genau die sind für selbstständige Tech-Betreiber relevant:
+
+## Fall 1: Du bietest einen „wichtigen“ oder „kritischen“ Dienst an
+
+Wer als **Dienst** Ressourcen für den kritischen Sektor bereitstellt (z.B. ein Managed-Hosting-Betreiber, auf den Energie- oder Gesundheitseinrichtungen aufbauen), kann über den **Lieferketten-Paragrafen** (§ 38 NIS2UmsuCG: Sicherheitspflichten für wesentliche Lieferanten und Cloud-Dienstleister) mit hineingezogen werden — selbst wenn HOST klein bist.
+
+Das ist der Fall, der für dich praktisch relevant wird: **Nicht deine eigene Betriebsgröße entscheidet, sondern ob ein kritischer Kunde auf deiner Infrastruktur aufbaut.**
+
+## Fall 2: Du bist Kunde eines Betroffenen
+
+Je größer dein Kunde, desto mehr wirkt NIS2 auch vertraglich auf dich. Die Verordnung verlangt von betroffenen Organisationen, sich zu vergewissern, dass ihre **Lieferkette / ihre Dienstleister angemessen abgesichert** sind (Art. 21 Abs. 2 lit. d). Übersetzung für dich: **Du wirst als Dienstleister geprüft — nicht von der Behörde, sondern im Vertrag deines Kunden.**
+
+## Fall 3: Du bist als „wesentliche Einrichtung“ eingestuft
+
+Nur relevant, wenn du erkennbar der Kritikalitätsdefinition unterfällst (§§ 42 ff.). Für die allermeisten Homelab-Kleinbetreiber: nein.
+
+## Die drei Pflichten, die dann gelten
+
+Falls einer der Fälle greift, sind es praktisch drei Dinge:
+
+1. **Risikobasierte Sicherheitsmaßnahmen** (Art. 21 Abs. 2): Inventory, Access-Management (Least Privilege), incident-Handling, Backups, Verschlüsselung, Supply-Chain-Management.
+2. **Meldepflicht bei erheblichen Vorfällen** (Art. 23): IT-Ausfall mit erheblichen Auswirkungen auf den Dienst → Meldung an die zuständige Behörde bzw. das BSI, gestaffelt nach Schwere.
+3. **Rechenschaftspflicht**: Diese Maßnahmen **nachweisbar** machen (Audit-Logs, Richtlinien, Schulungen). Wer nicht nachweisen kann, dass er Maßnahmen hat, bekommt bei einer Prüfung Probleme — selbst wenn die Maßnahmen faktisch da sind.
+
+Punkt 3 ist der Teil, den die meisten übersehen: **NIS2 ist im Kern eine Nachweis-Pflicht, keine Vorschriften-Pflicht.** Du musst nicht alternativlos bestimmte Tools nutzen — du musst zeigen können, was du tust.
+
+## Was das für deinen Betrieb bedeutet
+
+Das Schöne an dieser Einordnung: **Die meisten Selbstständigen und Homelab-Betreiber sind sauber nachweislich abgesichert, wenn sie die Grund-Hygiene dokumentieren.** Du brauchst keinen teuren Zertifizierungs-Katalog — du brauchst die drei Säulen nachweisbar:
+
+- Zugriff nur nach Bedarf (Least Privilege) + Protokollierung
+- Backup & Recoverability (getestet, nicht nur konfiguriert)
+- Incident-Plan (wer, wie, wann wird informiert)
+
+Genau das ist der Teil, wo ein Homelab-Betrieb ohne Tooling schnell brüchig wird: **man hat die Firewall-Rules, aber keine Doku, dass die Rules das geplant tun.** Und genau dafür gibt es automatisierbare Terraform-/Proxmox-Module, die aus der Infrastruktur heraus einen Conformance-Nachweis erzeugen.
+
+---
+
+_Möchtest du wissen, ob dein konkreter Fall in den Anwendungsbereich fällt? Zu den drei Pflichten gibt es eine kompakte Checkliste — sag Bescheid._
