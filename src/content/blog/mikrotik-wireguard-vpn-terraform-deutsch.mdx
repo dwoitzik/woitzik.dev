@@ -1,0 +1,89 @@
+---
+title: "WireGuard-VPN auf MikroTik automatisiert: Role-based Peers via Terraform"
+description: "Einen MikroTik als WireGuard-Server per Hand zu konfigurieren ist quick & dirty - bis der zehnte Peer dazukommt und du einen Tag mit /interface/wireguard/peers verbringst. Die Terraform-Lösung: Peers als Rollen-Module (Admin, App, IoT), Access per IP-Firewall durchgesetzt, alles in Git. Mit dem WireGuard-Wissen, das die RouterOS-Doku dir nicht sagt."
+lang: de
+date: 2026-09-22
+draft: false
+pinned: false
+tags: ["MikroTik", "WireGuard", "Terraform", "VPN"]
+---
+
+WireGuard auf MikroTik (RouterOS 7) ist inzwischen stabil genug für den Produktivbetrieb - aber es ist immer noch die „ich füge einen Peer per Winbox hinzu"-Falle, die mich zurückgeholt hat. Die Route aus meinem Betrieb: **Peers und Access nicht mehr von Hand, sondern als Terraform-Code, versioniert und per Rolle verwaltet.**
+
+## Die Rollen-Kette (ohne sie gerätst du in Access-Hölle)
+
+Statt jedes Gerät einzeln zu pflegen, definiere ich drei Rollen - die decken 95% aller Homelab-Zugriffe ab:
+
+- **Admin**: dein Laptop, dein Handy mit externem Zugriff - darf alles im Netz (10.0.0.0/16).
+- **App**: die LXC-Container, die VPN-Gegenstellen sind (z.B. der Tunnel zum Proxmox-Standort).
+- **IoT**: Smart-Home-Geräte mit starker Segmentierung - dürfen nur zu ihrem eigenen Broker (10.0.40.0/24), sonst: Drop.
+
+```hcl
+# Peers als Datenstruktur statt als 15 Blöcke zu kopieren
+variable "wireguard_peers" {
+  type = map(object({
+    role     = string
+    public   = string
+    allowed  = list(string)
+  }))
+  default = {
+    laptop = {
+      role    = "admin"
+      public  = "wRXr..."   # aus der Generierung, nie im Repo hardcoden
+      allowed = ["10.0.0.0/16"]
+    }
+  }
+}
+```
+
+## Terraform-Modul für den Peer
+
+Das Modul macht dasselbe, was du per CLI bei `admin@mikrotik:/interface/wireguard/peers add` machen würdest - nur eben reproduzierbar:
+
+```hcl
+resource "routeros_interface_wireguard_peers" "peer" {
+  interface     = "wireguard1"
+  public_key    = var.peer.public
+  allowed_address = var.peer.allowed[0]
+  comment       = "${var.peer.role}-${each.key}"
+  for_each      = var.wireguard_peers
+}
+```
+
+## WireGuard, das dir die Doku nicht sagt
+
+1. **`listen-port` und `interface` ändern sich nicht per Peer** — die sind global. Der Fehler, den ich stundenlang gemacht habe: pro Peer eine eigene IP-Addresse aus `/interface/wireguard/peers add` zu ziehen, wo es bei WireGuard nur die `allowed_address` gibt, die entscheidet, welches Subnetz durch den Tunnel darf.
+2. **Kein NAT nötig für Site-to-Site**: Der Proxmox-Standort (10.0.20.0/24) spricht das Hauptnetz direkt über die Peer-Route an. NAT wäre hier die falsche Abkürzung - sie zerstört genau die Rollen-Segmentierung, die du aufgebaut hast.
+
+## Die Access-Kette: Feuerwehr per Firewall, nicht per Peer
+
+Der Peer selbst darf nichts — die `RouterOS`-Firewall erzwingt die Rollen:
+
+```hcl
+# role "iot" → nur zum MQTT-Broker
+resource "routeros_ip_firewall_filter" "iot_allow_broker" {
+  chain        = "forward"
+  src_address  = "10.0.40.0/24"
+  dst_address  = "10.0.50.10"
+  dst_port     = "1883"
+  protocol     = "tcp"
+  action       = "accept"
+  place_before = "drop-all"
+}
+```
+
+Das Muster, das hier funktioniert: **Default-Drop am Ende der Kette, jede Rolle bekommt explizite Allow-Regeln davor.** Wer in der Kette weiter unten liegt, ist raus - egal wie viele Peers du noch hinzufügst.
+
+## Der ArgoCD-Gedanke: Dein Router als Code
+
+Ich verwalte die RouterOS-Konfig nicht mehr über Winbox — die liegt als Terraform-HCL in `homelab-infrastructure/mikrotik/`, und ArgoCD/Atlantis (dein GitOps-Setup) spielt sie aus. Das gibt dir eine saubere Audit-Trail: Welcher Peer wurde wann und von wem eingefügt, steht im Git-Commit - und nicht im „ich hatte mal ein Skript"-Ordner.
+
+```
+homelab-infrastructure/
+└── mikrotik/
+    ├── wireguard.tf        # interface + globale settings
+    ├── peers.tf            # role-basierte Peers
+    └── firewall.tf         # Default-Drop + Rollen-Access
+```
+
+**Verdrahtung:** Der perfekte Begleitartikel dazu ist [Zero-Trust MikroTik Firewall mit Terraform](/blog/mikrotik-zero-trust-firewall-terraform) — dort ist die komplette Access-Kette mit Default-Drop inklusive NAT-Details aufgebaut. Und die [WireGuard-Site-to-Site mit Role-Based Access](/blog/mikrotik-wireguard-vpn-terraform) zeigt, wie du das ganze als modulare Terraform-Einheit deployst.

@@ -1,0 +1,113 @@
+---
+title: "Backup ohne Komplexität: Velero + Garage S3 auf Longhorn im K3s-Cluster"
+description: "Ein k3s-Cluster ohne Backup ist eine Zeitbombe - aber Velero mit einem machbaren S3-Storage braucht keinen Cloud-Vendor. So sieht die komplette Kette aus: Garage als S3-Backend im eigenen Cluster, Longhorn als Source, Velero via ArgoCD deployed, tägliche Backups per Schedule. Mit dem Praxis-Trick, der garantiert, dass dein Backup auch wirklich wiederherstellbar ist."
+lang: de
+date: 2026-09-22
+draft: false
+pinned: false
+tags: ["Kubernetes", "Backup", "Velero", "S3", "Longhorn"]
+---
+
+Backup-Automatisierung auf Kubernetes klingt nach einer dieser Sachen, die man „irgendwann mal" macht, bis der erste Node stirbt. Dann merkst du, dass „irgendwann mal" ein Jahr zu spät ist.
+
+Die gute Nachricht: Mit **Velero + einem S3-kompatiblen Backend, das du selbst betreibst**, brauchst du weder AWS noch eine externe Cloud - und die Kette ist kürzer, als du denkst. Das ist die vollständige Anleitung aus meinem Betrieb.
+
+## Die Architektur
+
+```
++-------------------+       +-------------------+
+|   Longhorn-RVs    |  ===> |   Velero Pulumi   |
+|  (deine Daten)    |       |  + Garage S3      |
++-------------------+       +-------------------+
+```
+
+- **Longhorn** speichert die PersistentVolumes deines Clusters (etcd-Volumes, DB-Daten, Nextcloud-Daten, etc.).
+- **Garage** läuft als S3-Backend direkt im Cluster - object storage ohne Cloud-Anbieter, mit Replikation über die Cluster-Nodes.
+- **Velero** sichert die Longhorn-Volumes als Snapshots + Backups nach Garage (S3), mit täglichem Schedule.
+- **ArgoCD** managed den ganzen Velero-Stack via Git - Deklaration statt manuelle `kubectl`-Rufe.
+
+## Schritt 1: Garage auf k3s deployen
+
+Garage ist ein selbstgehosteter, S3-kompatibler Object-Store, der auf Ressourcen-Effizienz ausgelegt ist. Deploy via Helm in deinem GitOps-Repo:
+
+```yaml
+# values-garage.yaml (gekürzt)
+replicas: 3
+backends:
+  - node: k3s-1
+  - node: k3s-2
+  - node: k3s-3
+storage: 20Gi
+```
+
+Wichtig beim Setup: Garage braucht ein eigenes DNS/subdomain (`garage.woitzik.dev`) und eine feste Node-Verteilung - es funktioniert am besten, wenn jede Replica auf einem anderen Cluster-Node liegt.
+
+## Schritt 2: Velero via ArgoCD
+
+Velero deployed man am saubersten über ArgoCD - nicht manuell:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: velero
+  namespace: argocd
+spec:
+  destination:
+    namespace: velero
+    server: https://kubernetes.default.svc
+  source:
+    repoURL: https://github.com/dwoitzik/homelab-infrastructure
+    path: kubernetes/velero
+    targetRevision: main
+  syncPolicy:
+    automated:
+      selfHeal: true
+```
+
+## Schritt 3: Der Schedule-Schlüssel: täglich, nicht „wenn ich dran denke"
+
+```yaml
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: daily-backup
+  namespace: velero
+spec:
+  schedule: "0 1 * * *"
+  template:
+    includedNamespaces:
+      - nextcloud
+      - paperless
+      - vault
+    ttl: 720h
+```
+
+Die Kette läuft seit Monaten. Der Punkt, der Backups zu **Trugbildern** macht, ist nicht der Schedule - es ist der Moment, an dem jemand die Sicherung testet. Dazu unten mehr.
+
+## Das Backup, das keiner geprüft hat
+
+Der größte Fehler, den ich selbst gemacht habe: Jeden Tag „erfolgreiche" Backups in Velero sehen, die Details nie geprüft, und den Restore erst dann versucht, als eine Datenbank weg war.
+
+```
+$ velero backup describe daily-backup-20260922
+...
+Phase: Completed           # Komfort-Lüge
+  Errors:  3               # die Wahrheit
+  Warnings: 1
+```
+
+`Completed` mit detail versteckten Fehlern - ein Restore aus einem solchen Backup versagt an genau der Stelle, an der du ihn brauchst. Mein Fix: Ein zweiter Velero-Schedule, der **wöchentlich einen echten Restore anstößt** (in eine Wegwerf-Namespace), damit die Wiederherstellbarkeit getestet ist, bevor sie gefordert wird.
+
+```yaml
+spec:
+  schedule: "0 3 * * 0"
+  template:
+    …
+    hooks:
+      resources:
+        - name: verify-restore
+          ...
+```
+
+**Fazit:** Die Architektur (Garage + Velero + ArgoCD) ist der kleinere Teil. Der wichtigere Teil ist der regelmäßige Restore-Test - ohne den ist dein „ich mache Backups" nur eine Art, Daten zu lagern, die du nie zurückbekommst.

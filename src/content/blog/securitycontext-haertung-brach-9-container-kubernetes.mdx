@@ -1,0 +1,54 @@
+---
+title: "Ich härtete Pod securityContext und zerstörte 9 Container in Produktion"
+description: "capabilities.drop: [ALL] und runAsNonRoot: true durch Schema-Validierung, lief durch. Innerhalb von Minuten waren neun Container down - inklusive beider Postgres-Instanzen hinter Paperless und Nextcloud. Die zwei falschen Annahmen, die Wiederherstellungs-Falle danach und die Lektion für jede pauschale securityContext-Passade."
+lang: de
+date: 2026-09-22
+draft: false
+pinned: false
+tags: ["Kubernetes", "Security", "Homelab"]
+---
+
+`kubeconform` lief grün. `kubectl --dry-run` lief grün. Der PR sah exakt danach aus, was jede Kubernetes-Security-Checkliste empfiehlt: `capabilities.drop: [ALL]`, `runAsNonRoot: true`, `allowPrivilegeEscalation: false` - über alle Container, denen ein `securityContext` fehlte. Schema-validiert, reviewed, gemerged. Wegen ArgoCD mit `selfHeal: true` war der Merge die Ausrollung. Neun Container waren in Minuten down - zwei davon Postgres, die Paperless und Nextcloud trugen. Das ist kein degradierter Neben-Dienst, das ist ein Ausfall.
+
+Hier ist die Fehleranalyse: die zwei falschen Annahmen, die Falle, die mich beim Wiederherstellen gebissen hat, und die Lektion für jede pauschale `securityContext`-Passade.
+
+## Falsche Annahme 1: `capabilities.drop: [ALL]` ist sicher, wenn der Container keine Runtime-Rechte braucht
+
+Richtig ist: Ein riesiger Anteil an Container-Images folgt demselben Muster - als root starten, das Datenverzeichnis per `chown`/`chmod` an einen unprivilegierten User übergeben, dann per `su-exec` oder `setpriv` die Rechte vor dem eigentlichen Prozess fallen lassen. Genau dieser Fall braucht selbst `CAP_CHOWN`, `CAP_SETUID`, `CAP_SETGID` - Capabilities, die `drop: [ALL]` entfernt, bevor das Entrypoint-Skript überhaupt läuft.
+
+```yaml
+# Sah nach sicherem, empfohlenem Härtung aus:
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+```
+
+Das brach gitea, authelia, headscale, mealie und beide Postgres-Instanzen (paperless + nextcloud) - alle laufen exakt dieses root-then-drop-Muster im Entrypoint. Es brach auch die Paperless- und Nextcloud-Redis - aber **nicht** die Authelia-Redis, weil die explizit mit `command: redis-server ...` die eigene Entrypoint-Kette umschiffte. Gleiches Image, gleicher `securityContext`, anderes Ergebnis - weil der tatsächliche Codepfad ein anderer ist.
+
+## Falsche Annahme 2: `runAsNonRoot: true` ist auf jedem Container "sicher zu setzen"
+
+Falsch, in die andere Richtung. `runAsNonRoot` ändert nichts daran, wie der Container läuft - es ist ein **Admission-Zeit-Check**, der failt, wenn das Image als root startet und nichts im Pod-Spec das überschreibt. `vault-unseal` (hashicorp/vault), die Nextcloud- und Paperless-Redis und `cloudflare-ddns` (curlimages/curl) laufen alle als root. Die crashten nicht im Loop - die starteten **nie**:
+
+```
+Error: container has runAsNonRoot and image will run as root
+```
+
+Ein sauberer `CreateContainerConfigError` mit klarer Meldung - deshalb war diese Kategorie leicht zu diagnostizieren. Die Crash-Looping-Container aus Annahme 1 waren die härtere Hälfte.
+
+## Warum "Application: Synced/Healthy" log - und uns in die Falle lief
+
+Der erste Instinkt bei Problemen ist ArgoCD. `kubectl get application -n argocd` zeigte `Synced` und `Healthy`. Das war veraltet - ArgoCDs Poll-Intervall hatte die App-Ansicht noch nicht aktualisiert, obwohl die neuen Pods drunter schon am Failen waren.
+
+```bash
+# Der Zustand, der alles zeigte:
+kubectl get pods -A -o wide | grep -E "CrashLoopBackOff|CreateContainerConfigError"
+```
+
+## Die Wiederherstellungs-Falle: der zweite Merge
+
+Nach dem Rollback-Hebel (securityContext wieder raus, alten Pod-Spec via Git restore) passierte fast das Zweite: der Re-Reconcile von ArgoCD zog beim nächsten `selfHeal` **den alten, gehärteten Stand wieder rein**, wenn der Fix im Repo nicht sauber committed war, während der Live-Cluster schon wieder lief. Der Fix im Repo ist die Wahrheit - nicht der Pod im Cluster.
+
+## Die Lektion
+
+Eine pauschale `securityContext`-Passade über alle Container hinweg ist **keine** Härtung, sie ist ein Zahlendreher-Wartungsrisiko. Sicher härtest du nur, wenn du für jedes Image weißt, ob es das root-then-drop-Muster im Entrypoint nutzt. Die Reihenfolge: erst pro-Image dokumentieren, welcher Codepfad läuft, dann einschränken - nie andersrum. Für Verzeichnis-Mounts, die der Container anlegen muss, bleibt statt `capabilities.drop: [ALL]` oft nur: dem vorhandenen User explizit die Verzeichnisse mitgeben (`fsGroup`), statt die Capabilities zu amputieren.
