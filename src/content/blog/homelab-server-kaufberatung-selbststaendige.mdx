@@ -1,0 +1,58 @@
+---
+title: "Server für Selbstständige kaufen: Wo Preis-Leistung wirklich stimmt (2026)"
+description: "Die kaufrelevante Server-Frage ist nicht 'wie viele Kerne kriege ich fürs Geld', sondern: Wie viel RAM braucht dein eigener Betrieb wirklich, und wann lohnt ein Proxmox-Knoten statt Cloud. Mit Zahlen für 2026."
+lang: de
+date: 2026-09-22
+draft: false
+pinned: false
+tags: ["Hardware", "Ratgeber", "Selbstständigkeit"]
+---
+
+_Basierend auf einem real betriebenen Homelab mit ~80 Diensten (Kubernetes, Proxmox, eigene Infra) und den echten Memory-Zahlen, die ein solcher Betrieb über Wochen produziert._
+
+Wenn du selbstständig bist und überlegst, einen eigenen Server zu kaufen (statt Cloud), dann stehst du vor genau einer Frage, die kaum ein Review beantwortet: **„Für was kaufe ich das Ding eigentlich?"**
+
+Die Marketing-Maschine sagt „Kerne, Kerne, GHz". Die Betriebsrealität sagt etwas anderes. Ich zeige dir die Rechnung, die in meinem eigenen Betrieb über Monate entstanden ist.
+
+## Die Wahrheit über RAM — der einzige Bottleneck, der zählt
+
+Die häufigsten Selbstständigen-Setups (Dokumenten-Papierkram, Nextcloud, ein kleines CRM, Monitoring) landen **nicht** beim CPU-Bottleneck — sie landen beim **RAM**. Mein eigener Betrieb: ein K3s-Cluster auf einem Node mit 4 GiB RAM war bei 99% belegt, noch bevor die CPU 10% erreicht hatte. Der API-Server des Clusters (etcd dahinter) bekam p99-Latenzen von über 8 Sekunden. Kein CPU-Problem — ein **Memory-Problem**.
+
+**Die Daumenregel für Selbstständige:**
+- 4–5 Dienste (Nextcloud, Paperless, Search, ein Dashboard): **8 GiB** reicht knapp.
+- 10+ Dienste oder Container-Virtualisierung (Proxmox + VMs): **16 GiB** ist der Einstieg, 32 GiB die Komfortzone.
+- Du willst LLMs (homelab-scale) oder Media-Transcoding stabil laufen lassen: **ab 32 GiB.**
+
+Warum so viel? Ein einziger Node des kube-prometheus-Stacks (Monitoring!) braucht auf einem Node mit knappem RAM **1,1 GiB** allein für Prometheus. Dazu kommen Immich und weitere Homelab-Apps mit insgesamt 1,3 GiB. Das ist kein Overengineering, das ist die Baseline moderner Stack-Betriebe.
+
+## CPU: der Wert, der nicht abstürzt, wenn du Meter machst
+
+Der CPU-Kauffehler bei Selbstständigen ist: Reviewer kaufen für **Gaming/Peak**, du kaufst für **Dauerlast**. Ein N100 ist zwar günstig, aber unter Dauerlast (Backup-Jobs, nächtliches Transcoding, Crawler) bietet er nur **6 W TDP und deutlich weniger Multi-Core-Leistung** als ein echter Desktop-Chip. Die Antwort ist nicht „mehr GHz", sondern „genug Kerne für die Job-Lücke":
+
+- Tägliche Backups (rclone/restic) + Monitoring: meist 2 Kerne busy, Rest warte.
+- Weekly full-transcode (Media-Server): 4–6 Kerne unter Vollast, 15 min.
+- Ein LLM-Inference worker (optional): 8+ Kerne, Dauerlast.
+
+Empfehlung für 2026 ohne Blödsinn: Ein **6-Kern-Prozessor mit integrierter Grafik** (iGPU für Transcoding) und 16–32 GiB RAM. Die iGPU ist der unterschätzte Kaufpunkt: Intel Arc/Xe oder AMD iGPU transkodiert 4K ohne extra GPU-Karte — das ist der Unterschied zwischen „Media-Server mit Shopping-Budget" und „Media-Server, der Rechenleistung totbrennt".
+
+## Proxmox vs. Cloud: die echte Selbstständigen-Rechnung
+
+| Kriterium | Eigener Server (1× 16GiB) | Cloud (VM 16GiB, monatl.) |
+|---|---|---|
+| Anschaffung | €500–800 einmalig | – |
+| Laufend | ~€15 Strom/Monat | €40–90/Monat |
+| Backups (Lokal + Offsite) | selbst verwaltet (restic) | Provider-Ebene (extra) |
+| Kontrolle | Full Root | Meist nur „Standard-Setup" |
+| Nachteil | Hardware-Wartung IST dein Job | Provider sperrt Ports/Features |
+
+Der reine Cloud-Rechenknoten lohnt sich erst bei **>3 VMs mit 24h-Last** — darunter zahlst du dich dumm und dusselig. Mein eigener Betrieb: ~10 VMs würden in der Cloud €300–500+/Monat kosten; mein Server läuft mit Stromkosten unter €20.
+
+## Die 3 Zukäufe, die wirklich Geld sparen (statt teuer sind)
+
+1. **RAM-Erweiterung statt neuer Server:** Wenn dein Server bei 80% RAM hängt, ist RAM-Adding der kleinste Eingriff. In meinem Betrieb: Node von 4GiB → 8GiB war die RAM-Wurzel aller Ausfälle. Prüfe zuerst die RAM-Module, nicht die CPU.
+2. **NVMe statt SATA-SSD als Boot-Medium:** Der Unterschied bei Kubernetes/Docker-IO ist spürbar. NVMe-NVMe macht selber Backups in Minuten statt in Stunden.
+3. **Proxmox statt Docker-only:** Wenn du mehr als 3 Dienste hast, wird Containers-Mixing zum Wartungs-Albtraum. Proxmox (LXC/VM) gibt dir Snapshots, Migration, Clone — das ist der Unterschied zwischen „ich kann testen" und „ich fürchte mich vor dem Test".
+
+## Fazit (Kurzversion, ehrlich)
+
+Für Selbstständige 2026: **6 Kerne + 16–32 GiB RAM + iGPU + NVMe** ist der Sweet Spot, egal ob du €700 oder €1.400 ausgibst. **RAM ist der einzige Bottleneck, der dir real den Stack wegstirbt** — mehr CPU kauft dir nichts, wenn der Node bei 99% Memory steht und der API-Server 8 Sekunden p99 fährt. Kauf nach dieser Rechnung, nicht nach GHz.
