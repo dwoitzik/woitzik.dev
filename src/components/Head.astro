@@ -19,6 +19,7 @@ interface Props {
   type?: "website" | "article";
   publishedTime?: string;
   tags?: string[];
+  lang?: "en" | "de";
   // Absolute URLs (or site-relative paths) of the other-language versions of
   // this page. Each entry must also carry the language code so the tags below
   // form a complete hreflang cluster including x-default.
@@ -34,6 +35,7 @@ const {
   type = "website",
   publishedTime,
   tags,
+  lang = "en",
   alternates = [],
 } = Astro.props;
 
@@ -41,9 +43,15 @@ const {
 // the fallback a search engine shows for a user whose language matches neither
 // side, and English is the fuller version. On a page with no translation, an
 // x-default equal to its own canonical tells a crawler nothing, so emit none.
+//
+// The cluster also has to list the page itself. A canonical URL is not an
+// hreflang self-reference — Google requires every URL in the set, including
+// its own, or it discards the annotations as incomplete.
+const ownLang = lang === "de" ? "de" : "en";
 const englishAlternate = alternates.find((a) => a.hreflang === "en");
 const hreflangLinks = alternates.length
   ? [
+      { href: canonicalURL.pathname, hreflang: ownLang },
       ...alternates,
       {
         href: englishAlternate?.href ?? canonicalURL.pathname,
