@@ -1,0 +1,153 @@
+---
+title: "Zero-Trust-Firewall auf MikroTik mit Terraform"
+description: "Strikte VLAN-Isolation, FastTrack für CPU-Effizienz und eine Default-Deny-Firewall für MikroTik RouterOS als Infrastructure as Code. Der `place_before`-Trick, der verhindert dass die Drop-Regel versehentlich nach oben rutscht."
+lang: de
+date: "2027-04-05"
+tags: ["MikroTik", "Terraform", "Security", "Networking"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Hinweis: Dieser Beitrag enthält Amazon-Affiliate-Links (mit &#42; markiert). Wenn du darüber kaufst, verdiene ich eine kleine Provision - für dich kostet es nichts extra. Ich verlinke nur Hardware, die ich selbst benutze.</em>
+
+MikroTik-Router sind enorm leistungsfähig, aber die manuelle Konfiguration über WinBox oder CLI führt fast zwangsläufig zu Drift und offenen Lücken. Dieses Setup läuft auf einem [RB5009\*](/go/4w08b21): dessen Switch-Chip übernmt Hardware-Offloading für VLAN-getaggten Traffic, was relevant wird, sobald du mehrere VLANs über einen Proxmox-Trunk fährst. Wenn du ein segmentiertes Edge-Netz oder ein Homelab mit mehreren VLANs baust, brauchst du eine Architektur, die versionierbar, reproduzierbar und strikt "Default-Deny" ist.
+
+Hier zeige ich, wie eine robuste Zero-Trust-Firewall für RouterOS mit dem `terraform-routeros`-Provider aussieht.
+
+**[Kompletten MikroTik-IaC-Quellcode auf GitHub ansehen 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Die Kernphilosophie: Default-Deny
+
+Ein Standard-Heimrouter erlaubt alles ausgehend und blockiert alles eingehend. Ein Zero-Trust-Edge-Gerät blockiert **alles** per Default - auch Traffic zwischen internen VLANs -, sofern es nicht explizit erlaubt ist.
+
+Ich verankere deshalb die Chains `input` (Traffic zum Router) und `forward` (Traffic durch den Router) mit absoluten Drop-Regeln:
+
+```hcl
+# ===============================================
+# ANCHOR RULES
+# ===============================================
+
+resource "routeros_ip_firewall_filter" "drop_all_input" {
+  action  = "drop"
+  chain   = "input"
+  comment = "INPUT: Default drop"
+}
+
+resource "routeros_ip_firewall_filter" "fwd_99_drop_all" {
+  action     = "drop"
+  chain      = "forward"
+  log        = true
+  log_prefix = "FW_DROP"
+  comment    = "99: Global - Final Drop (Zero Trust Policy)"
+}
+```
+
+Indem diese Regeln am **Ende** der jeweiligen Chains stehen, wird alles verworfen und geloggt, was nicht von einer expliziten `accept`-Regel abgefangen wird.
+
+## 1. Den Router absichern (Input-Chain)
+
+Die `input`-Chain schützt das MikroTik-Gerät selbst. Nur etablierte Verbindungen, unsere [WireGuard-VPN-Handshakes](/blog/mikrotik-wireguard-vpn-terraform/) und streng begrenzter Management-Zugriff sollen die Router-CPU erreichen:
+
+```hcl
+resource "routeros_ip_firewall_filter" "in_01_established" {
+  action           = "accept"
+  chain            = "input"
+  connection_state = "established,related,untracked"
+  place_before     = routeros_ip_firewall_filter.drop_all_input.id
+  comment          = "IN-01: Allow established/related"
+}
+
+# Admin-VLAN Zugriff auf Router-API/WinBox erlauben
+resource "routeros_ip_firewall_filter" "in_03_mgmt" {
+  action           = "accept"
+  chain            = "input"
+  src_address_list = "Mgmt_Devices"
+  place_before     = routeros_ip_firewall_filter.drop_all_input.id
+  comment          = "IN-03: Allow Admin-VLAN access to Router-API"
+}
+```
+
+Beachte das Argument `place_before`. **Das ist der eigentliche Grund, Firewall-Regeln mit Terraform zu verwalten.** Statt mich auf fragile manuelle Reihenfolge zu verlassen, sage ich Terraform explizit, dass diese Allow-Regeln immer *über* meinem Default-Drop-Anker sitzen sollen.
+
+Das ist keine Kosmetik. Bei einer manuell gepflegten RouterOS-Filterliste ist eine einzige versehentlich nach oben geschobene Regel ein stiller Totalausfall - und der fällt erst auf, wenn etwas nicht mehr erreichbar ist.
+
+## 2. Das Netz segmentieren (Forward-Chain)
+
+Hier passiert das eigentliche Routing. In meinem Setup gibt es dedizierte VLANs für Management (`vlan10`), Server (`vlan20`) und eine DMZ (`vlan30`). Die zugrunde liegende L2-VLAN-Matrix - Bridge-Ports, tagged/untagged-Zuweisungen und der Proxmox-Trunk - ist [separat mit Terraform automatisiert](/blog/mikrotik-vlan-filtering-terraform-proxmox/).
+
+Durch unsere `fwd_99_drop_all`-Regel kann ein kompromittierter Docker-Container in `vlan20` nicht blind die Management-Schnittstelle des Proxmox-Knotens in `vlan10` scannen. Für benötigten Traffic bohren wir Löcher explizit:
+
+```hcl
+# FastTrack für CPU-Effizienz (kritisch für Gigabit-Speed auf MikroTik)
+resource "routeros_ip_firewall_filter" "fwd_00_fasttrack" {
+  action           = "fasttrack-connection"
+  chain            = "forward"
+  connection_state = "established,related"
+  hw_offload       = true
+  place_before     = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment          = "00: Global - Fasttrack for CPU efficiency"
+}
+
+# Internen Reverse Proxy auf Management-GUIs zulassen
+resource "routeros_ip_firewall_filter" "fwd_04_proxy_to_mgmt" {
+  chain        = "forward"
+  action       = "accept"
+  src_address  = "10.0.20.0/24"
+  dst_address  = "10.0.10.0/24"
+  dst_port     = "8006,8007"
+  protocol     = "tcp"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "04: SRV - Internal Proxy access to MGMT Web GUIs"
+}
+
+# Prometheus auf DMZ node_exporter scrapen lassen
+resource "routeros_ip_firewall_filter" "fwd_05_srv_to_dmz_metrics" {
+  chain        = "forward"
+  action       = "accept"
+  src_address  = "10.0.20.252" # Spezifische Docker-LXC-IP
+  dst_address  = "10.0.30.0/24"
+  dst_port     = "9100,9080"
+  protocol     = "tcp"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "05: Monitoring - Prometheus scrape DMZ node exporters"
+}
+```
+
+Weil ich die Quelle auf eine einzelne IP festgenagelt habe (`10.0.20.252`), können ausschließlich meine Prometheus-Instanz die DMZ-Metriken abfragen.
+
+## 3. Öffentliche Erreichbarkeit (NAT & WAN)
+
+Wenn du Dienste wie einen Minecraft-Server in deiner DMZ betreibst, brauchst du Destination NAT. Die NAT-Regel allein reicht aber nicht - die Firewall muss den Traffic zusätzlich vom WAN in die DMZ lassen:
+
+```hcl
+# Port Forwarding
+resource "routeros_ip_firewall_nat" "dnat_minecraft" {
+  action       = "dst-nat"
+  chain        = "dstnat"
+  in_interface = "ether1"
+  protocol     = "tcp"
+  dst_port     = "25565"
+  to_addresses = "10.0.30.2"
+  to_ports     = "25565"
+  comment      = "NAT: Port Forwarding for DMZ Minecraft Server"
+}
+
+# Firewall Allow
+resource "routeros_ip_firewall_filter" "fwd_13_wan_to_dmz_minecraft" {
+  action       = "accept"
+  chain        = "forward"
+  dst_address  = "10.0.30.2"
+  dst_port     = "25565"
+  protocol     = "tcp"
+  in_interface = "ether1"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "13: WAN - Allow Internet traffic to DMZ Minecraft Server"
+```
+
+## Über die Edge hinaus
+
+Den Edge-Router zu automatisieren ist nur der erste Schritt zu einer resilienten, code-getriebenen Infrastruktur. Wenn du vom Homelab in Enterprise-Cloud-Umgebungen wechselst, gelten dieselben Zero-Trust-Prinzipien - nur skaliert die Komplexität exponentiell.
+
+An Default-Deny ändert sich beim Übergang vom RouterOS-Edge-Router zu Azure nichts: dieselbe Forward-Chain wird zu NSG-Deny-Regeln, Azure-Firewall-Policies und Private-Link-Zugriffskontrolle. Die Primitive sind andere, die Haltung ist identisch.
+
+<NewsletterCTA />
