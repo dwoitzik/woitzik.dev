@@ -17,6 +17,9 @@ Das Problem: Der Standard-Deploy ist auf **Erreichbarkeit** optimiert, nicht auf
 
 ## Die drei offenen Flächen im Standard-Deploy
 
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [Hardening Azure Acmebot for ISO 27001 & NIS2 Compliance →](/blog/hardening-azure-acmebot-iso27001/).
+
+
 1. **Storage Account:** Die Function App braucht einen Storage Account für Zustand und WebJobs. Default: nimmt Verkehr aus allen Netzwerken an.
 2. **Key Vault:** Dein Zertifikatsspeicher hängt per Default am öffentlichen Endpoint.
 3. **Function App:** Das Acmebot-Dashboard und der ACME-Webhook sind ohne Netzwerk-Restriktion öffentlich erreichbar.

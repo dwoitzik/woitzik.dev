@@ -32,10 +32,14 @@ export async function getStaticPaths() {
 
   return posts.map((post) => {
     const postTags = post.data.tags?.map((t) => t.toLowerCase()) ?? [];
+    // Same-language related posts only. Tag similarity alone matched German and
+    // English articles on the same technology, so a German reader got English
+    // suggestions that hreflang would then contradict.
     const related = posts
       .filter(
         (p) =>
           p.slug !== post.slug &&
+          p.data.lang === post.data.lang &&
           p.data.tags?.some((t) => postTags.includes(t.toLowerCase())),
       )
       .slice(0, 3);
