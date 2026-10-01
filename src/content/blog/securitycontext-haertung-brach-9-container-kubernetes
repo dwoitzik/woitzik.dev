@@ -15,6 +15,9 @@ Hier ist die Fehleranalyse: die zwei falschen Annahmen, die Falle, die mich beim
 
 ## Falsche Annahme 1: `capabilities.drop: [ALL]` ist sicher, wenn der Container keine Runtime-Rechte braucht
 
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [I Hardened Pod securityContext and Broke 9 Containers in Production →](/blog/kubernetes-securitycontext-hardening-broke-9-containers.mdx/).
+
+
 Richtig ist: Ein riesiger Anteil an Container-Images folgt demselben Muster - als root starten, das Datenverzeichnis per `chown`/`chmod` an einen unprivilegierten User übergeben, dann per `su-exec` oder `setpriv` die Rechte vor dem eigentlichen Prozess fallen lassen. Genau dieser Fall braucht selbst `CAP_CHOWN`, `CAP_SETUID`, `CAP_SETGID` - Capabilities, die `drop: [ALL]` entfernt, bevor das Entrypoint-Skript überhaupt läuft.
 
 ```yaml

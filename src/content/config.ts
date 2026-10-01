@@ -10,6 +10,11 @@ const blog = defineCollection({
     draft: z.boolean().optional(),
     pinned: z.boolean().optional(),
     tags: z.array(z.string()).optional(),
+    // Existing posts carry no lang at all, so default to English rather than
+    // requiring the field on all 70 of them. German translations opt in with
+    // `lang: de` and point translationOf at the English slug they mirror.
+    lang: z.enum(["en", "de"]).default("en"),
+    translationOf: z.string().optional(),
   }),
 });
 

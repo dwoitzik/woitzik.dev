@@ -19,6 +19,9 @@ This is the failure analysis, the two wrong assumptions that caused it, the trap
 
 ## The Two Wrong Assumptions
 
+> **🇩🇪 Deutsch:** This article is also available in German: [Ich härtete Pod securityContext und zerstörte 9 Container in Produktion →](/blog/securitycontext-haertung-brach-9-container-kubernetes/).
+
+
 **Assumption 1: `capabilities.drop: [ALL]` is always safe if the container doesn't need special privileges at runtime.**
 
 Wrong. It's not about what the *final running process* needs - it's about what the *entrypoint script* needs before it execs into that process. A huge number of container images follow the same pattern: start as root, `chown`/`chmod` the data directory so it's owned by an unprivileged user, then drop privileges via `su-exec` or `setpriv` before launching the actual application. That privilege-drop step itself requires `CAP_CHOWN`, `CAP_SETUID`, and `CAP_SETGID` - capabilities that `drop: [ALL]` removes before the entrypoint ever runs.

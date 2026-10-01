@@ -19,6 +19,10 @@ interface Props {
   type?: "website" | "article";
   publishedTime?: string;
   tags?: string[];
+  // Absolute URLs (or site-relative paths) of the other-language versions of
+  // this page. Each entry must also carry the language code so the tags below
+  // form a complete hreflang cluster including x-default.
+  alternates?: { href: string; hreflang: string }[];
 }
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
@@ -30,7 +34,23 @@ const {
   type = "website",
   publishedTime,
   tags,
+  alternates = [],
 } = Astro.props;
+
+// x-default always points at the English version of a translated page: that's
+// the fallback a search engine shows for a user whose language matches neither
+// side, and English is the fuller version. On a page with no translation, an
+// x-default equal to its own canonical tells a crawler nothing, so emit none.
+const englishAlternate = alternates.find((a) => a.hreflang === "en");
+const hreflangLinks = alternates.length
+  ? [
+      ...alternates,
+      {
+        href: englishAlternate?.href ?? canonicalURL.pathname,
+        hreflang: "x-default",
+      },
+    ]
+  : [];
 ---
 
 <!-- Global Metadata -->
@@ -63,6 +83,19 @@ const {
 
 <!-- Canonical URL -->
 <link rel="canonical" href={canonicalURL} />
+
+<!-- hreflang cluster: tells Bing/Google which language version to show, instead
+     of the six German articles competing with their English siblings as
+     separate unlinked pages. -->
+{
+  hreflangLinks.map((alt) => (
+    <link
+      rel="alternate"
+      hreflang={alt.hreflang}
+      href={new URL(alt.href, canonicalURL)}
+    />
+  ))
+}
 
 <!-- Primary Meta Tags -->
 <title>{title}</title>

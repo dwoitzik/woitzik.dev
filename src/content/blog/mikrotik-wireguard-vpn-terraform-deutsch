@@ -13,6 +13,9 @@ WireGuard auf MikroTik (RouterOS 7) ist inzwischen stabil genug für den Produkt
 
 ## Die Rollen-Kette (ohne sie gerätst du in Access-Hölle)
 
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [Automating MikroTik WireGuard VPN with Role-Based Access via Terraform →](/blog/mikrotik-wireguard-vpn-terraform.mdx/).
+
+
 Statt jedes Gerät einzeln zu pflegen, definiere ich drei Rollen - die decken 95% aller Homelab-Zugriffe ab:
 
 - **Admin**: dein Laptop, dein Handy mit externem Zugriff - darf alles im Netz (10.0.0.0/16).

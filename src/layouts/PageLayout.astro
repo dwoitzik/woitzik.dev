@@ -12,13 +12,24 @@ type Props = {
   type?: "website" | "article";
   publishedTime?: string;
   tags?: string[];
+  lang?: "en" | "de";
+  alternates?: { href: string; hreflang: string }[];
 };
 
-const { title, description, image, type, publishedTime, tags } = Astro.props;
+const {
+  title,
+  description,
+  image,
+  type,
+  publishedTime,
+  tags,
+  lang = "en",
+  alternates = [],
+} = Astro.props;
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang={lang}>
   <head>
     <Head
       title={`${title} | ${SITE.NAME}`}
@@ -27,6 +38,7 @@ const { title, description, image, type, publishedTime, tags } = Astro.props;
       type={type}
       publishedTime={publishedTime}
       tags={tags}
+      alternates={alternates}
     />
     <script
       src="https://analytics.woitzik.dev/api/script.js"

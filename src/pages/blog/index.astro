@@ -9,6 +9,12 @@ const data = (await getCollection("blog"))
   .filter((post) => !post.data.draft)
   .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
 
+// German posts have no internal links from the English side, so they were
+// effectively invisible in the year-grouped listing. Surface them in their own
+// section with links to the English original where one exists.
+const english = data.filter((post) => post.data.lang !== "de");
+const german = data.filter((post) => post.data.lang === "de");
+
 type Acc = {
   [year: string]: CollectionEntry<"blog">[];
 };
@@ -32,8 +38,10 @@ const allTags = [...new Set(data.flatMap((p) => p.data.tags ?? []))].sort();
       <div class="animate space-y-3">
         <div class="font-semibold text-black dark:text-white">Blog</div>
         <p class="text-sm text-neutral-500 dark:text-neutral-400">
-          {data.length} article{data.length !== 1 ? "s" : ""} on infrastructure, automation,
-          and cloud.
+          {english.length} article{english.length !== 1 ? "s" : ""} on infrastructure,
+          automation, and cloud{
+            german.length > 0 && `, plus ${german.length} in German`
+          }.
         </p>
       </div>
 
@@ -64,17 +72,51 @@ const allTags = [...new Set(data.flatMap((p) => p.data.tags ?? []))].sort();
               <div class="font-semibold text-black dark:text-white">{year}</div>
               <div>
                 <ul class="flex flex-col gap-4">
-                  {posts[year].map((post) => (
-                    <li>
-                      <ArrowCard entry={post} />
-                    </li>
-                  ))}
+                  {posts[year]
+                    .filter((post) => post.data.lang !== "de")
+                    .map((post) => (
+                      <li>
+                        <ArrowCard entry={post} />
+                      </li>
+                    ))}
                 </ul>
               </div>
             </section>
           ))
         }
       </div>
+
+      {
+        german.length > 0 && (
+          <section class="animate space-y-4">
+            <div class="flex items-baseline gap-2">
+              <div class="font-semibold text-black dark:text-white">
+                Auf Deutsch
+              </div>
+              <div class="text-xs px-2 py-0.5 rounded border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400">
+                nur hier, kein dev.to-Crosspost
+              </div>
+            </div>
+            <ul class="flex flex-col gap-4">
+              {german.map((post) => (
+                <li>
+                  <ArrowCard entry={post} />
+                  {post.data.translationOf && (
+                    <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1 ml-1">
+                      <a
+                        href={`/blog/${post.data.translationOf}/`}
+                        class="hover:text-sky-500 transition-colors"
+                      >
+                        Read the English original →
+                      </a>
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )
+      }
     </div>
   </Container>
 </PageLayout>

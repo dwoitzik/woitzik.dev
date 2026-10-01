@@ -19,6 +19,9 @@ This guide covers how to automate a WireGuard "Roadwarrior" setup on MikroTik Ro
 
 ## 1. Defining the VPN Topology
 
+> **🇩🇪 Deutsch:** This article is also available in German: [WireGuard-VPN auf MikroTik automatisiert: Role-based Peers via Terraform →](/blog/mikrotik-wireguard-vpn-terraform-deutsch/).
+
+
 We start by defining our VPN network subnet, the listening port, and the static IPs we will assign to our specific peers (devices). Using Terraform locals keeps our configuration clean and prevents IP conflicts later on.
 ```hcl
 locals {

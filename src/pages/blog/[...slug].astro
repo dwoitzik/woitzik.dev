@@ -17,7 +17,20 @@ export async function getStaticPaths() {
     .filter((post) => !post.data.draft)
     .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
 
-  return posts.map((post, index) => {
+  // Translation clusters. A German post names its English original via
+  // translationOf; the English post is matched back by whichever German posts
+  // point at it. Built in both directions so each side of a cluster can emit the
+  // full set of alternates without a second lookup.
+  const germanByEnglish = new Map<string, CollectionEntry<"blog">[]>();
+  for (const post of posts) {
+    const source = post.data.translationOf;
+    if (!source) continue;
+    const existing = germanByEnglish.get(source);
+    if (existing) existing.push(post);
+    else germanByEnglish.set(source, [post]);
+  }
+
+  return posts.map((post) => {
     const postTags = post.data.tags?.map((t) => t.toLowerCase()) ?? [];
     const related = posts
       .filter(
@@ -27,13 +40,35 @@ export async function getStaticPaths() {
       )
       .slice(0, 3);
 
+    const alternates: { href: string; hreflang: string }[] = [];
+
+    if (post.data.lang === "de" && post.data.translationOf) {
+      alternates.push({
+        href: `/blog/${post.data.translationOf}/`,
+        hreflang: "en",
+      });
+    } else {
+      const german = germanByEnglish.get(post.slug) ?? [];
+      for (const g of german) {
+        alternates.push({ href: `/blog/${g.slug}/`, hreflang: "de" });
+      }
+    }
+
+    // prev/next stay inside the same language so the footer navigation doesn't
+    // bounce a German reader into an English article.
+    const sameLang = posts.filter((p) => p.data.lang === post.data.lang);
+    const langIndex = sameLang.findIndex((p) => p.slug === post.slug);
+    const prev = sameLang[langIndex + 1] ?? null;
+    const next = sameLang[langIndex - 1] ?? null;
+
     return {
       params: { slug: post.slug },
       props: {
         post,
-        prev: posts[index + 1] ?? null,
-        next: posts[index - 1] ?? null,
+        prev,
+        next,
         related,
+        alternates,
       },
     };
   });
@@ -44,12 +79,21 @@ interface Props {
   prev: CollectionEntry<"blog"> | null;
   next: CollectionEntry<"blog"> | null;
   related: CollectionEntry<"blog">[];
+  alternates: { href: string; hreflang: string }[];
 }
 
-const { post, prev, next, related } = Astro.props;
+const { post, prev, next, related, alternates } = Astro.props;
 const { Content, headings } = await post.render();
 const tocHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
 const postUrl = `https://woitzik.dev/blog/${post.slug}/`;
+
+// Only the English side names the German translation in schema.org: on a German
+// page the same field would point at the English original, which is the inverse
+// relationship and would misdescribe the page.
+const germanOriginal =
+  post.data.lang !== "de"
+    ? alternates.find((a) => a.hreflang === "de")
+    : undefined;
 
 const jsonLd = {
   "@context": "https://schema.org",
@@ -64,6 +108,15 @@ const jsonLd = {
     url: "https://woitzik.dev",
   },
   url: postUrl,
+  inLanguage: post.data.lang,
+  ...(alternates.length > 0 && { isPartOf: { "@id": postUrl } }),
+  ...(germanOriginal && {
+    translationOfWork: {
+      "@type": "TechArticle",
+      url: `https://woitzik.dev${germanOriginal.href}`,
+      ...(post.data.lang === "de" && { name: "English version" }),
+    },
+  }),
 };
 ---
 
@@ -74,6 +127,8 @@ const jsonLd = {
   type="article"
   publishedTime={post.data.date.toISOString()}
   tags={post.data.tags}
+  lang={post.data.lang}
+  alternates={alternates}
 >
   <!-- Reading progress bar -->
   <div
