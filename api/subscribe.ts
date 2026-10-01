@@ -73,7 +73,7 @@ const DAY0_BODY = emailBody(`
     </td></tr>
   </table>
   <hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0">
-  <p style="margin:0 0 8px;font-size:13px;color:#737373">I publish deep technical articles on Azure Terraform, zero-trust networking, and compliance automation — and sell the hardened enterprise versions of the patterns. No hand-wavy explanations, just code that deploys first time.</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#737373">I publish deep technical articles on Azure Terraform, zero-trust networking, and compliance automation — and every module is free and MIT licensed, no strings attached. No hand-wavy explanations, just code that deploys first time.</p>
   <p style="margin:16px 0 0;font-size:13px;color:#737373">— David<br><a href="https://woitzik.dev" style="color:#0ea5e9;text-decoration:none">woitzik.dev</a></p>
 `);
 
@@ -92,7 +92,7 @@ const DAY3_BODY = emailBody(`
     <a href="https://woitzik.dev/blog/azure-firewall-cycle-error/" style="color:#0ea5e9;text-decoration:none;font-weight:600">Read: Azure Firewall Cycle Error — How to Fix It &rarr;</a>
   </p>
   <hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0">
-  <p style="margin:0;font-size:13px;color:#737373">If you're already running a Hub &amp; Spoke with forced tunneling in production, the enterprise module ships with all of this pre-wired: <a href="https://woitzik.dev/templates" style="color:#0ea5e9;text-decoration:none">woitzik.dev/templates</a></p>
+  <p style="margin:0;font-size:13px;color:#737373">If you're already running a Hub &amp; Spoke with forced tunneling in production, the free module ships with all of this pre-wired: <a href="https://woitzik.dev/templates" style="color:#0ea5e9;text-decoration:none">woitzik.dev/templates</a></p>
   <p style="margin:16px 0 0;font-size:13px;color:#737373">— David</p>
 `);
 

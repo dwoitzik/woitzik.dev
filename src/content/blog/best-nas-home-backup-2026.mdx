@@ -16,15 +16,19 @@ But the NAS market in 2026 is crowded. Synology still dominates mindshare, QNAP 
 
 ## TL;DR — The Picks
 
-| Model | Bays | CPU | RAM | Price (approx.) | Best For |
+| Model | Bays | CPU | RAM | Price band | Best For |
 |---|---|---|---|---|---|
-| [Synology DS225+*](/go/4hmdcNX) | 2 | Intel Celeron J4125 | 2GB (expandable) | ~€330 | Best Overall |
-| [QNAP TS-264*](/go/3T4phNT) | 2 | Intel Celeron N5095 | 8GB | ~€350 | Best Features |
-| [Terramaster F2-223*](/go/3T4phgR) | 2 | Intel Celeron N4505 | 4GB | ~€200 | Best Budget |
-| [Synology DS423+*](/go/4ptIiVP) | 4 | Intel Celeron J4125 | 2GB (expandable) | ~€500 | Best for Growth |
-| [UGREEN DXP2800*](/go/4fqnkmc) | 2 | Intel N100 | 8GB | ~€280 | Best Newcomer |
+| [Synology DS225+](/go/4hmdcNX) | 2 | Intel Celeron J4125 | 2GB (max 6GB) | €320-350 | Best Overall |
+| [QNAP TS-264](/go/3T4phNT) | 2 | Intel Celeron N5095 | 8GB | €480-510 | Best Features |
+| [Terramaster F2-425](/go/3T4phgR) | 2 | Quad-core x86 | 4GB | €290-320 | Best Budget |
+| [Synology DS425+](/go/4ptIiVP) | 4 | Intel Celeron J4125 | 2GB (max 6GB) | €580-620 | Best for Growth |
+| [UGREEN DXP2800](/go/4fqnkmc) | 2 | Intel N100 | 8GB | €340-370 | Best Newcomer |
 
-If you want the short version: the **Synology DS225+** remains the default recommendation for anyone who wants a NAS that works reliably for 5+ years with minimal maintenance. If you need more bays and growth potential, the **Synology DS423+** is the investment pick. If budget matters and you are comfortable with less polish, the **Terramaster F2-223** punches well above its price.
+<em>These are bands, not quotes. NAS prices move with drive bundles and third-party sellers, so check the listing before you buy. I have linked the bare enclosure for each model rather than a bundle, because the bundles vary in which drives they ship with and that difference is worth more than the enclosure price.</em>
+
+<em>**Synology availability caveat, checked September 2026:** both the DS225+ and the DS425+ were showing backorders on amazon.de at the time of writing, with delivery estimates in the months rather than days. The hardware recommendation has not changed, but if you need a NAS this week, the QNAP, TerraMaster, or UGREEN units are the ones you can actually receive now.</em>
+
+If you want the short version: the **Synology DS225+** remains the default recommendation for anyone who wants a NAS that works reliably for 5+ years with minimal maintenance. If you need more bays and growth potential, the **Synology DS425+** is the investment pick. If budget matters and you are comfortable with less polish, the **TerraMaster F2-425** punches above its price.
 
 ## Selection Criteria — What Matters in a Home Backup NAS
 
@@ -95,65 +99,74 @@ The real advantage of the TS-264 is HDMI output. If you want a NAS that doubles 
 - Fan noise higher than Synology at comparable load
 - Support documentation less comprehensive
 
-### 3. Terramaster F2-223 — Best Budget
+### 3. [TerraMaster F2-425](/go/3T4phgR) — Best Budget
 
-2-Bay · Intel Celeron N4505 · 4GB DDR4 · ~€200
+2-Bay · Quad-core x86 · 4GB · €290-320
 
-The Terramaster F2-223 is the budget pick that does not feel like a compromise in core functionality. At €200, it undercuts the Synology DS225+ by €100 while offering similar hardware: a dual-core Intel CPU, 4GB RAM (upgradeable), and dual GbE ports.
+The F2-425 is the budget pick that does not compromise on core functionality. It replaces the F2-223, which is no longer sold on amazon.de. The jump from the F2-223 is real rather than cosmetic: where the old unit had a dual-core Celeron N4505 and two 1GbE ports, this one has a **quad-core** x86 SoC and a **2.5GbE** port. That matters for a NAS — 2.5GbE halves the time to move a 60GB laptop backup, and the extra cores leave headroom for light Docker workloads and integrity checks.
 
-Terramaster's TOS 5 operating system is the weak point. It has improved significantly from TOS 4, which was genuinely bad, but it still lacks the polish and reliability of DSM or QTS. The Docker integration works, the backup applications exist, and the file sharing protocols (SMB, NFS, WebDAV) are functional — but the overall experience feels like using a first-generation product. The community is smaller, the documentation is thinner, and finding solutions to edge-case problems takes more effort.
+TerraMaster's TOS 5 operating system is the weak point. It has improved significantly from TOS 4, which was genuinely bad, but it still lacks the polish and reliability of DSM or QTS. The Docker integration works, the backup applications exist, and the file sharing protocols (SMB, NFS, WebDAV) are functional — but the overall experience feels like using a first-generation product. The community is smaller, the documentation is thinner, and finding solutions to edge-case problems takes more effort.
 
-Where the F2-223 wins is raw value. The N4505 is a modern dual-core chip that handles file serving and light Docker workloads without issue. The 4GB base RAM is adequate for basic use. The dual GbE ports support link aggregation. And at €200, you can buy two of them for the price of one Synology DS225+ — which, if you need redundancy, is a compelling argument.
+Where it wins is raw value. 4GB base RAM is double Synology's 2GB, so you can run a few containers without the immediate upgrade dance, and the 2.5GbE port is the same speed the DS225+ only offers on one of its two NICs. At roughly €300 you can buy two for less than the price of a single DS225+ — which, if you need redundancy, is a compelling argument.
+
+<em>One caveat I cannot resolve for you: I confirmed the CPU core count, the 4GB RAM and the 2.5GbE port from the listing, but TerraMaster does not publish the F2-425's maximum RAM or M.2 slot configuration clearly, and the listing I linked does not state it. Check the spec sheet on the product page before you plan to rely on NVMe cache.</em>
 
 **Pros:**
 - Best price-to-hardware ratio
+- Quad-core CPU and 2.5GbE — a genuine step up from the F2-223
 - 4GB RAM base (more than Synology's 2GB)
-- Dual GbE with link aggregation
 - Compact, quiet design
 - Adequate for basic file backup and Docker
 
 **Cons:**
 - TOS 5 is significantly less polished than DSM
+- Max RAM and M.2 configuration are not clearly documented
 - Smaller community and thinner documentation
 - No Hyper Backup equivalent — more manual backup setup
-- Build quality noticeably cheaper than Synology/QNAP
 - Long-term software support uncertain
 
-### 4. Synology DS423+ — Best for Growth
+### 4. [Synology DS425+](/go/4ptIiVP) — Best for Growth
 
-4-Bay · Intel Celeron J4125 · 2GB DDR4 (expandable to 32GB) · ~€500
+4-Bay · Intel Celeron J4125 · 2GB DDR4 (expandable to 6GB) · €580-620
 
-The DS423+ is the NAS you buy when you know your storage needs will grow. Four bays with Synology Hybrid RAID (SHR) means you can start with two drives, add a third later, and a fourth later — without rebuilding the array from scratch each time.
+The DS425+ is the NAS you buy when you know your storage needs will grow. Four bays with Synology Hybrid RAID (SHR) means you can start with two drives, add a third later, and a fourth later — without rebuilding the array from scratch each time.
 
-The J4125 CPU is the same as the DS225+, which means the same performance limitations apply. For file serving and backup, it is fine. For media transcoding, it is not. The value of the DS423+ is not in its CPU — it is in the four bays, the expandability, and the Synology ecosystem at a scale that grows with your data.
+The J4125 CPU is the same as the DS225+, which means the same performance limitations apply. For file serving and backup, it is fine. For media transcoding, it is not. The value of the DS425+ is not in its CPU — it is in the four bays, the expandability, and the Synology ecosystem at a scale that grows with your data.
 
-Max RAM is 32GB (via a single SO-DIMM slot), which is overkill for most home use but enables running Synology's Virtual Machine Manager with multiple lightweight VMs. The two built-in NVMe M.2 slots (for cache, not storage) improve random I/O for database-heavy applications.
+Two corrections to what earlier versions of this guide claimed about this machine, because both were wrong:
+
+- **RAM maxes out at 6GB, not 32GB.** The DS425+ has a single DDR4 SO-DIMM slot and the platform is limited to 6GB modules. If you were planning a 32GB build, it is not possible.
+- **There is one M.2 slot, not two**, and it is for NVMe cache rather than storage pools. The two-M.2, 32GB-RAM description actually belonged to the high-end Synology models a tier or two up.
+
+It does keep the 2.5GbE port alongside a 1GbE port, so network throughput is not the constraint here — drive count is.
 
 Power consumption scales with drives: idle around 15-20W with four drives spun down, 35-45W under load with four active drives. This is the price of four bays — plan your power budget accordingly.
 
 **Pros:**
 - SHR with 4 bays — maximum flexibility for mixed drives
-- Expandable to 32GB RAM
-- NVMe cache slots for performance-sensitive workloads
+- 2.5GbE + 1GbE for network
+- NVMe cache slot for performance-sensitive workloads
 - Same reliable DSM 7.2 as the DS225+
 - 10GbE expandable via PCIe slot
 
 **Cons:**
-- €500 is a significant investment for a 4-bay consumer NAS
+- €580-620 for a 4-bay consumer NAS, and it was on backorder when checked
+- RAM caps at 6GB — no large-memory builds possible
+- Only one M.2 slot
 - J4125 CPU is aging — same as the cheaper DS225+
-- 2GB base RAM requires immediate upgrade
-- Power consumption with 4 active drives is meaningful
 - No hardware transcoding
 
 ### 5. UGREEN DXP2800 — Best Newcomer
 
-2-Bay · Intel N100 · 8GB DDR5 · ~€280
+### 5. [UGREEN DXP2800](/go/4fqnkmc) — Best Newcomer
 
-UGREEN is the new entrant trying to disrupt the Synology-QNAP duopoly. The DXP2800 is their flagship 2-bay, and on paper, it is impressive: Intel N100 CPU (the same chip powering the best mini PCs), 8GB DDR5 RAM, dual 2.5GbE, two M.2 NVMe slots, and a metal chassis that feels more premium than the price suggests.
+2-Bay · Intel N100 · 8GB DDR5 · €340-370
+
+UGREEN is the new entrant trying to disrupt the Synology-QNAP duopoly. The DXP2800 is their flagship 2-bay, and on paper it is impressive: Intel N100 CPU (the same chip powering the best mini PCs), 8GB DDR5 RAM, two M.2 NVMe slots, and a metal chassis that feels more premium than the price suggests.
 
 UGREEN's UGOS operating system is the wildcard. It is new, still in active development, and lacks the maturity of DSM or QTS. The core features work — file sharing, Docker, basic backup — but the software ecosystem is thin, the app store is limited, and the long-term support commitment is unproven. UGREEN is a hardware company, not a software company, and it shows.
 
-The hardware is genuinely excellent for the price. The N100 is more powerful than Synology's J4125, the 8GB DDR5 RAM eliminates the immediate upgrade need, and the dual 2.5GbE ports are faster than anything Synology offers in this price range. If UGOS matures, the DXP2800 could be the best value NAS on the market. If it does not, you are left with good hardware running mediocre software.
+The hardware is genuinely excellent for the price. The N100 is more powerful than Synology's J4125 and the 8GB DDR5 eliminates the immediate upgrade need. One correction to what this section claimed before: **the DXP2800 has a single 2.5GbE port, not dual 2.5GbE.** If link aggregation or a second uplink matters to you, this is not the box — the QNAP TS-264 is.
 
 The N100's idle power draw (~8-10W for the enclosure) is competitive with Synology. The DDR5 memory and efficient Intel chip keep thermals low even under sustained file operations.
 
@@ -161,31 +174,33 @@ The N100's idle power draw (~8-10W for the enclosure) is competitive with Synolo
 - Best hardware-per-euro in the 2-bay category
 - Intel N100 — more powerful than any Synology in this range
 - 8GB DDR5 base RAM
-- Dual 2.5GbE and dual M.2 NVMe
+- 2.5GbE port
 - Metal chassis, solid build quality
 
 **Cons:**
+- Single 2.5GbE port — no link aggregation
 - UGOS is immature — limited app ecosystem
 - Long-term software support uncertain (new company in NAS space)
 - Backup software not comparable to Hyper Backup
-- Community is small; troubleshooting requires more self-reliance
 - Firmware update history is short — no proven track record
 
 ## Head-to-Head Comparison
 
-| Feature | DS225+ | TS-264 | F2-223 | DS423+ | DXP2800 |
+| Feature | DS225+ | TS-264 | F2-425 | DS425+ | DXP2800 |
 |---|---|---|---|---|---|
-| CPU | J4125 (4C) | N5095 (4C) | N4505 (2C) | J4125 (4C) | N100 (4C) |
+| CPU | J4125 (4C) | N5095 (4C) | Quad-core x86 | J4125 (4C) | N100 (4C) |
 | Base RAM | 2GB | 8GB | 4GB | 2GB | 8GB |
-| Max RAM | 6GB | 8GB | 32GB | 32GB | 16GB |
+| Max RAM | 6GB | 8GB | Unconfirmed | 6GB | 16GB |
 | Bays | 2 | 2 | 2 | 4 | 2 |
-| NIC | 1x 2.5GbE + 1x 1GbE | 2x 2.5GbE | 2x 1GbE | 2x 1GbE | 2x 2.5GbE |
-| M.2 Slots | 2 (cache) | 2 (storage) | 0 | 2 (cache) | 2 (storage) |
+| NIC | 1x 2.5GbE + 1x 1GbE | 2x 2.5GbE | 1x 2.5GbE | 1x 2.5GbE + 1x 1GbE | 1x 2.5GbE |
+| M.2 Slots | 2 (cache) | 2 (storage) | Unconfirmed | 1 (cache) | 2 (storage) |
 | HDMI | No | Yes (2.0) | No | No | No |
 | PCIe Slot | No | Yes | No | Yes | No |
 | Idle Power | ~10-12W | ~15-18W | ~8-10W | ~15-20W | ~8-10W |
 | OS | DSM 7.2 | QTS 5 | TOS 5 | DSM 7.2 | UGOS |
-| Price | ~€330 | ~€350 | ~€200 | ~€500 | ~€280 |
+| Price band | €320-350 | €480-510 | €290-320 | €580-620 | €340-370 |
+
+<em>Two columns are marked "Unconfirmed" rather than guessed. I would rather leave a cell blank than invent a spec I did not read on the listing.</em>
 
 ## Buyer's Guide
 
@@ -193,11 +208,11 @@ The N100's idle power draw (~8-10W for the enclosure) is competitive with Synolo
 
 **Buy the QNAP TS-264 if:** You need maximum features in a 2-bay form factor. HDMI output for direct media playback, dual 2.5GbE for fast network transfers, and 8GB RAM for Docker-heavy use cases. Be prepared to harden the security on day one.
 
-**Buy the Terramaster F2-223 if:** Budget is the primary constraint and you are comfortable with a less polished software experience. The hardware is solid for the price, and TOS 5 is functional even if it is not inspiring.
+**Buy the TerraMaster F2-425 if:** Budget is the primary constraint and you are comfortable with a less polished software experience. The quad-core chip and 2.5GbE make the hardware genuinely good, and TOS 5 is functional even if it is not inspiring. Just confirm the RAM and M.2 limits on the product page first.
 
-**Buy the Synology DS423+ if:** You know your storage needs will grow beyond two drives, or you want the option to run VMs alongside file serving. The four bays with SHR give you the most flexible RAID configuration available in a consumer NAS.
+**Buy the Synology DS425+ if:** You know your storage needs will grow beyond two drives, or you want the option to run VMs alongside file serving. The four bays with SHR give you the most flexible RAID configuration available in a consumer NAS. Budget for the wait — it was on backorder on amazon.de when I checked.
 
-**Buy the UGREEN DXP2800 if:** You are betting on UGOS maturing and want the best hardware value today. The N100 + 8GB DDR5 + dual 2.5GbE combination is unbeatable at €280. Just be aware you are an early adopter.
+**Buy the UGREEN DXP2800 if:** You are betting on UGOS maturing and want the best hardware value today. The N100 + 8GB DDR5 combination is hard to beat at this price, and you do not need a second NIC. Just be aware you are an early adopter.
 
 **For the homelab audience:** The Synology DS225+ with two 4TB drives in SHR-1 (mirroring) is the backbone of a 3-2-1 backup strategy. Pair it with a cloud sync target (Backblaze B2 or your own offsite S3-compatible endpoint) and you have a backup architecture that survives fire, theft, and ransomware. I run exactly this — the details are in the [disaster recovery runbook](/blog/backup-restore-test-never-verified-network-conflict).
 

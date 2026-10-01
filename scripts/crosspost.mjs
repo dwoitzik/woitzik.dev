@@ -24,7 +24,7 @@
  *   MASTODON_ACCESS_TOKEN                                   (optional — skipped if unset)
  */
 
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -57,33 +57,40 @@ function mdxToMarkdown(raw, slug) {
   // Strip all import lines
   body = body.replace(/^import .+from .+;\n?/gm, "").trimStart();
 
-  // Replace <ProductCTA slug="..." variant="inline" /> or just <ProductCTA slug="..." />
-  body = body.replace(
-    /<ProductCTA\s+slug="([^"]+)"(?:\s+variant="([^"]+)")?\s*\/>/g,
-    (_, productSlug, variant) => {
-      const p = PRODUCTS[productSlug];
-      if (!p) return "";
-      if (variant === "end" || !variant) {
-        return [
-          "",
-          "---",
-          "",
-          `## 🚀 ${p.title} — ${p.price}`,
-          "",
-          p.bullets.map((b) => `- ${b}`).join("\n"),
-          "",
-          `**[Get the Enterprise Module →](${p.href})**`,
-          "",
-          "_Full source code · one-time payment · instant download_",
-          "",
-          "---",
-          "",
-        ].join("\n");
-      }
-      // inline variant
-      return `\n> **Terraform Module:** Skip the trial-and-error — [${p.title} (${p.price}) →](${p.href})\n`;
+  // Replace <ProductCTA slug="..." variant="inline" /> in any attribute order.
+  // The original regex hard-coded slug-first, but every ProductCTA in the repo
+  // writes variant first, so it never matched and raw JSX was shipped to dev.to.
+  body = body.replace(/<ProductCTA\s+([^>]*?)\/>/g, (_, attrs) => {
+    const slugMatch = attrs.match(/slug="([^"]+)"/);
+    if (!slugMatch) return "";
+    const p = PRODUCTS[slugMatch[1]];
+    if (!p) return "";
+    const variantMatch = attrs.match(/variant="([^"]+)"/);
+    const variant = variantMatch ? variantMatch[1] : null;
+    const links = [
+      p.repoHref && `[GitHub](${p.repoHref})`,
+      p.registryHref && `[Terraform Registry](${p.registryHref})`,
+    ].filter(Boolean);
+    if (variant === "end" || !variant) {
+      return [
+        "",
+        "---",
+        "",
+        `## 🐙 ${p.title} — free, MIT licensed`,
+        "",
+        p.bullets.map((b) => `- ${b}`).join("\n"),
+        "",
+        `**Get it: ${links.join(" · ")}**`,
+        "",
+        "_Full source code · free forever · no account, no checkout_",
+        "",
+        "---",
+        "",
+      ].join("\n");
     }
-  );
+    // inline variant
+    return `\n> **Terraform module (free, MIT):** [${p.title} →](${p.repoHref})\n`;
+  });
 
   // Add canonical note at the top for dev.to readers
   const canonicalNote = `> _Originally published at [woitzik.dev](${canonicalUrl})_\n\n`;
@@ -121,7 +128,30 @@ async function findOnDevTo(slug, apiKey) {
   return articles.find((a) => a.canonical_url === canonical) ?? null;
 }
 
-async function postToDevTo(slug, fm, markdown, dryRun, updateExisting) {
+// One API call for the whole run instead of one per article. The old workflow
+// shelled out to crosspost.mjs 70 times, so every push that touched
+// src/content/blog/ burned ~41 min of sleep and 70 dev.to API requests just to
+// discover 69 of them were already published.
+async function publishedSlugsOnDevTo(apiKey) {
+  const slugs = new Set();
+  for (let page = 1; page <= 10; page++) {
+    const res = await fetch(
+      `https://dev.to/api/articles/me/published?per_page=100&page=${page}`,
+      { headers: { "api-key": apiKey } },
+    );
+    if (!res.ok) break;
+    const articles = await res.json();
+    if (!Array.isArray(articles) || articles.length === 0) break;
+    for (const a of articles) {
+      const m = a.canonical_url?.match(/woitzik\.dev\/blog\/([^/]+)\//);
+      if (m) slugs.add(m[1]);
+    }
+    if (articles.length < 100) break;
+  }
+  return slugs;
+}
+
+async function postToDevTo(slug, fm, markdown, dryRun, updateExisting, known) {
   const apiKey = process.env.DEVTO_API_KEY;
   if (!apiKey) {
     console.error("❌  DEVTO_API_KEY not set");
@@ -150,7 +180,15 @@ async function postToDevTo(slug, fm, markdown, dryRun, updateExisting) {
     return;
   }
 
-  const existing = await findOnDevTo(slug, apiKey);
+  let existing;
+  if (known === true) {
+    console.log(`⏭️   dev.to: already published (${slug}) — skipping`);
+    return;
+  } else if (known === false) {
+    existing = null;
+  } else {
+    existing = await findOnDevTo(slug, apiKey);
+  }
 
   if (existing) {
     if (!updateExisting) {
@@ -261,23 +299,27 @@ const [, , slugOrAll, ...flags] = process.argv;
 const dryRun = flags.includes("--dry-run");
 const updateDevTo = flags.includes("--update-devto");
 const doDevTo = !flags.includes("--mastodon");
-const doAll = slugOrAll === "--all";
+const doAll = slugOrAll === "--all" || slugOrAll === "--new";
+const onlyNew = slugOrAll === "--new";
 const delayMs = parseInt(flags.find((f) => f.startsWith("--delay="))?.split("=")[1] || "0", 10) * 1000;
 const maxPosts = parseInt(flags.find((f) => f.startsWith("--max="))?.split("=")[1] || "0", 10);
 
 if (!slugOrAll) {
-  console.error("Usage: node scripts/crosspost.mjs <slug|--all> [flags]");
-  console.error("\nPlatforms:");
-  console.error("  --devto          Post to dev.to (default, 35s between posts)");
-  console.error("  --mastodon       Post to Mastodon");
-  console.error("  --all            Post all articles");
-  console.error("  --delay=N        Seconds between posts (default: platform minimum)");
-  console.error("  --update-devto   Update existing dev.to article");
-  console.error("  --max=N         Limit posts per run (default: unlimited)");
-  console.error("  --dry-run        Preview without posting");
+  console.error("Usage: node scripts/crosspost.mjs <slug|--all|--new> [flags]");
+  console.error("\nModes:");
+  console.error("  <slug>            Post a single article");
+  console.error("  --new             Post only articles not yet on dev.to (1 API call)");
+  console.error("  --all             Post every article, checking each against dev.to");
+  console.error("\nFlags:");
+  console.error("  --devto           Post to dev.to (default)");
+  console.error("  --mastodon        Post to Mastodon");
+  console.error("  --delay=N         Seconds between posts (default: 0)");
+  console.error("  --update-devto    Update existing dev.to article");
+  console.error("  --max=N           Limit posts per run (default: unlimited)");
+  console.error("  --dry-run         Preview without posting");
   console.error("\nExamples:");
   console.error("  node scripts/crosspost.mjs my-article --dry-run");
-  console.error("  node scripts/crosspost.mjs --all --devto");
+  console.error("  node scripts/crosspost.mjs --new --devto");
   console.error("\nAvailable slugs:");
   const { readdirSync } = await import("fs");
   readdirSync(resolve(ROOT, "src/content/blog"))
@@ -286,7 +328,7 @@ if (!slugOrAll) {
   process.exit(1);
 }
 
-async function crosspostOne(slug) {
+async function crosspostOne(slug, known) {
   const mdxPath = resolve(ROOT, `src/content/blog/${slug}.mdx`);
   if (!existsSync(mdxPath)) {
     console.error(`❌  Article not found: ${mdxPath}`);
@@ -313,26 +355,59 @@ async function crosspostOne(slug) {
   console.log(`🔗  Canonical: https://woitzik.dev/blog/${slug}/`);
   console.log(`🏷️   Tags: ${(fm.tags || []).join(", ")}\n`);
 
-  if (doDevTo) await postToDevTo(slug, fm, markdown, dryRun, updateDevTo);
+  if (doDevTo) await postToDevTo(slug, fm, markdown, dryRun, updateDevTo, known);
   if (flags.includes("--mastodon")) await postToMastodon(slug, fm, dryRun);
 }
 
 if (doAll) {
   const { readdirSync } = await import("fs");
-  const slugs = readdirSync(resolve(ROOT, "src/content/blog"))
+  const allSlugs = readdirSync(resolve(ROOT, "src/content/blog"))
     .filter((f) => f.endsWith(".mdx"))
     .map((f) => f.replace(".mdx", ""))
     .sort();
 
-  if (slugs.length === 0) {
+  if (allSlugs.length === 0) {
     console.log("\n✅  Nothing to post.");
     process.exit(0);
   }
 
-  const toPost = maxPosts > 0 ? slugs.slice(0, maxPosts) : slugs;
+  // --new fetches the published set once and posts only the gap, so a run that
+  // has nothing to do costs one API call and no sleep. --all keeps the old
+  // per-article check for deliberate backfill.
+  let published = null;
+  if (onlyNew && doDevTo && !updateDevTo) {
+    if (dryRun) {
+      console.log("\n[DRY RUN] would fetch published set, post only missing articles");
+    } else {
+      published = await publishedSlugsOnDevTo(process.env.DEVTO_API_KEY);
+      console.log(
+        `🔍  dev.to: ${published.size} already published, ${allSlugs.length} local articles`,
+      );
+    }
+  }
 
-  console.log(`\n🔄  Crossposting ${toPost.length} articles${maxPosts > 0 ? ` (max ${maxPosts})` : ""}`);
-  console.log("");
+  let candidates = allSlugs;
+  if (published) {
+    candidates = allSlugs.filter((s) => {
+      const raw = readFileSync(resolve(ROOT, `src/content/blog/${s}.mdx`), "utf8");
+      const fm = parseFrontmatter(raw);
+      return fm.lang !== "de" && !published.has(s);
+    });
+  }
+
+  // --max takes the first N of the *remaining* work, not the first N
+  // alphabetically — otherwise --max=5 re-checks the same five oldest slugs
+  // forever and the "N remaining, run again" hint can never make progress.
+  const toPost = maxPosts > 0 ? candidates.slice(0, maxPosts) : candidates;
+
+  console.log(
+    `\n🔄  Crossposting ${toPost.length} article(s)${maxPosts > 0 ? ` (max ${maxPosts})` : ""}`,
+  );
+
+  if (toPost.length === 0) {
+    console.log("\n✅  Nothing to post — dev.to is already up to date.");
+    process.exit(0);
+  }
 
   let posted = 0;
   for (let i = 0; i < toPost.length; i++) {
@@ -340,7 +415,7 @@ if (doAll) {
     console.log(`  [${i + 1}/${toPost.length}] ${toPost[i]}`);
     console.log(`${"═".repeat(60)}`);
 
-    await crosspostOne(toPost[i]);
+    await crosspostOne(toPost[i], published ? false : undefined);
     posted++;
 
     if (delayMs > 0 && i < toPost.length - 1) {
@@ -349,9 +424,9 @@ if (doAll) {
     }
   }
 
-  const remaining = slugs.length - toPost.length;
-  console.log(`\n✅  Done! Crossposted ${posted} articles.`);
-  if (remaining > 0) console.log(`📋  ${remaining} remaining — run again to continue.`);
+  const remaining = candidates.length - toPost.length;
+  console.log(`\n✅  Done! Crossposted ${posted} article(s).`);
+  if (remaining > 0) console.log(`📋  ${remaining} remaining — run again with --new to continue.`);
 } else {
   await crosspostOne(slugOrAll);
 }

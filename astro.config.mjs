@@ -4,6 +4,7 @@ import sitemap from "@astrojs/sitemap";
 import tailwind from "@astrojs/tailwind";
 import rehypeSlug from "rehype-slug";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
+import rehypeAffiliateRel from "./src/plugins/rehype-affiliate-rel.mjs";
 
 export default defineConfig({
   site: "https://woitzik.dev",
@@ -13,6 +14,7 @@ export default defineConfig({
     rehypePlugins: [
       rehypeSlug,
       [rehypeAutolinkHeadings, { behavior: "wrap" }],
+      rehypeAffiliateRel,
     ],
   },
 });

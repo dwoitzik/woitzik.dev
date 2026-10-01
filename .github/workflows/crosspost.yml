@@ -36,9 +36,4 @@ jobs:
         if: steps.check-secrets.outputs.skip != 'true'
         env:
           DEVTO_API_KEY: ${{ secrets.DEVTO_API_KEY }}
-        run: |
-          for file in src/content/blog/*.mdx; do
-            slug=$(basename "$file" .mdx)
-            node scripts/crosspost.mjs "$slug" --devto || true
-            sleep 35
-          done
+        run: node scripts/crosspost.mjs --new --devto --delay=35
