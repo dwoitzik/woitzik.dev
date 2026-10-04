@@ -7,7 +7,7 @@ tags: ["Kubernetes", "Backup", "NFS", "Velero"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
 Velero's nightly backup was taking 207 seconds and backing up 33.4GB. That's normal for a cluster with 15+ PVCs — except when one volume accounts for 65% of the total bytes. The nfs-provisioner's root-mount volume was backing up the entire shared NFS export as a single blob, even though every app's individual PVC (a subdirectory of the same tree) was already backed up separately.
 

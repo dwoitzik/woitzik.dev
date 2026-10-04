@@ -7,7 +7,7 @@ tags: ["Kubernetes", "Security", "Debugging"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
 Kyverno's cleanup-controller was restarting every few hours. The leader-election timeout was expiring under load — the same class of leader-election instability that [CPU contention causes for etcd](/blog/cpu-scheduling-etcd-proxmox-units/) — the controller lost its lock, and the new leader took over, causing a brief gap in policy enforcement. The fix looked simple: increase `leaderElectionRetryPeriod`. The fix crash-looped the very pod it was meant to stabilize.
 

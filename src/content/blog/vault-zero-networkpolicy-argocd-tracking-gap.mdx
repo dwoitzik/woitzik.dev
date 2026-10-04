@@ -7,7 +7,7 @@ tags: ["Kubernetes", "Security", "GitOps", "Vault"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
 A cross-cutting isolation check across every namespace in my k3s cluster revealed that Vault — the trust root every ExternalSecret reads from — had zero NetworkPolicies. Any pod in any namespace, including a compromised Immich or a misconfigured application, could reach Vault's API on port 8200 with no network-layer restriction.
 

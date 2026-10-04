@@ -7,7 +7,7 @@ tags: ["Kubernetes", "MinIO", "Storage", "Homelab"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-*Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.*
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
 
 CNPG needs WAL archiving to object storage. Gitea needs artifact storage. The options: AWS S3 (recurring cost), Backblaze B2 (egress fees), or MinIO (self-hosted, no recurring cost). MinIO on k3s runs as a single pod with a local PersistentVolume, exposing an S3 API on port 9000. It's not distributed, not redundant, and not production-grade. For a homelab, it's exactly right.
 
