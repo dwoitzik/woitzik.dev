@@ -102,14 +102,14 @@ const germanOriginal =
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "TechArticle",
+  "@id": `${postUrl}#article`,
   headline: post.data.title,
   description: post.data.description,
   datePublished: post.data.date.toISOString(),
   dateModified: (post.data.updated ?? post.data.date).toISOString(),
   author: {
     "@type": "Person",
-    name: "David Woitzik",
-    url: "https://woitzik.dev",
+    "@id": "https://woitzik.dev/#person",
   },
   url: postUrl,
   inLanguage: post.data.lang,
@@ -121,6 +121,46 @@ const jsonLd = {
       ...(post.data.lang === "de" && { name: "English version" }),
     },
   }),
+};
+
+// Mirrors the breadcrumb nav that is already rendered above. Emitting this as
+// a second JSON-LD block keeps the TechArticle document byte-for-byte intact
+// instead of restructuring it into a @graph, which would risk changing how the
+// article node is read. The final ListItem intentionally carries no `item`: it
+// is the current page, and pointing it at itself is what produces the
+// "Breadcrumb is not a valid breadcrumb" error.
+const breadcrumbLd = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    {
+      "@type": "ListItem",
+      position: 1,
+      name: "Home",
+      item: "https://woitzik.dev/",
+    },
+    {
+      "@type": "ListItem",
+      position: 2,
+      name: "Blog",
+      item: "https://woitzik.dev/blog/",
+    },
+    ...(post.data.tags?.length
+      ? [
+          {
+            "@type": "ListItem",
+            position: 3,
+            name: post.data.tags[0],
+            item: `https://woitzik.dev/blog/tag/${post.data.tags[0].toLowerCase()}/`,
+          },
+        ]
+      : []),
+    {
+      "@type": "ListItem",
+      position: post.data.tags?.length ? 4 : 3,
+      name: post.data.title,
+    },
+  ],
 };
 ---
 
@@ -218,6 +258,30 @@ const jsonLd = {
         )
       }
     </div>
+
+    {
+      /*
+      Answer-first summary.
+
+      The frontmatter description was already machine-readable, but only in
+      <meta name="description"> and the TechArticle JSON-LD. It never reached the
+      rendered text, so nothing on the page stated the article's conclusion in
+      its own words. Answer engines quote from body text, not from meta tags, so
+      this restates the conclusion directly under the H1 as a self-contained
+      passage. The wording is reused verbatim from frontmatter on purpose: a
+      paraphrase here would drift from the description that already ranks and
+      that structured data asserts.
+    */
+    }
+    {
+      post.data.description && (
+        <div class="animate mt-6 border-l-2 border-sky-500/60 pl-4">
+          <p class="text-base leading-relaxed text-black/75 dark:text-white/75 m-0">
+            {post.data.description}
+          </p>
+        </div>
+      )
+    }
 
     <!-- Mobile TOC (hidden on large screens) -->
     {
@@ -341,6 +405,12 @@ const jsonLd = {
   is:inline
   type="application/ld+json"
   set:html={JSON.stringify(jsonLd)}
+/>
+
+<script
+  is:inline
+  type="application/ld+json"
+  set:html={JSON.stringify(breadcrumbLd)}
 />
 
 <script is:inline>

@@ -130,18 +130,36 @@ const hreflangLinks = alternates.length
 <meta property="twitter:description" content={description} />
 <meta property="twitter:image" content={new URL(image, canonicalURL)} />
 
-<!-- Schema.org JSON-LD für Google -->
+<!-- Schema.org JSON-LD.
+
+     The author gets a stable @id because article nodes reference it. Without
+     one, every page ships its own disconnected Person copy: crawlers then read
+     N separate "David Woitzik" entities instead of one, and the sameAs profiles
+     that establish which one is real are missing from the article nodes
+     entirely. Article pages declare `author: { "@id": ... }` to close the link.
+-->
 <script type="application/ld+json" is:inline>
   {
     "@context": "https://schema.org",
     "@type": "Person",
+    "@id": "https://woitzik.dev/#person",
     "name": "David Woitzik",
     "url": "https://woitzik.dev",
     "jobTitle": "Hybrid Cloud Engineer",
     "worksFor": {
       "@type": "Organization",
-      "name": "Cloud Infrastructure Solutions"
+      "@id": "https://woitzik.dev/#organization",
+      "name": "Cloud Infrastructure Solutions",
+      "url": "https://woitzik.dev"
     },
+    "knowsAbout": [
+      "Terraform",
+      "Microsoft Azure",
+      "Kubernetes",
+      "Linux",
+      "Networking",
+      "Homelab"
+    ],
     "sameAs": [
       "https://www.linkedin.com/in/david-woitzik/",
       "https://github.com/dwoitzik"
