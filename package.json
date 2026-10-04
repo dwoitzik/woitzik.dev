@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "astro dev",
     "dev:network": "astro dev --host",
-    "build": "astro check && astro build && pagefind --site dist",
+    "build": "npm run check:translations && astro check && astro build && pagefind --site dist",
+    "check:translations": "node scripts/check-translations.mjs",
     "preview": "astro preview",
     "preview:network": "astro preview --host",
     "astro": "astro",
