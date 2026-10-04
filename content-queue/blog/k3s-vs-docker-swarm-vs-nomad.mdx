@@ -1,0 +1,131 @@
+---
+title: "k3s vs Docker Swarm vs Nomad in 2026"
+description: "k3s wins for Kubernetes workloads, Docker Swarm is in maintenance decline after the Docker Engine v29 API break, and Nomad is source-available under BUSL rather than open source. The licensing and release-cadence facts decide this more than features do."
+date: "2026-10-14"
+tags: ["Kubernetes", "Docker", "DevOps", "Homelab"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+Choosing between k3s, Docker Swarm, and Nomad stopped being a features question some time ago. It is now a **project-trajectory** question, and the three projects are on genuinely different trajectories. k3s tracks upstream Kubernetes within weeks and ships three supported release lines at once. Docker Swarm still works but its vendor has redirected development toward Kubernetes, and the Docker Engine v29 API floor broke parts of it badly. Nomad is the technically lightest option and the only one of the three that is not open source at all.
+
+## TL;DR — The Picks
+
+| Orchestrator | Pick it if | Main risk in 2026 | License |
+|---|---|---|---|
+| **k3s** | You want Kubernetes, or your tooling already assumes it | You inherit the Kubernetes upgrade treadmill | Apache-2.0 |
+| **Docker Swarm** | You already run it and need cluster mode with no extra daemon | Docker Engine v29 dropped client and plugin compatibility | Apache-2.0 |
+| **Nomad** | You want one scheduler for mixed container and non-container workloads | BUSL source-available, not open source | BUSL → MPL-2.0 after 4 years |
+
+If you are starting fresh in 2026, the honest default is k3s. Not because it is the most capable — Nomad is lighter and Docker Swarm is simpler to learn — but because it is the only one of the three with a release cadence you can plan against, and because the surrounding ecosystem has consolidated around Kubernetes.
+
+## The three facts that decide it
+
+Before features: these are the three things that actually constrain the decision, and all three are documented rather than opinion.
+
+### 1. Docker Engine v29 broke Swarm compatibility
+
+Docker Engine v29 raised the **minimum supported daemon API version to 1.44**, dropping all compatibility with clients built against Docker Engine older than v25. There is no fallback and no negotiation: tooling compiled against an older API receives a hard rejection.
+
+The damage is not evenly distributed, and this is the part that matters if you run Swarm. **Legacy (V1) Docker volume plugins are rejected by the v29 daemon.** Because Swarm requires cluster-scoped persistent storage, Swarm operators hit this disproportionately. The failure mode is nasty: Docker keeps the volume metadata but cannot reach the plugin needed to mount the volume, so **your data appears to be gone while it is still intact on the storage target**.
+
+There is a second trap in the same release. Upgrading *some* cluster nodes to v29 while others stay older — a staged rollout, the obvious upgrade strategy — causes **encrypted overlay traffic to silently stop** between v29.0.0 and v29.2.0. Silent is the operative word. If you use encrypted overlay networks, you must move all swarm hosts to v29.1.2 or later in one step; rolling upgrades are not available to you.
+
+### 2. Docker has redirected Swarm development toward Kubernetes
+
+Docker's own retired-products page is unusually direct about SwarmKit, the project that powers Swarm mode:
+
+> While Swarm mode remains functional, development has slowed in favor of Kubernetes-based solutions.
+
+That is the vendor stating the trajectory. Swarm is not deprecated in the sense of being scheduled for removal — `docker swarm init` still works and the mode is still documented as built into the Engine — but it is a maintenance posture, not an investment posture. Portainer, the most visible Swarm management platform, published an advisory on 2026-03-10 recommending caution with continuing to run Swarm and planning a gradual move to Kubernetes.
+
+### 3. Nomad is not open source
+
+This one gets repeated wrong. Nomad Community Edition is licensed under the **Business Source License**. The change license is MPL 2.0, but it applies *four years after the version is published*. So a Nomad release from today becomes MPL 2.0 in 2030 — meaning that today, in 2026, if you need a genuinely open orchestrator, Nomad is not one.
+
+The licensing situation is now stable but newly complicated. Since April 2026 HashiCorp's self-managed products follow IBM's enterprise software lifecycle, following the IBM acquisition. Nomad's support windows:
+
+| Version | Base support ends | Extended support ends | Ongoing extended ends |
+|---|---|---|---|
+| 1.8.x (LTS) | 2026-04-30 | 2026-04-30 | 2026-04-30 |
+| 1.10.x (LTS) | 2027-04-30 | 2027-04-30 | 2027-04-30 |
+| 1.11.x | 2026-10-31 | 2026-10-31 | 2026-10-31 |
+| 2.0.x | 2028-04-30 | 2029-04-30 | 2032-04-30 |
+
+Note that 1.8.x is already fully out of support as of this writing, and 1.11.x ends 2026-10-31 — within weeks. **Nomad v1.10.x is the last LTS line.** From the 2.0.0 release onward, Nomad also drops semantic versioning for IBM's Version-Modification-Fix model, so tooling that parses Nomad version strings needs updating.
+
+One operational warning worth knowing before you plan a mixed estate: a Nomad Enterprise cluster **cannot be downgraded**, and servers running open-source Nomad will *panic* if joined to an Enterprise cluster, because the Raft entries for Enterprise features are not parseable by the open-source build. Test that boundary before you need it.
+
+## k3s — the default for a reason
+
+k3s is a conformant Kubernetes distribution packaged as a single binary. As of October 2026 it maintains **three release lines concurrently**: v1.36.4+k3s1 is current, with v1.35.8 and v1.34.11 still receiving backports. Each build pins its whole dependency set — for v1.34.11+k3s1 that is Kubernetes v1.34.11, Kine v0.16.4, SQLite 3.53.4, etcd v3.6.14-k3s1, containerd v2.2.7-k3s1, runc v1.4.2, Flannel v0.28.4, metrics-server v0.9.0, Traefik v3.7.13, CoreDNS v1.14.7, helm-controller v0.16.27 and local-path-provisioner v0.0.37.
+
+That table matters more than it looks. When something breaks at 02:00 you can read which exact version of which component is running instead of discovering it. My own homelab runs k3s across several nodes, and that pinned-component view is what makes problems like [ArgoCD cache staleness on a shared resource](/blog/argocd-cache-staleness-shared-resource-warning/) or [picking the wrong storage backend for cluster state](/blog/nfs-vs-local-path-sqlite-trap/) diagnosable at all.
+
+The cost of k3s is that you inherit Kubernetes' upgrade treadmill. Upgrading three majors is not a hobby, and every Helm chart in your stack is a chance for the chart to be behind the API version you just moved to. One concrete example from the 1.34 line: the bundled Traefik chart moved to v40.x, which renamed the ingress-nginx migration provider from `kubernetesIngressNginx` to `kubernetesIngressNGINX`. That is a breaking change inside a patch-level chart bump.
+
+I have written about the parts that bite in practice — the [Velero and Garage S3 backup chain](/blog/velero-garage-k3s-backup/) and [Unbound with AdGuard and keepalived](/blog/unbound-adguard-keepalived-homelab/) are both k3s deployments that took real iteration to get right.
+
+## Docker Swarm — simpler, and now on borrowed time
+
+Swarm's genuine advantage is that it is *already there*. No second daemon, no new control plane, no new YAML dialect. If your Docker workflow is a `compose` file and a handful of services, `docker stack deploy` is a very small step up, and the service model with rolling updates and health checks is more capable than plain Compose.
+
+The case against it in 2026 is the two items above: the v29 compatibility break with its silent overlay-traffic failure mode, and a vendor that has said in writing that development has slowed. Neither makes Swarm unusable tomorrow. Both mean every future upgrade is a risk you cannot get support for.
+
+If you are on Swarm, the sensible 2026 posture is: pin the Engine version deliberately, verify you are past v29.1.2, audit for V1 volume plugins **before** you upgrade rather than after, and start introducing Kubernetes for new workloads so you are not migrating everything at once.
+
+## Nomad — the best scheduler, the weakest license
+
+Setting licensing aside, Nomad is genuinely well-designed for its niche. It schedules not just containers but binaries, VMs and batch jobs through one job specification, it is built around a single deliberately small binary rather than a multi-component control plane, and its UI is easier to reason about than anything in the Kubernetes ecosystem. For a mixed estate — a few containers alongside a scheduled data job, an ETL step, a Windows task — that unification is the whole point and Kubernetes does not do it without extra machinery.
+
+Against that: BUSL rather than an OSI license, a support matrix reshuffled by the IBM acquisition, a semantic-versioning break at 2.0, and an ecosystem that assumes Kubernetes. If your team already lives in Kubernetes YAML, Nomad's job syntax is a second language to maintain for a saving you have to measure yourself.
+
+## Head-to-Head
+
+| Dimension | k3s | Docker Swarm | Nomad |
+|---|---|---|---|
+| Scheduling unit | Pod | Service (task) | Job (group, task, service) |
+| Non-container workloads | No | No | Yes — binaries, VMs, batch |
+| Control plane footprint | Single binary per node | Built into the Docker Engine, no extra daemon | Single binary |
+| License | Apache-2.0 | Apache-2.0 | BUSL, becomes MPL-2.0 after 4 years |
+| 2026 release cadence | Three concurrent K8s lines | Slowed, vendor-prioritised elsewhere | Spring/fall features, monthly as needed |
+| Ecosystem direction | Consolidating around it | Maintenance | Stable, narrower |
+| Upgrading is | Hard (K8s treadmill) | Easy | Moderate (mind the VMF versioning break) |
+
+## Which one should you run?
+
+**Run k3s** if your workloads are containers and you want the Kubernetes ecosystem — Helm, ArgoCD, Prometheus operators, the CNCF ecosystem at large. This is the default in 2026 and the choice I would make for anything new.
+
+**Stay on Docker Swarm** only if you already run it in production and the migration cost is real. Treat it as a managed liability: pin versions, avoid the v29 trap, and plan the exit. Do not adopt it new in 2026.
+
+**Run Nomad** if scheduling heterogeneous workload types on one control plane is worth more to you than an OSI license and a Kubernetes-shaped ecosystem. Just make that trade knowingly — you are choosing source-available software with a four-year conversion clock, not open source.
+
+If you genuinely cannot decide between two, run both on the same hardware for a month with one real workload. The theoretical comparison above is the least interesting part; how each behaves with your actual data on your actual disks is what decides it.
+
+## Frequently Asked Questions
+
+### Is Docker Swarm being deprecated?
+
+Not formally in the sense of a scheduled removal — `docker swarm init` still works and Swarm mode is still part of Docker Engine. But Docker's own documentation states that SwarmKit development "has slowed in favor of Kubernetes-based solutions," so treat it as maintenance-only. The practical risk arrived with Docker Engine v29, which broke client and plugin compatibility for Swarm disproportionately.
+
+### Is Nomad open source?
+
+No. Nomad Community Edition is licensed under the Business Source License. Versions become MPL 2.0 four years after publication, so a release from 2026 becomes genuinely open source in 2030. If you require an OSI-approved license today, that rules Nomad out. k3s and Docker Swarm are both Apache-2.0.
+
+### Is k3s just "Kubernetes but worse"?
+
+No. It is a conformant Kubernetes distribution — same API server, same controllers, same ecosystem — delivered as one binary with sensible defaults. The compromise is operational, not functional: you give up control over the component versions to get a maintainable install, which is why the pinned component table is worth reading before you debug anything.
+
+### Can I run Docker Swarm and Kubernetes on the same host?
+
+Technically, yes, but you should not. Both want to own the container runtime and the network stack, and the interaction between a Swarm overlay network and a CNI is a debugging experience you do not need to have. Run them on separate machines.
+
+### What is the safest way to upgrade a Swarm cluster to Docker v29?
+
+Get every host to v29.1.2 or later in a single step. Staged rollouts break encrypted overlay traffic silently in v29.0.0 through v29.2.0. Before you start, inventory your volume plugins — any V1 plugin will be rejected by the v29 daemon, and the resulting "missing" data is usually still on the storage target. Export your data first.
+
+### Does Nomad support Kubernetes workloads?
+
+Not natively. Nomad is not a Kubernetes scheduler and does not run Kubernetes manifests. There is no compatibility path if you need the Kubernetes API; pick k3s instead. Nomad's own strength — scheduling binaries and batch jobs alongside containers — is precisely what Kubernetes does not offer.
+
+<NewsletterCTA />
