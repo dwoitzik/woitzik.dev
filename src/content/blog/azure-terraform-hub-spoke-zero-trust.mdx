@@ -33,6 +33,8 @@ There are two failure modes that will reliably destroy a standard Terraform depl
 **2. The Default-Allow Network**  
 A freshly deployed Azure VNet allows outbound internet access and unrestricted lateral movement between subnets. For any ISO 27001 or KRITIS audit, this is an immediate finding. You need Default-Deny at the network layer the moment the subnet exists - not as a follow-up ticket.
 
+Spoke address space is easy to get wrong when it is spread across variables, so it is worth computing the ranges once up front. The [IPv4 subnet calculator](/tools/subnet-calculator/) gives you the network, broadcast and usable host count for each prefix, which is exactly the set of numbers an auditor asks for when they ask how many hosts a spoke can actually hold.
+
 The solution is to make the Terraform code itself defensive against both.
 
 ## Target Architecture

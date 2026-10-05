@@ -34,8 +34,8 @@ At some point I'd tightened a monitoring rule from "Prometheus can reach all int
 resource "routeros_ip_firewall_filter" "fwd_04a_srv_monitoring" {
   action       = "accept"
   chain        = "forward"
-  src_address  = "10.0.20.0/24"
-  dst_address  = "10.0.10.0/24"
+  src_address  = "10.0.20.0/24"   # monitoring VLAN
+  dst_address  = "10.0.10.0/24"   # management VLAN
   dst_port     = "9100"
   protocol     = "tcp"
   place_before = routeros_ip_firewall_filter.fwd_08_allow_dns.id
@@ -55,6 +55,8 @@ src=10.0.20.0/24 dst=10.0.10.0/24 action=accept
 No port restriction. No protocol restriction. And because RouterOS hit this rule first, traffic matching it was accepted *before the router ever evaluated the narrower, newer rule*. The port-9100-only restriction I'd written, tested, and confirmed in Terraform had never actually been enforced on the live device - the older, broader rule was silently winning every time.
 
 This is the sharpest version of the general problem with ordered rule lists: a rule that looks dead (superseded by a newer one) isn't dead unless it's actually removed. It's just sitting there, waiting for the day its broader match happens to fire first.
+
+Auditing that by hand means comparing prefixes rather than interface names, which is why I keep the [subnet calculator](/tools/subnet-calculator/) open next to the rule set. Expanding `10.0.20.0/24` to its real network, broadcast and host range makes an overlapping-but-not-identical rule visible in a way that two similar-looking strings never do.
 
 ## Finding the Actual Scope of the Problem
 

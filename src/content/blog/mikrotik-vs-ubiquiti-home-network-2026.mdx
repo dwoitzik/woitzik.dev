@@ -128,6 +128,8 @@ The Terraform code for my entire VLAN matrix — five VLANs, trunk ports, access
 
 Both approaches work well. MikroTik's is more flexible and automatable. UniFi's is more visual and self-documenting. For a homelab that needs VLANs for network segmentation (management, server, DMZ, IoT, admin), both platforms handle it without issue.
 
+Whichever way you go, the VLAN matrix is the part worth checking before you configure anything. The [VLAN ID planner](/tools/vlan-planner/) flags duplicates and out-of-range IDs, and the [network transfer time calculator](/tools/transfer-time-calculator/) shows whether the link you picked can actually move your data at a useful speed once you have segmented it.
+
 **Winner: Tie.** MikroTik for automation and hardware offloading. UniFi for visual management and simplicity.
 
 ### Terraform & Automation Support

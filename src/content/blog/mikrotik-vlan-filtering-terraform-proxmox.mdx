@@ -19,7 +19,7 @@ In this deep dive, I will show you how to tame MikroTik VLANs using Infrastructu
 
 ## The Architecture & Locals
 
-Before writing any resources, we need to define our network's topology. Hardcoding VLAN IDs across dozens of resources is a bad practice. Instead, we use Terraform `locals` to create a central source of truth.
+Before writing any resources, we need to define our network's topology. Hardcoding VLAN IDs across dozens of resources is a bad practice. Instead, we use Terraform `locals` to create a central source of truth. Picking those IDs is worth doing in the [VLAN ID planner](/tools/vlan-planner/) first, since it will tell you which IDs in your intended range are still free before you commit them to a variable map.
 ```hcl
 locals {
   homelab_vlans = {

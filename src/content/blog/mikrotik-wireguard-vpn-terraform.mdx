@@ -55,7 +55,7 @@ resource "routeros_ip_address" "wg_ip" {
 }
 ```
 
-*Note the use of `cidrhost()`. This Terraform function automatically calculates the `.1` address based on the subnet defined in our locals, preventing manual typo errors.*
+*Note the use of `cidrhost()`. This Terraform function automatically calculates the `.1` address based on the subnet defined in our locals, preventing manual typo errors. If you are choosing that `10.6.0.0/24` range by hand, check what it collides with in the [IPv4 subnet calculator](/tools/subnet-calculator/) — a VPN range overlapping a LAN range is the kind of overlap that only shows up as a broken route weeks later.*
 
 ## 3. Provisioning the Peers (Devices)
 
