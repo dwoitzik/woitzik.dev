@@ -54,7 +54,7 @@ Intel N100 · 16GB DDR4 · 500GB SSD · €350-370
 
 The S12 Pro hits the sweet spot for a homelab node. The Intel N100 is a 6W TDP chip that idles around 7-9W wall draw, making it nearly invisible on your electricity bill when running 24/7. The listing I'm linking ships with 16GB DDR4 and a 500GB M.2 SSD, which is enough for a Proxmox OS plus a reasonable local datastore without any upgrade on day one.
 
-The 2.5GbE LAN port is the part that matters for homelab duty. It is a single port, not a dual-NIC pair, so it cannot trunk two VLANs out of the box the way some fanless N100 designs do — if you need a router or Proxmox bridge with two uplinks, budget for a USB Ethernet adapter. For a single Proxmox node on a flat or tagged-VLAN uplink, the built-in port is enough.
+The 2.5GbE LAN port is the part that matters for homelab duty. It is a single port, not a dual-NIC pair, so it cannot trunk two VLANs out of the box the way some fanless N100 designs do — if you need a router or Proxmox bridge with two uplinks, budget for a USB Ethernet adapter. For a single Proxmox node on a flat or tagged-VLAN uplink, the built-in port is enough. What 2.5GbE actually buys you on a NAS is worth computing before you buy the NIC: the [network transfer time calculator](https://woitzik.dev/tools/transfer-time-calculator/) shows how long a first backup takes at line rate, and most homelab traffic lands well below that.
 
 Memory is DDR4 in SO-DIMM form, which means it is a straightforward upgrade later. The platform's memory bandwidth ceiling is low enough that DDR4 versus DDR5 makes no practical difference on an N100 — the iGPU and CPU both sit well below what the memory bus would constrain.
 

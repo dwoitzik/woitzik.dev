@@ -141,7 +141,7 @@ forward-zone:
     forward-first: no
 ```
 
-`access-control: 10.0.0.0/8 allow` permits queries from all homelab VLANs. Queries from outside that range are refused.
+`access-control: 10.0.0.0/8 allow` permits queries from all homelab VLANs. Queries from outside that range are refused. A `/8` is 16 million addresses, which is deliberately wider than the network - it is the choice that fails safe, since a client anywhere in 10/8 can ask and only a policy decision stops it. If you would rather narrow it to the VLANs that actually exist, the [IPv4 subnet calculator](https://woitzik.dev/tools/subnet-calculator/) shows what each prefix covers and how many addresses it hands out.
 
 ## Step 2: AdGuard Home Ansible Role
 

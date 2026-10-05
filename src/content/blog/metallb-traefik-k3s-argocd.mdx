@@ -93,7 +93,7 @@ spec:
   - first-pool
 ```
 
-The range `10.0.20.200-10.0.20.240` sits inside VLAN 20 (the server VLAN) but outside the DHCP range - so no address conflicts with dynamically assigned devices.
+The range `10.0.20.200-10.0.20.240` sits inside VLAN 20 (the server VLAN) but outside the DHCP range - so no address conflicts with dynamically assigned devices. That pool is 41 usable addresses; the [IPv4 subnet calculator](https://woitzik.dev/tools/subnet-calculator/) tells you what a prefix actually yields before you commit a range to a pool.
 
 The separate ArgoCD Application that applies this config:
 

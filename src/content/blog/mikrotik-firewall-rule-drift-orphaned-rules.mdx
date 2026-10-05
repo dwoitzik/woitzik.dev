@@ -56,7 +56,7 @@ No port restriction. No protocol restriction. And because RouterOS hit this rule
 
 This is the sharpest version of the general problem with ordered rule lists: a rule that looks dead (superseded by a newer one) isn't dead unless it's actually removed. It's just sitting there, waiting for the day its broader match happens to fire first.
 
-Auditing that by hand means comparing prefixes rather than interface names, which is why I keep the [subnet calculator](/tools/subnet-calculator/) open next to the rule set. Expanding `10.0.20.0/24` to its real network, broadcast and host range makes an overlapping-but-not-identical rule visible in a way that two similar-looking strings never do.
+Auditing that by hand means comparing prefixes rather than interface names, which is why I keep the [subnet calculator](https://woitzik.dev/tools/subnet-calculator/) open next to the rule set. Expanding `10.0.20.0/24` to its real network, broadcast and host range makes an overlapping-but-not-identical rule visible in a way that two similar-looking strings never do.
 
 ## Finding the Actual Scope of the Problem
 
