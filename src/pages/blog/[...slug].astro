@@ -35,14 +35,28 @@ export async function getStaticPaths() {
     // Same-language related posts only. Tag similarity alone matched German and
     // English articles on the same technology, so a German reader got English
     // suggestions that hreflang would then contradict.
+    //
+    // Ranked by how many tags they actually share, then by date. Taking the
+    // first three matches instead meant an article got whichever related posts
+    // happened to sort first in the collection, which for most posts meant a
+    // generic "Kubernetes" neighbour rather than the piece a reader who just
+    // finished this one most likely wants next.
     const related = posts
-      .filter(
-        (p) =>
-          p.slug !== post.slug &&
-          p.data.lang === post.data.lang &&
-          p.data.tags?.some((t) => postTags.includes(t.toLowerCase())),
+      .filter((p) => p.slug !== post.slug && p.data.lang === post.data.lang)
+      .map((p) => ({
+        post: p,
+        shared: (p.data.tags ?? []).filter((t) =>
+          postTags.includes(t.toLowerCase()),
+        ).length,
+      }))
+      .filter((entry) => entry.shared > 0)
+      .sort(
+        (a, b) =>
+          b.shared - a.shared ||
+          b.post.data.date.valueOf() - a.post.data.date.valueOf(),
       )
-      .slice(0, 3);
+      .slice(0, 3)
+      .map((entry) => entry.post);
 
     const alternates: { href: string; hreflang: string }[] = [];
 

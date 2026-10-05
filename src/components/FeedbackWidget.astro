@@ -51,6 +51,21 @@ const { slug } = Astro.props;
           /* localStorage may be unavailable */
         }
 
+        // The vote itself has to reach the analytics backend, otherwise the
+        // widget only ever counts something on the reader's own machine and
+        // there is no way to tell which article actually answered the question.
+        // Only the verdict and the slug go out — no free text, no identifying
+        // data, nothing about who clicked.
+        try {
+          window.rybbit?.event?.("article_feedback", {
+            slug,
+            verdict: type,
+            page: location.pathname,
+          });
+        } catch {
+          /* analytics blocked */
+        }
+
         document.querySelectorAll(`[data-slug="${slug}"]`).forEach((b) => {
           b.disabled = true;
           b.classList.add("opacity-40");
