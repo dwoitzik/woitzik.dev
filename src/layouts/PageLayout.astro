@@ -78,32 +78,48 @@ const {
         <path d="M18 15l-6-6-6 6"></path>
       </svg>
     </button>
-    <script is:inline>
-      document.addEventListener("click", function (e) {
-        var link = e.target.closest("a");
-        if (!link) return;
-        var href = link.getAttribute("href") || "";
-        if (
-          href.indexOf("amzn.to") !== -1 ||
-          href.indexOf("amazon.") !== -1 ||
-          href.indexOf("/go/") !== -1
-        ) {
-          var slug = href.split("/").pop() || "unknown";
-          if (typeof window.va === "function") {
-            window.va("event", {
-              name: "affiliate_click",
-              data: { url: href, slug: slug, page: location.pathname },
-            });
-          }
-          if (window.rybbit && typeof window.rybbit.event === "function") {
-            window.rybbit.event("affiliate_click", {
-              url: href,
-              slug: slug,
-              page: location.pathname,
-            });
-          }
-        }
-      });
+    <script>
+      // This used to be is:inline, which Astro re-executes after every
+      // ClientRouter navigation. Each swap stacked another document-level
+      // click listener, so a single affiliate click got recorded once per
+      // navigation the reader had already made - affiliate_click is the
+      // metric that decides which products get promoted, so overcounting it
+      // distorts exactly the number we steer by. A bundled module script runs
+      // once per session; the flag keeps registration idempotent regardless.
+      type AffiliateTrackingWindow = Window & {
+        __affiliateClickTracking?: boolean;
+        va?: (
+          name: string,
+          payload: { name: string; data: Record<string, string> },
+        ) => void;
+        rybbit?: {
+          event?: (name: string, props: Record<string, string>) => void;
+        };
+      };
+
+      const win = window as AffiliateTrackingWindow;
+
+      if (!win.__affiliateClickTracking) {
+        win.__affiliateClickTracking = true;
+        document.addEventListener("click", (event) => {
+          const target = event.target as Element | null;
+          const link = target?.closest?.("a");
+          if (!link) return;
+          const href = link.getAttribute("href") || "";
+          const isAffiliate =
+            href.indexOf("amzn.to") !== -1 ||
+            href.indexOf("amazon.") !== -1 ||
+            href.indexOf("/go/") !== -1;
+          if (!isAffiliate) return;
+          const slug = href.split("/").pop() || "unknown";
+          const page = location.pathname;
+          win.va?.("event", {
+            name: "affiliate_click",
+            data: { url: href, slug, page },
+          });
+          win.rybbit?.event?.("affiliate_click", { url: href, slug, page });
+        });
+      }
     </script>
     <script is:inline>
       function handleBackToTop() {
