@@ -1,0 +1,133 @@
+---
+import PageLayout from "@layouts/PageLayout.astro";
+import Container from "@components/Container.astro";
+
+// Kept as data rather than markup so the hub, the llms.txt Tools section and
+// each tool's own "Related" list all describe the same set. A tool that exists
+// but is not listed here is invisible to both crawlers and readers, which is
+// the failure mode this file exists to prevent.
+const tools = [
+  {
+    href: "/tools/raid-calculator/",
+    name: "RAID Capacity Calculator",
+    description:
+      "Usable capacity, space lost to parity and how many drives can fail, for RAID 0, 1, 5, 6, 10, SHR-1 and SHR-2. Handles mixed drive sizes.",
+    context: "NAS and storage",
+  },
+  {
+    href: "/tools/subnet-calculator/",
+    name: "IPv4 Subnet Calculator",
+    description:
+      "Network and broadcast address, netmask, wildcard mask and usable host count for any CIDR, plus how far a network splits into /24s, /26s and /28s.",
+    context: "Networking",
+  },
+  {
+    href: "/tools/transfer-time-calculator/",
+    name: "Network Transfer Time Calculator",
+    description:
+      "How long a copy takes over 100 Mbit to 25 Gbit ethernet, at line rate or at the share of throughput you actually expect to see.",
+    context: "NAS and networking",
+  },
+  {
+    href: "/tools/vlan-planner/",
+    name: "VLAN ID Planner",
+    description:
+      "Validate VLAN IDs against the 802.1Q range, catch duplicates, and find the free blocks left for the next site or segment.",
+    context: "Networking",
+  },
+];
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  name: "Free homelab and infrastructure tools",
+  url: "https://woitzik.dev/tools/",
+  description:
+    "Browser-based calculators for RAID capacity, IPv4 subnetting, network transfer times and 802.1Q VLAN planning.",
+  isPartOf: { "@id": "https://woitzik.dev/#website" },
+  author: { "@id": "https://woitzik.dev/#person" },
+};
+---
+
+<PageLayout
+  title="Tools"
+  description="Free browser-based calculators for RAID capacity, IPv4 subnetting, network transfer times and 802.1Q VLAN planning. No sign-up, runs entirely in the page."
+>
+  <Container>
+    <div class="max-w-3xl space-y-8">
+      <div class="animate space-y-2">
+        <h1 class="font-bold text-2xl text-black dark:text-white">Tools</h1>
+        <p
+          class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed"
+        >
+          Calculators I use while planning homelab and infrastructure work. Each
+          one runs entirely in your browser: nothing is uploaded, there is no
+          sign-up, and every figure is plain arithmetic on the numbers you
+          enter.
+        </p>
+      </div>
+
+      <div class="grid gap-3 sm:grid-cols-2">
+        {
+          tools.map((tool) => (
+            <a
+              href={tool.href}
+              class="block p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-400 dark:hover:border-sky-700 transition-colors"
+            >
+              <div class="flex items-baseline justify-between gap-2 mb-1">
+                <h2 class="font-semibold text-sm text-black dark:text-white m-0">
+                  {tool.name}
+                </h2>
+                <span class="text-xs text-neutral-400 dark:text-neutral-500 whitespace-nowrap">
+                  {tool.context}
+                </span>
+              </div>
+              <p class="text-sm text-neutral-500 dark:text-neutral-400 m-0 leading-relaxed">
+                {tool.description}
+              </p>
+            </a>
+          ))
+        }
+      </div>
+
+      <div class="space-y-3">
+        <h2 class="font-semibold text-lg text-black dark:text-white">
+          Why calculators instead of articles
+        </h2>
+        <p
+          class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed m-0"
+        >
+          A search for a RAID size or a subnet split is a task, not a research
+          question, and it is the kind of query an AI answer will happily
+          summarise instead of sending you to a page. These tools exist so there
+          is a reason to land on the site: you get the number immediately, and
+          the surrounding article explains why it came out that way.
+        </p>
+        <p
+          class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed m-0"
+        >
+          The articles these link into cover the reasoning. RAID overhead is
+          explained in the <a
+            href="/blog/best-nas-home-backup-2026/"
+            class="text-sky-600 dark:text-sky-400 hover:underline"
+            >NAS buying guide</a
+          >, VLAN design in the <a
+            href="/blog/mikrotik-vlan-filtering-terraform-proxmox/"
+            class="text-sky-600 dark:text-sky-400 hover:underline"
+            >MikroTik VLAN filtering walkthrough</a
+          >, and why a fast link still feels slow in <a
+            href="/blog/mikrotik-wan-qos-bufferbloat-discord/"
+            class="text-sky-600 dark:text-sky-400 hover:underline"
+            >the bufferbloat post</a
+          >.
+        </p>
+      </div>
+    </div>
+  </Container>
+</PageLayout>
+
+<script
+  is:inline
+  type="application/ld+json"
+  set:html={JSON.stringify(jsonLd)}
+/>

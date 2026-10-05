@@ -1,0 +1,111 @@
+---
+import PageLayout from "@layouts/PageLayout.astro";
+import Container from "@components/Container.astro";
+
+export type ToolFaq = { q: string; a: string };
+export type ToolLink = { href: string; label: string };
+
+type Props = {
+  title: string;
+  description: string;
+  /** Path of the tool, e.g. "/tools/subnet-calculator/". Used for the JSON-LD url. */
+  path: string;
+  /** One-line summary of what the tool computes, shown under the h1. */
+  intro: string;
+  faqs: ToolFaq[];
+  /** Sibling tools and articles worth reading next. */
+  related?: ToolLink[];
+};
+
+const { title, description, path, intro, faqs, related = [] } = Astro.props;
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: title,
+  url: `https://woitzik.dev${path}`,
+  applicationCategory: "UtilitiesApplication",
+  operatingSystem: "Any",
+  description,
+  offers: { "@type": "Offer", price: "0", priceCurrency: "EUR" },
+  isAccessibleForFree: true,
+  author: { "@id": "https://woitzik.dev/#person" },
+};
+
+const faqLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.q,
+    acceptedAnswer: { "@type": "Answer", text: faq.a },
+  })),
+};
+---
+
+<PageLayout title={title} description={description}>
+  <Container>
+    <div class="max-w-3xl space-y-8">
+      <div class="animate space-y-2">
+        <h1 class="font-bold text-2xl text-black dark:text-white">
+          {title}
+        </h1>
+        <p
+          class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed"
+        >
+          {intro}
+        </p>
+      </div>
+
+      <slot />
+
+      <h2 class="font-semibold text-lg text-black dark:text-white">
+        Frequently Asked Questions
+      </h2>
+      <div class="space-y-4">
+        {
+          faqs.map((faq) => (
+            <div>
+              <h3 class="font-semibold text-sm text-black dark:text-white mb-1">
+                {faq.q}
+              </h3>
+              <p class="text-sm text-neutral-600 dark:text-neutral-300 m-0 leading-relaxed">
+                {faq.a}
+              </p>
+            </div>
+          ))
+        }
+      </div>
+
+      {
+        related.length > 0 && (
+          <div class="space-y-2">
+            <h2 class="font-semibold text-lg text-black dark:text-white">
+              Related
+            </h2>
+            <ul class="space-y-1 text-sm m-0 pl-0 list-none">
+              {related.map((link) => (
+                <li>
+                  <a
+                    href={link.href}
+                    class="text-sky-600 dark:text-sky-400 hover:underline"
+                  >
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      }
+    </div>
+  </Container>
+</PageLayout>
+
+<script
+  is:inline
+  type="application/ld+json"
+  set:html={JSON.stringify(jsonLd)}
+/>
+
+<script is:inline type="application/ld+json" set:html={JSON.stringify(faqLd)} />

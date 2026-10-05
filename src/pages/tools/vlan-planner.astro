@@ -1,0 +1,498 @@
+---
+import ToolLayout from "@components/ToolLayout.astro";
+
+const faqs = [
+  {
+    q: "What is the valid VLAN ID range?",
+    a: "802.1Q allocates 12 bits to the VLAN identifier, which allows 0 to 4095. In practice 0 and 4095 are reserved and the usable range is 1 to 4094. ID 1 is the default VLAN that exists on every switch even when nothing is configured, so treat it as the native or untagged VLAN rather than a free ID for your own use.",
+  },
+  {
+    q: "Why does my VLAN ID show up as invalid?",
+    a: "Either it is outside 1 to 4094, or it was written with a prefix or extra characters. IDs are 12 bits, so 4096 and anything above is out of range, and a value like vlan30 or 30/24 is not a number. Note that some switch interfaces allow a VLAN tag of 4095 in addition to the 4094 limit for tagging purposes, which is why the two limits are often quoted together.",
+  },
+  {
+    q: "How should I plan VLAN IDs across sites?",
+    a: "Pick a scheme and hold to it. Numbering per site, so Amsterdam management is 10, Amsterdam IoT is 20, and the second site starts at 110, keeps the ranges legible in a list and avoids two sites claiming the same ID for different things. Recording the intended meaning next to the ID, in the Terraform or RouterOS config where the VLAN is defined, keeps the map and the infrastructure from drifting apart.",
+  },
+  {
+    q: "Do I need to allow VLANs 1 to 100 on my firewall?",
+    a: "Only the ones you actually use. Most MikroTik and UniFi setups do not need a blanket rule for the first hundred IDs, and a wide allow rule is how unintended cross-VLAN access gets in. Create a specific rule per VLAN you route, as shown in the MikroTik VLAN filtering article.",
+  },
+];
+
+const related = [
+  { href: "/tools/", label: "All tools" },
+  { href: "/tools/subnet-calculator/", label: "IPv4 subnet calculator" },
+  {
+    href: "/blog/mikrotik-vlan-filtering-terraform-proxmox/",
+    label: "VLAN filtering on MikroTik with Terraform and Proxmox",
+  },
+  {
+    href: "/blog/mikrotik-ipv6-nat66-cgn-routeros7/",
+    label: "MikroTik IPv6, NAT66 and CGN in RouterOS 7",
+  },
+];
+
+// 802.1Q reserves 12 bits for the tag. 0 and 4095 are reserved, so the range
+// assignable by an administrator is 1 to 4094.
+const VLAN_MIN = 1;
+const VLAN_MAX = 4094;
+const RESERVED = [4095];
+
+const DEFAULT_IDS = [10, 20, 30];
+
+function isValid(id: number): boolean {
+  return id >= VLAN_MIN && id <= VLAN_MAX && !RESERVED.includes(id);
+}
+
+function duplicatesOf(ids: number[]): number[] {
+  const seen = new Set<number>();
+  const dupes = new Set<number>();
+  for (const id of ids) {
+    if (seen.has(id)) dupes.add(id);
+    seen.add(id);
+  }
+  return [...dupes].sort((a, b) => a - b);
+}
+
+function firstFree(used: Set<number>, from: number): number | null {
+  for (let id = from; id <= VLAN_MAX; id++) {
+    if (!used.has(id)) return id;
+  }
+  return null;
+}
+
+function largestFreeRun(used: Set<number>): { start: number; length: number } {
+  let best = { start: VLAN_MIN, length: 0 };
+  let runStart: number | null = null;
+
+  for (let id = VLAN_MIN; id <= VLAN_MAX + 1; id++) {
+    const free = !used.has(id) && id <= VLAN_MAX;
+    if (free && runStart === null) runStart = id;
+    if (!free && runStart !== null) {
+      const length = id - runStart;
+      if (length > best.length) best = { start: runStart, length };
+      runStart = null;
+    }
+  }
+  return best;
+}
+
+const defaultUsed = new Set(DEFAULT_IDS);
+const defaultDupes = duplicatesOf(DEFAULT_IDS);
+const defaultFirstFree = firstFree(defaultUsed, VLAN_MIN);
+const defaultFirstFree100 = firstFree(defaultUsed, 100);
+const defaultRun = largestFreeRun(defaultUsed);
+const defaultValid = DEFAULT_IDS.filter(isValid);
+const nf = new Intl.NumberFormat("en-GB");
+---
+
+<ToolLayout
+  title="VLAN ID Planner"
+  path="/tools/vlan-planner/"
+  description="Free VLAN ID planner: validate 802.1Q VLAN IDs against the 1-4094 range, find duplicates, and locate free ID blocks for MikroTik, UniFi and Proxmox networks."
+  intro="Paste the VLAN IDs you plan to use and check them against the 802.1Q range before they reach a switch. The tool finds out-of-range values, duplicates, and the free blocks left over for the next site or segment."
+  faqs={faqs}
+  related={related}
+>
+  <div
+    class="p-5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 space-y-4"
+  >
+    <div class="space-y-1.5">
+      <label
+        for="vlan-ids"
+        class="block text-sm font-semibold text-black dark:text-white"
+      >
+        VLAN IDs
+      </label>
+      <input
+        id="vlan-ids"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        value="10, 20, 30"
+        placeholder="10, 20, 30, 110"
+        aria-describedby="vlan-ids-hint"
+        class="w-full px-3 py-2 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-black dark:text-white placeholder-neutral-400 focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 transition-colors font-mono"
+      />
+      <p
+        id="vlan-ids-hint"
+        class="text-xs text-neutral-500 dark:text-neutral-400 m-0"
+      >
+        Comma or space separated. 802.1Q allows 1 to {VLAN_MAX}; 0 and 4095 are
+        reserved.
+      </p>
+    </div>
+  </div>
+
+  <div
+    class="p-5 rounded-xl border border-sky-200 dark:border-sky-900 bg-sky-50 dark:bg-sky-950/40 space-y-4"
+    aria-live="polite"
+  >
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          IDs used
+        </p>
+        <p
+          id="out-used"
+          class="text-xl font-bold text-black dark:text-white m-0 tabular-nums"
+        >
+          {nf.format(defaultValid.length)}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          IDs still free
+        </p>
+        <p
+          id="out-free"
+          class="text-xl font-semibold text-black dark:text-white m-0 tabular-nums"
+        >
+          {nf.format(VLAN_MAX - VLAN_MIN + 1 - defaultValid.length)}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Lowest free ID
+        </p>
+        <p
+          id="out-lowest"
+          class="text-xl font-semibold text-black dark:text-white m-0 tabular-nums"
+        >
+          {defaultFirstFree ?? "—"}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Lowest free from 100
+        </p>
+        <p
+          id="out-lowest100"
+          class="text-xl font-semibold text-black dark:text-white m-0 tabular-nums"
+        >
+          {defaultFirstFree100 ?? "—"}
+        </p>
+      </div>
+    </div>
+
+    <div id="out-lists" class="space-y-2 text-sm">
+      <p class="m-0 text-neutral-600 dark:text-neutral-300">
+        <span class="font-semibold">Valid:</span>
+        <span id="list-valid" class="font-mono"
+          >{defaultValid.join(", ") || "none"}</span
+        >
+      </p>
+      <p class="m-0 text-neutral-600 dark:text-neutral-300">
+        <span class="font-semibold">Out of range:</span>
+        <span id="list-invalid" class="font-mono"
+          >{DEFAULT_IDS.filter((id) => !isValid(id)).join(", ") || "none"}</span
+        >
+      </p>
+      <p class="m-0 text-neutral-600 dark:text-neutral-300">
+        <span class="font-semibold">Duplicates:</span>
+        <span id="list-duplicates" class="font-mono"
+          >{defaultDupes.join(", ") || "none"}</span
+        >
+      </p>
+      <p class="m-0 text-neutral-600 dark:text-neutral-300">
+        <span class="font-semibold">Largest free block:</span>
+        <span id="list-run" class="font-mono"
+          >{
+            defaultRun.length
+              ? `${defaultRun.start} to ${defaultRun.start + defaultRun.length - 1} (${nf.format(defaultRun.length)} IDs)`
+              : "none"
+          }</span
+        >
+      </p>
+    </div>
+
+    <p
+      id="out-warning"
+      class="text-sm mt-2 mb-0 text-amber-700 dark:text-amber-400 hidden"
+    >
+    </p>
+  </div>
+
+  <h2 class="font-semibold text-lg text-black dark:text-white">
+    Planning conventions
+  </h2>
+  <div class="overflow-x-auto">
+    <table
+      class="w-full text-sm border-collapse border border-neutral-200 dark:border-neutral-800"
+    >
+      <thead>
+        <tr class="bg-neutral-50 dark:bg-neutral-900/50">
+          <th
+            scope="col"
+            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Range
+          </th>
+          <th
+            scope="col"
+            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Typical use
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th
+            scope="row"
+            class="text-left font-normal px-3 py-2 font-mono text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+          >
+            1
+          </th>
+          <td
+            class="px-3 py-2 text-neutral-500 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800/60"
+          >
+            Default or native VLAN, present on every switch
+          </td>
+        </tr>
+        <tr>
+          <th
+            scope="row"
+            class="text-left font-normal px-3 py-2 font-mono text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+          >
+            2 to 99
+          </th>
+          <td
+            class="px-3 py-2 text-neutral-500 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800/60"
+          >
+            First site: management, servers, IoT, guests
+          </td>
+        </tr>
+        <tr>
+          <th
+            scope="row"
+            class="text-left font-normal px-3 py-2 font-mono text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+          >
+            100 to 199
+          </th>
+          <td
+            class="px-3 py-2 text-neutral-500 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800/60"
+          >
+            Second site, same segment names
+          </td>
+        </tr>
+        <tr>
+          <th
+            scope="row"
+            class="text-left font-normal px-3 py-2 font-mono text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+          >
+            1000 and above
+          </th>
+          <td
+            class="px-3 py-2 text-neutral-500 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800/60"
+          >
+            Reserved for voice, storage or replication VLANs
+          </td>
+        </tr>
+        <tr>
+          <th
+            scope="row"
+            class="text-left font-normal px-3 py-2 font-mono text-neutral-700 dark:text-neutral-300"
+          >
+            {VLAN_MAX} and 4095
+          </th>
+          <td class="px-3 py-2 text-neutral-500 dark:text-neutral-400">
+            Top of the range. {VLAN_MAX} is the last assignable ID, 4095 is reserved.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</ToolLayout>
+
+<script>
+  // 802.1Q carries a 12-bit tag, so IDs 0-4095 exist. 0 and 4095 are reserved
+  // and the administrator-assignable range is 1-4094.
+  const VLAN_MIN = 1;
+  const VLAN_MAX = 4094;
+  const RESERVED: number[] = [4095];
+
+  const OUT_IDS = [
+    "out-used",
+    "out-free",
+    "out-lowest",
+    "out-lowest100",
+    "list-valid",
+    "list-invalid",
+    "list-duplicates",
+    "list-run",
+    "out-warning",
+  ];
+
+  const nf = new Intl.NumberFormat("en-GB");
+
+  function parseIds(raw: string): number[] {
+    return raw
+      .split(/[\s,;]+/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map(Number)
+      .filter((value) => Number.isFinite(value));
+  }
+
+  function isValid(id: number): boolean {
+    return id >= VLAN_MIN && id <= VLAN_MAX && !RESERVED.includes(id);
+  }
+
+  function duplicatesOf(ids: number[]): number[] {
+    const seen: Set<number> = new Set();
+    const dupes: Set<number> = new Set();
+    for (const id of ids) {
+      if (seen.has(id)) dupes.add(id);
+      seen.add(id);
+    }
+    return Array.from(dupes).sort((a, b) => a - b);
+  }
+
+  function firstFree(used: Set<number>, from: number): number | null {
+    for (let id = from; id <= VLAN_MAX; id++) {
+      if (!used.has(id)) return id;
+    }
+    return null;
+  }
+
+  function largestFreeRun(used: Set<number>): {
+    start: number;
+    length: number;
+  } {
+    let best = { start: VLAN_MIN, length: 0 };
+    let runStart: number | null = null;
+
+    // The sentinel at VLAN_MAX + 1 flushes a run that reaches the top of the
+    // range, so 4000-4094 is reported instead of being dropped.
+    for (let id = VLAN_MIN; id <= VLAN_MAX + 1; id++) {
+      const free = !used.has(id) && id <= VLAN_MAX;
+      if (free && runStart === null) runStart = id;
+      if (!free && runStart !== null) {
+        const length = id - runStart;
+        if (length > best.length) best = { start: runStart, length };
+        runStart = null;
+      }
+    }
+    return best;
+  }
+
+  function collect(): Record<string, HTMLElement> | null {
+    const map: Record<string, HTMLElement> = {};
+    for (const id of OUT_IDS) {
+      const node = document.getElementById(id);
+      if (!node) return null;
+      map[id] = node;
+    }
+    return map;
+  }
+
+  function render(): void {
+    const input = document.getElementById(
+      "vlan-ids",
+    ) as HTMLTextAreaElement | null;
+    if (!input) return;
+
+    const out = collect();
+    if (!out) return;
+
+    const ids = parseIds(input.value);
+    const total = VLAN_MAX - VLAN_MIN + 1;
+
+    if (!ids.length) {
+      out["out-used"].textContent = "0";
+      out["out-free"].textContent = nf.format(total);
+      out["out-lowest"].textContent = String(VLAN_MIN);
+      out["out-lowest100"].textContent = "100";
+      out["list-valid"].textContent = "none";
+      out["list-invalid"].textContent = "none";
+      out["list-duplicates"].textContent = "none";
+      out["list-run"].textContent =
+        VLAN_MIN + " to " + VLAN_MAX + " (" + nf.format(total) + " IDs)";
+      out["out-warning"].classList.add("hidden");
+      return;
+    }
+
+    const valid = ids.filter(isValid);
+    const invalid = ids.filter((id) => !isValid(id));
+    const duplicates = duplicatesOf(ids);
+    const used: Set<number> = new Set(valid);
+    const lowest = firstFree(used, VLAN_MIN);
+    const lowest100 = firstFree(used, 100);
+    const run = largestFreeRun(used);
+
+    out["out-used"].textContent = nf.format(valid.length);
+    out["out-free"].textContent = nf.format(total - valid.length);
+    out["out-lowest"].textContent = lowest === null ? "—" : String(lowest);
+    out["out-lowest100"].textContent =
+      lowest100 === null ? "—" : String(lowest100);
+    out["list-valid"].textContent = valid.length ? valid.join(", ") : "none";
+    out["list-invalid"].textContent = invalid.length
+      ? invalid.join(", ")
+      : "none";
+    out["list-duplicates"].textContent = duplicates.length
+      ? duplicates.join(", ")
+      : "none";
+    out["list-run"].textContent = run.length
+      ? run.start +
+        " to " +
+        (run.start + run.length - 1) +
+        " (" +
+        nf.format(run.length) +
+        " IDs)"
+      : "none";
+
+    const warnings: string[] = [];
+    if (invalid.length) {
+      warnings.push(
+        "Out of range: " +
+          invalid.join(", ") +
+          ". 802.1Q allows 1 to " +
+          VLAN_MAX +
+          ".",
+      );
+    }
+    if (duplicates.length) {
+      warnings.push(
+        "Repeated " +
+          (duplicates.length === 1 ? "ID" : "IDs") +
+          ": " +
+          duplicates.join(", ") +
+          ". The same ID can only describe one network.",
+      );
+    }
+    if (used.has(1)) {
+      warnings.push(
+        "VLAN 1 is the default VLAN. Using it as a real segment makes trunk ports ambiguous.",
+      );
+    }
+    if (lowest === null) {
+      warnings.push("Every assignable VLAN ID is in use.");
+    }
+
+    if (warnings.length) {
+      out["out-warning"].textContent = warnings.join(" ");
+      out["out-warning"].classList.remove("hidden");
+    } else {
+      out["out-warning"].classList.add("hidden");
+    }
+  }
+
+  function setup(): void {
+    const input = document.getElementById(
+      "vlan-ids",
+    ) as HTMLTextAreaElement | null;
+    if (!input) return;
+
+    // astro:page-load fires again after a ClientRouter navigation, but the
+    // module only evaluates once, so the listener is attached behind a guard.
+    if (input.dataset.wired !== "1") {
+      input.dataset.wired = "1";
+      input.addEventListener("input", render);
+    }
+    render();
+  }
+
+  document.addEventListener("astro:page-load", setup);
+</script>

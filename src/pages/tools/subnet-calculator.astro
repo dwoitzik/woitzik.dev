@@ -1,0 +1,462 @@
+---
+import ToolLayout from "@components/ToolLayout.astro";
+
+const faqs = [
+  {
+    q: "How many usable hosts does a subnet really have?",
+    a: "Two addresses in every IPv4 subnet are reserved: the network address (all host bits zero) and the broadcast address (all host bits one). So a /24 has 256 addresses but 254 usable hosts. The two exceptions are /31, which RFC 3021 defines as a point-to-point link with 2 usable addresses, and /32, a single host route with 1.",
+  },
+  {
+    q: "What is the difference between netmask and wildcard mask?",
+    a: "The netmask marks which bits of an address are network bits and is used in routing and ACLs. The wildcard mask is the bitwise inverse and is what Cisco and MikroTik RouterOS expect in access lists, where a 0 means 'must match' and a 1 means 'ignore'. A wildcard of 0.0.0.255 is the /24 equivalent.",
+  },
+  {
+    q: "Why do subnets need to be aligned to their prefix?",
+    a: "A /24 cannot start at 192.168.1.100. The prefix fixes how many leading bits identify the network, so the host bits must all be zero in the network address. 192.168.1.0/24 and 192.168.2.0/24 are valid; 192.168.1.100/24 is not a network, it is a host inside 192.168.1.0/24.",
+  },
+  {
+    q: "How many hosts does a /24 leave for VLANs and gateways?",
+    a: "254 usable addresses, of which the router interface consumes one. Splitting a /24 into /26s gives four networks of 62 usable hosts each, which is a common pattern for separating management, IoT, guests and servers on one uplink.",
+  },
+];
+
+const related = [
+  { href: "/tools/", label: "All tools" },
+  {
+    href: "/blog/mikrotik-vlan-filtering-terraform-proxmox/",
+    label: "VLAN filtering on MikroTik with Terraform and Proxmox",
+  },
+  {
+    href: "/blog/mikrotik-firewall-rule-drift-orphaned-rules/",
+    label: "Finding orphaned MikroTik firewall rules",
+  },
+  {
+    href: "/blog/mikrotik-ipv6-nat66-cgn-routeros7/",
+    label: "MikroTik IPv6, NAT66 and CGN in RouterOS 7",
+  },
+];
+
+// Common prefix reference, rendered server-side so the numbers are in the HTML
+// for crawlers and readable without JavaScript. Pure arithmetic, no lookup.
+const reference = Array.from({ length: 15 }, (_, index) => {
+  const prefix = index + 16;
+  const total = Math.pow(2, 32 - prefix);
+  return { prefix, total, usable: total - 2 };
+});
+
+function dotted(n: number): string {
+  return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join(
+    ".",
+  );
+}
+
+const DEFAULT_CIDR = "192.168.1.0/24";
+const [defaultIp, defaultPrefixText] = DEFAULT_CIDR.split("/");
+const defaultPrefix = Number(defaultPrefixText);
+const defaultIpNum =
+  defaultIp.split(".").reduce((acc, part) => acc * 256 + Number(part), 0) >>> 0;
+const defaultMask =
+  defaultPrefix === 0 ? 0 : (0xffffffff << (32 - defaultPrefix)) >>> 0;
+const defaultNetwork = (defaultIpNum & defaultMask) >>> 0;
+const defaultBroadcast = (defaultNetwork | (~defaultMask >>> 0)) >>> 0;
+// Mirrors usableHosts() in the client script: RFC 3021 makes /31 a usable
+// point-to-point pair and /32 a single host, so neither loses two addresses.
+// Kept here as well so the server-rendered value cannot drift from the one the
+// script produces on the first input event.
+function usableHosts(prefix: number): number {
+  const total = Math.pow(2, 32 - prefix);
+  if (prefix === 32) return 1;
+  if (prefix === 31) return 2;
+  return total - 2;
+}
+
+const defaultUsable = usableHosts(defaultPrefix);
+const defaultWildcard = ~defaultMask >>> 0;
+
+// Precomputed rather than inlined in the template: a multi-line ternary inside
+// an Astro expression trips astro-eslint-parser, and the client script rebuilds
+// this list anyway.
+const defaultSplits = [24, 26, 28]
+  .filter((target) => defaultPrefix <= target)
+  .map((target) => `${Math.pow(2, target - defaultPrefix)} x /${target}`)
+  .join(", ");
+---
+
+<ToolLayout
+  title="IPv4 Subnet Calculator"
+  path="/tools/subnet-calculator/"
+  description="Free IPv4 subnet calculator: network and broadcast address, netmask, wildcard mask, usable host count and subnet splitting for any CIDR notation."
+  intro="Enter any address in CIDR notation to get the network address, broadcast address, netmask, wildcard mask and how many hosts you can actually use. Point-to-point and host routes are handled per RFC 3021."
+  faqs={faqs}
+  related={related}
+>
+  <div
+    class="p-5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 space-y-4"
+  >
+    <div class="space-y-1.5">
+      <label
+        for="cidr"
+        class="block text-sm font-semibold text-black dark:text-white"
+      >
+        Address in CIDR notation
+      </label>
+      <input
+        id="cidr"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        value={DEFAULT_CIDR}
+        placeholder="192.168.1.0/24"
+        aria-describedby="cidr-hint"
+        class="w-full px-3 py-2 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-black dark:text-white placeholder-neutral-400 focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 transition-colors font-mono"
+      />
+      <p
+        id="cidr-hint"
+        class="text-xs text-neutral-500 dark:text-neutral-400 m-0"
+      >
+        IPv4 only, prefix from 0 to 32. A host address is accepted too and is
+        snapped down to its containing network.
+      </p>
+    </div>
+  </div>
+
+  <div
+    class="p-5 rounded-xl border border-sky-200 dark:border-sky-900 bg-sky-50 dark:bg-sky-950/40"
+    aria-live="polite"
+  >
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div class="col-span-2 sm:col-span-3">
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Usable hosts
+        </p>
+        <p
+          id="out-usable"
+          class="text-xl font-bold text-black dark:text-white m-0 tabular-nums"
+        >
+          {defaultUsable}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Network
+        </p>
+        <p
+          id="out-network"
+          class="text-sm font-semibold text-black dark:text-white m-0 font-mono"
+        >
+          {dotted(defaultNetwork)}/{defaultPrefix}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Broadcast
+        </p>
+        <p
+          id="out-broadcast"
+          class="text-sm font-semibold text-black dark:text-white m-0 font-mono"
+        >
+          {dotted(defaultBroadcast)}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          First host
+        </p>
+        <p
+          id="out-first"
+          class="text-sm font-semibold text-black dark:text-white m-0 font-mono"
+        >
+          {dotted((defaultNetwork + 1) >>> 0)}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Last host
+        </p>
+        <p
+          id="out-last"
+          class="text-sm font-semibold text-black dark:text-white m-0 font-mono"
+        >
+          {dotted((defaultBroadcast - 1) >>> 0)}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Netmask
+        </p>
+        <p
+          id="out-netmask"
+          class="text-sm font-semibold text-black dark:text-white m-0 font-mono"
+        >
+          {dotted(defaultMask)}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Wildcard mask
+        </p>
+        <p
+          id="out-wildcard"
+          class="text-sm font-semibold text-black dark:text-white m-0 font-mono"
+        >
+          {dotted(defaultWildcard)}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Total addresses
+        </p>
+        <p
+          id="out-total"
+          class="text-sm font-semibold text-black dark:text-white m-0 tabular-nums"
+        >
+          {Math.pow(2, 32 - defaultPrefix)}
+        </p>
+      </div>
+    </div>
+
+    <p
+      id="out-error"
+      class="text-sm mt-4 mb-0 text-red-600 dark:text-red-400 hidden"
+    >
+    </p>
+
+    <div class="mt-4 pt-4 border-t border-sky-200 dark:border-sky-900">
+      <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0 mb-1">
+        Splitting this network
+      </p>
+      <p id="out-splits" class="text-sm text-black dark:text-white m-0">
+        {defaultSplits}
+      </p>
+    </div>
+  </div>
+
+  <h2 class="font-semibold text-lg text-black dark:text-white">
+    Host counts by prefix
+  </h2>
+  <div class="overflow-x-auto">
+    <table
+      class="w-full text-sm border-collapse border border-neutral-200 dark:border-neutral-800"
+    >
+      <thead>
+        <tr class="bg-neutral-50 dark:bg-neutral-900/50">
+          <th
+            scope="col"
+            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Prefix
+          </th>
+          <th
+            scope="col"
+            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Usable hosts
+          </th>
+          <th
+            scope="col"
+            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Total addresses
+          </th>
+          <th
+            scope="col"
+            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Typical use
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {
+          reference.map((row) => (
+            <tr>
+              <th
+                scope="row"
+                class="text-left font-normal px-3 py-2 font-mono text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+              >
+                /{row.prefix}
+              </th>
+              <td class="text-right px-3 py-2 tabular-nums border-b border-neutral-100 dark:border-neutral-800/60">
+                {row.usable.toLocaleString("en-GB")}
+              </td>
+              <td class="text-right px-3 py-2 tabular-nums border-b border-neutral-100 dark:border-neutral-800/60">
+                {row.total.toLocaleString("en-GB")}
+              </td>
+              <td class="px-3 py-2 text-neutral-500 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800/60">
+                {row.prefix <= 20
+                  ? "Transitive routing between sites"
+                  : row.prefix <= 22
+                    ? "Department or building segment"
+                    : row.prefix <= 24
+                      ? "Office or floor LAN"
+                      : row.prefix <= 26
+                        ? "Server or IoT segment"
+                        : "Point-to-point link"}
+              </td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+    Prefix lengths 0 to 15 are omitted; they exist but no home or small office
+    network uses them.
+  </p>
+</ToolLayout>
+
+<script>
+  // IPv4 arithmetic runs on unsigned 32-bit integers. JS bitwise operators
+  // return signed 32-bit results, so every mask is coerced back with >>> 0
+  // before it is formatted; skipping that turns any address >= 128.0.0.0 into
+  // a negative number.
+  function toIp(value: number): string {
+    return [
+      (value >>> 24) & 255,
+      (value >>> 16) & 255,
+      (value >>> 8) & 255,
+      value & 255,
+    ].join(".");
+  }
+
+  type Parsed = {
+    prefix: number;
+    mask: number;
+    network: number;
+    broadcast: number;
+  };
+
+  function parseCidr(raw: string): Parsed | { error: string } {
+    const trimmed = raw.trim();
+    const slash = trimmed.indexOf("/");
+    const addressPart = slash === -1 ? trimmed : trimmed.slice(0, slash);
+    const prefixPart = slash === -1 ? "" : trimmed.slice(slash + 1);
+
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(addressPart)) {
+      return {
+        error: "Enter a dotted IPv4 address, for example 192.168.1.10.",
+      };
+    }
+
+    const octets = addressPart.split(".").map(Number);
+    if (octets.some((octet) => octet > 255)) {
+      return { error: "Each octet has to be between 0 and 255." };
+    }
+
+    let prefix = 32;
+    if (prefixPart !== "") {
+      if (!/^\d{1,2}$/.test(prefixPart)) {
+        return { error: "The prefix has to be a number from 0 to 32." };
+      }
+      prefix = Number(prefixPart);
+      if (prefix > 32) {
+        return { error: "The prefix has to be between 0 and 32." };
+      }
+    }
+
+    const ip = octets.reduce((acc, octet) => acc * 256 + octet, 0) >>> 0;
+    const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+    const network = (ip & mask) >>> 0;
+    const broadcast = (network | (~mask >>> 0)) >>> 0;
+
+    return { prefix, mask, network, broadcast };
+  }
+
+  // RFC 3021 makes /31 a usable point-to-point pair and /32 a single host, so
+  // the usual "minus network and broadcast" rule does not apply to either.
+  function usableHosts(prefix: number, total: number): number {
+    if (prefix === 32) return 1;
+    if (prefix === 31) return 2;
+    return total - 2;
+  }
+
+  const OUT_IDS = [
+    "out-usable",
+    "out-network",
+    "out-broadcast",
+    "out-first",
+    "out-last",
+    "out-netmask",
+    "out-wildcard",
+    "out-total",
+    "out-splits",
+    "out-error",
+  ];
+
+  const nf = new Intl.NumberFormat("en-GB");
+
+  function collect(): Record<string, HTMLElement> | null {
+    const map: Record<string, HTMLElement> = {};
+    for (const id of OUT_IDS) {
+      const node = document.getElementById(id);
+      if (!node) return null;
+      map[id] = node;
+    }
+    return map;
+  }
+
+  function render(): void {
+    const input = document.getElementById("cidr") as HTMLInputElement | null;
+    if (!input) return;
+
+    const out = collect();
+    if (!out) return;
+
+    const parsed = parseCidr(input.value);
+
+    if ("error" in parsed) {
+      out["out-error"].textContent = parsed.error;
+      out["out-error"].classList.remove("hidden");
+      for (const id of OUT_IDS) {
+        if (id === "out-error") continue;
+        out[id].textContent = "—";
+      }
+      return;
+    }
+
+    const prefix = parsed.prefix;
+    const total = Math.pow(2, 32 - prefix);
+
+    out["out-error"].classList.add("hidden");
+    out["out-usable"].textContent = nf.format(usableHosts(prefix, total));
+    out["out-network"].textContent = toIp(parsed.network) + "/" + prefix;
+    out["out-broadcast"].textContent = toIp(parsed.broadcast);
+    out["out-netmask"].textContent = toIp(parsed.mask);
+    out["out-wildcard"].textContent = toIp(~parsed.mask >>> 0);
+    out["out-total"].textContent = nf.format(total);
+
+    // A /31 and a /32 have no interior hosts to hand out.
+    if (prefix >= 31) {
+      out["out-first"].textContent = toIp(parsed.network);
+      out["out-last"].textContent = toIp(parsed.broadcast);
+    } else {
+      out["out-first"].textContent = toIp((parsed.network + 1) >>> 0);
+      out["out-last"].textContent = toIp((parsed.broadcast - 1) >>> 0);
+    }
+
+    const splits: string[] = [];
+    for (const target of [24, 26, 28]) {
+      if (prefix <= target) {
+        splits.push(nf.format(Math.pow(2, target - prefix)) + " x /" + target);
+      }
+    }
+    out["out-splits"].textContent = splits.length
+      ? splits.join(", ")
+      : "This network is too small to split further.";
+  }
+
+  function setup(): void {
+    const input = document.getElementById("cidr") as HTMLInputElement | null;
+    if (!input) return;
+
+    // astro:page-load fires again after a ClientRouter navigation, but the
+    // module only evaluates once, so the listener is attached behind a guard.
+    if (input.dataset.wired !== "1") {
+      input.dataset.wired = "1";
+      input.addEventListener("input", render);
+    }
+    render();
+  }
+
+  document.addEventListener("astro:page-load", setup);
+</script>

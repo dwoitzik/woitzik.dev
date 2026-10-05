@@ -1,0 +1,550 @@
+---
+import ToolLayout from "@components/ToolLayout.astro";
+
+const RAID_LEVELS = [
+  {
+    id: "raid0",
+    name: "RAID 0 (striping)",
+    minDrives: 2,
+    parity: 0,
+    tolerance: 0,
+    note: "Maximum speed and capacity, zero redundancy. A single drive failure destroys the whole array.",
+  },
+  {
+    id: "raid1",
+    name: "RAID 1 (mirroring)",
+    minDrives: 2,
+    parity: 1,
+    tolerance: 1,
+    note: "Every drive is a full copy of the data. Usable capacity equals the smallest drive.",
+  },
+  {
+    id: "raid5",
+    name: "RAID 5 (single parity)",
+    minDrives: 3,
+    parity: 1,
+    tolerance: 1,
+    note: "One distributed parity stripe per group. Reads are fast; a rebuild after a failure is long and hard on the surviving drives.",
+  },
+  {
+    id: "raid6",
+    name: "RAID 6 (double parity)",
+    minDrives: 4,
+    parity: 2,
+    tolerance: 2,
+    note: "Two parity stripes per group. Survives two simultaneous failures, at the cost of more write overhead.",
+  },
+  {
+    id: "raid10",
+    name: "RAID 10 (mirrored pairs)",
+    minDrives: 4,
+    parity: 1,
+    tolerance: 2,
+    note: "Drives are mirrored in pairs, then the pairs are striped. Rebuilds are per-pair and therefore quick.",
+  },
+  {
+    id: "shr1",
+    name: "SHR-1 (Synology Hybrid RAID)",
+    minDrives: 2,
+    parity: 1,
+    tolerance: 1,
+    note: "Synology's flexible RAID. Sized like RAID 5, but you can mix drive capacities and expand later without a rebuild.",
+  },
+  {
+    id: "shr2",
+    name: "SHR-2 (Synology Hybrid RAID)",
+    minDrives: 4,
+    parity: 2,
+    tolerance: 2,
+    note: "Dual-parity SHR. Same flexibility as SHR-1 with two-drive fault tolerance.",
+  },
+] as const;
+
+// Default state is rendered server-side so the page is useful with JavaScript
+// disabled and, more importantly, so crawlers see real numbers instead of an
+// empty form. RAID 1 over two 4 TB drives mirrors the most common home NAS
+// build, which is also the configuration the NAS guide recommends.
+const DEFAULT_SIZES = [4, 4];
+
+function usableCapacity(
+  sizes: number[],
+  level: (typeof RAID_LEVELS)[number],
+): number {
+  const smallest = Math.min(...sizes);
+  const count = sizes.length;
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+
+  switch (level.id) {
+    case "raid0":
+      return total;
+    case "raid1":
+      return smallest;
+    case "raid10":
+      return Math.floor(count / 2) * smallest;
+    default:
+      return (count - level.parity) * smallest;
+  }
+}
+
+function toleranceFor(sizes: number[], level: (typeof RAID_LEVELS)[number]) {
+  return level.id === "raid10" ? Math.floor(sizes.length / 2) : level.tolerance;
+}
+
+const initialLevel = RAID_LEVELS[1];
+const initialUsable = usableCapacity(DEFAULT_SIZES, initialLevel);
+const initialRaw = DEFAULT_SIZES.reduce((sum, size) => sum + size, 0);
+
+const fmt = (value: number) =>
+  new Intl.NumberFormat("en-GB", { maximumFractionDigits: 2 }).format(value);
+
+const faqs = [
+  {
+    q: "Why is my usable capacity smaller than the raw capacity?",
+    a: "Parity-based levels (RAID 5, RAID 6, SHR-1, SHR-2) store distributed parity so the array can survive a drive failure. RAID 1 and RAID 10 keep a full or half copy of the data instead. RAID 0 has no redundancy at all, so it is the only level where usable capacity equals raw capacity.",
+  },
+  {
+    q: "How do mixed drive sizes change the result?",
+    a: "Every parity-based level is limited by the smallest drive in the array. A 4 TB + 2 TB pair in SHR-1 gives 2 TB usable, not 6 TB, because the 4 TB drive cannot hold parity for a capacity the 2 TB drive cannot match. SHR and RAID 10 let you start small and expand later; classic RAID 5 and 6 generally want matching drives.",
+  },
+  {
+    q: "Which RAID level should a home NAS use?",
+    a: "Two drives in a mirror (RAID 1 or SHR-1) is the usual starting point: it survives a single failure and keeps rebuilds short. SHR is the more flexible choice if you plan to add drives of a different size later. Avoid RAID 0 for anything you would miss, since a single failure loses the entire array.",
+  },
+  {
+    q: "Does usable capacity match what the NAS shows after formatting?",
+    a: "Not exactly. Beyond parity, the filesystem reserves space for metadata and journal, and vendors usually report capacity in decimal terabytes while the operating system may display binary tebibytes. Expect a small additional difference on top of the parity overhead calculated here.",
+  },
+];
+
+const related = [
+  { href: "/tools/", label: "All tools" },
+  {
+    href: "/tools/transfer-time-calculator/",
+    label: "How long a backup of that array takes to copy",
+  },
+  {
+    href: "/blog/best-nas-home-backup-2026/",
+    label: "Best NAS for home backup in 2026",
+  },
+  { href: "/templates/", label: "Terraform modules for the backup target" },
+];
+---
+
+<ToolLayout
+  title="RAID Capacity Calculator"
+  path="/tools/raid-calculator/"
+  description="Free RAID capacity calculator: usable storage, space lost to parity and drive failure tolerance for RAID 0, 1, 5, 6, 10, SHR-1 and SHR-2, including mixed drive sizes."
+  intro="Enter your drive sizes and pick a RAID level to see how much storage you actually get. This is the number to plan against: a 4-drive array of 4 TB disks holds 16 TB raw, but considerably less once redundancy is accounted for."
+  faqs={faqs}
+  related={related}
+>
+  <div
+    class="p-5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 space-y-4"
+  >
+    <div class="space-y-1.5">
+      <label
+        for="raid-sizes"
+        class="block text-sm font-semibold text-black dark:text-white"
+      >
+        Drive sizes in TB
+      </label>
+      <input
+        id="raid-sizes"
+        type="text"
+        inputmode="decimal"
+        autocomplete="off"
+        spellcheck="false"
+        value="4, 4"
+        placeholder="4, 4, 4, 4"
+        aria-describedby="raid-sizes-hint"
+        class="w-full px-3 py-2 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-black dark:text-white placeholder-neutral-400 focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 transition-colors font-mono"
+      />
+      <p
+        id="raid-sizes-hint"
+        class="text-xs text-neutral-500 dark:text-neutral-400 m-0"
+      >
+        Comma or space separated, one entry per drive. Decimals allowed, so
+        <code>3.5, 3.5</code> is a valid pair of 4 TB-class drives.
+      </p>
+    </div>
+
+    <fieldset class="space-y-1.5">
+      <legend class="block text-sm font-semibold text-black dark:text-white">
+        RAID level
+      </legend>
+      <select
+        id="raid-level"
+        class="w-full px-3 py-2 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-black dark:text-white focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 transition-colors"
+      >
+        {
+          RAID_LEVELS.map((level) => (
+            <option value={level.id} selected={level.id === initialLevel.id}>
+              {level.name}
+            </option>
+          ))
+        }
+      </select>
+    </fieldset>
+  </div>
+
+  <div
+    class="p-5 rounded-xl border border-sky-200 dark:border-sky-900 bg-sky-50 dark:bg-sky-950/40"
+    aria-live="polite"
+  >
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Usable capacity
+        </p>
+        <p
+          id="out-usable"
+          class="text-xl font-bold text-black dark:text-white m-0 tabular-nums"
+        >
+          {fmt(initialUsable)} TB
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Raw capacity
+        </p>
+        <p
+          id="out-raw"
+          class="text-xl font-semibold text-black dark:text-white m-0 tabular-nums"
+        >
+          {fmt(initialRaw)} TB
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Lost to redundancy
+        </p>
+        <p
+          id="out-overhead"
+          class="text-xl font-semibold text-black dark:text-white m-0 tabular-nums"
+        >
+          {fmt(initialRaw - initialUsable)} TB
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Drives that can fail
+        </p>
+        <p
+          id="out-tolerance"
+          class="text-xl font-semibold text-black dark:text-white m-0 tabular-nums"
+        >
+          {toleranceFor(DEFAULT_SIZES, initialLevel)}
+        </p>
+      </div>
+    </div>
+    <p
+      id="out-warning"
+      class="text-sm mt-4 mb-0 text-amber-700 dark:text-amber-400 hidden"
+    >
+    </p>
+    <p
+      id="out-note"
+      class="text-sm mt-4 mb-0 text-neutral-600 dark:text-neutral-300 leading-relaxed"
+    >
+      {initialLevel.note}
+    </p>
+  </div>
+
+  <h2 class="font-semibold text-lg text-black dark:text-white">
+    All RAID levels for this configuration
+  </h2>
+  <div class="overflow-x-auto">
+    <table
+      id="compare-table"
+      class="w-full text-sm border-collapse border border-neutral-200 dark:border-neutral-800"
+    >
+      <thead>
+        <tr class="bg-neutral-50 dark:bg-neutral-900/50">
+          <th
+            scope="col"
+            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Level
+          </th>
+          <th
+            scope="col"
+            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Usable
+          </th>
+          <th
+            scope="col"
+            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Overhead
+          </th>
+          <th
+            scope="col"
+            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Failures survived
+          </th>
+        </tr>
+      </thead>
+      <tbody id="compare-body">
+        {
+          RAID_LEVELS.map((level) => {
+            const usable = usableCapacity(DEFAULT_SIZES, level);
+            const raw = DEFAULT_SIZES.reduce((s, v) => s + v, 0);
+            return (
+              <tr data-raid-row={level.id}>
+                <th
+                  scope="row"
+                  class="text-left font-normal px-3 py-2 text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+                >
+                  {level.name}
+                </th>
+                <td class="text-right px-3 py-2 tabular-nums border-b border-neutral-100 dark:border-neutral-800/60">
+                  {fmt(usable)} TB
+                </td>
+                <td class="text-right px-3 py-2 tabular-nums border-b border-neutral-100 dark:border-neutral-800/60">
+                  {fmt(raw - usable)} TB
+                </td>
+                <td class="text-right px-3 py-2 tabular-nums border-b border-neutral-100 dark:border-neutral-800/60">
+                  {toleranceFor(DEFAULT_SIZES, level)}
+                </td>
+              </tr>
+            );
+          })
+        }
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+    Levels that need more drives than you entered are marked as not applicable
+    instead of showing a misleading number.
+  </p>
+
+  <h2 class="font-semibold text-lg text-black dark:text-white">
+    How this is calculated
+  </h2>
+  <p class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed m-0">
+    Parity-based levels store one parity stripe per drive group for RAID 5 and
+    SHR-1, and two for RAID 6 and SHR-2, so usable capacity is the drive count
+    minus the parity count, multiplied by the <em>smallest</em> drive in the array.
+    RAID 1 mirrors every drive, so only one drive's worth survives. RAID 10 mirrors
+    in pairs, giving half the count at the smallest drive size. RAID 0 stripes with
+    no redundancy, so usable capacity equals the sum of all drives.
+  </p>
+  <p class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed">
+    Planning the hardware? The
+    <a
+      href="/blog/best-nas-home-backup-2026/"
+      class="text-sky-600 dark:text-sky-400 hover:underline">NAS buying guide</a
+    >
+    covers which models to pair with these configurations, and
+    <a href="/templates/" class="text-sky-600 dark:text-sky-400 hover:underline"
+      >the Terraform modules</a
+    >
+    cover the backup target once the array is built.
+  </p>
+</ToolLayout>
+
+<script>
+  // Parity model per level: `null` means the level mirrors instead of carrying
+  // parity stripes, so usable capacity is derived differently.
+  type LevelSpec = {
+    name: string;
+    minDrives: number;
+    parity: number | null;
+    tolerance: number;
+    note: string;
+  };
+
+  const LEVELS: Record<string, LevelSpec> = {
+    raid0: {
+      name: "RAID 0 (striping)",
+      minDrives: 2,
+      parity: 0,
+      tolerance: 0,
+      note: "Maximum speed and capacity, zero redundancy. A single drive failure destroys the whole array.",
+    },
+    raid1: {
+      name: "RAID 1 (mirroring)",
+      minDrives: 2,
+      parity: null,
+      tolerance: 1,
+      note: "Every drive is a full copy of the data. Usable capacity equals the smallest drive.",
+    },
+    raid5: {
+      name: "RAID 5 (single parity)",
+      minDrives: 3,
+      parity: 1,
+      tolerance: 1,
+      note: "One distributed parity stripe per group. Reads are fast; a rebuild after a failure is long and hard on the surviving drives.",
+    },
+    raid6: {
+      name: "RAID 6 (double parity)",
+      minDrives: 4,
+      parity: 2,
+      tolerance: 2,
+      note: "Two parity stripes per group. Survives two simultaneous failures, at the cost of more write overhead.",
+    },
+    raid10: {
+      name: "RAID 10 (mirrored pairs)",
+      minDrives: 4,
+      parity: null,
+      tolerance: 2,
+      note: "Drives are mirrored in pairs, then the pairs are striped. Rebuilds are per-pair and therefore quick.",
+    },
+    shr1: {
+      name: "SHR-1 (Synology Hybrid RAID)",
+      minDrives: 2,
+      parity: 1,
+      tolerance: 1,
+      note: "Synology's flexible RAID. Sized like RAID 5, but you can mix drive capacities and expand later without a rebuild.",
+    },
+    shr2: {
+      name: "SHR-2 (Synology Hybrid RAID)",
+      minDrives: 4,
+      parity: 2,
+      tolerance: 2,
+      note: "Dual-parity SHR. Same flexibility as SHR-1 with two-drive fault tolerance.",
+    },
+  };
+
+  const fmt = (value: number) =>
+    new Intl.NumberFormat("en-GB", { maximumFractionDigits: 2 }).format(value);
+
+  function parseSizes(raw: string): number[] {
+    return raw
+      .split(/[\s,;]+/)
+      .map((part) => part.trim().replace(/tb?$/i, ""))
+      .filter(Boolean)
+      .map(Number)
+      .filter((value) => Number.isFinite(value) && value > 0);
+  }
+
+  function usableFor(sizes: number[], level: LevelSpec): number {
+    const smallest = Math.min(...sizes);
+    const count = sizes.length;
+    const total = sizes.reduce((sum, size) => sum + size, 0);
+
+    if (level.parity === null) {
+      // RAID 1 mirrors a single set, RAID 10 mirrors in pairs.
+      return level.name.startsWith("RAID 10")
+        ? Math.floor(count / 2) * smallest
+        : smallest;
+    }
+    if (level.parity === 0) return total;
+    return (count - level.parity) * smallest;
+  }
+
+  function toleranceFor(sizes: number[], level: LevelSpec): number {
+    return level.name.startsWith("RAID 10")
+      ? Math.floor(sizes.length / 2)
+      : level.tolerance;
+  }
+
+  function render() {
+    const sizesInput = document.getElementById(
+      "raid-sizes",
+    ) as HTMLInputElement | null;
+    const levelSelect = document.getElementById(
+      "raid-level",
+    ) as HTMLSelectElement | null;
+    const usableOut = document.getElementById("out-usable");
+    const rawOut = document.getElementById("out-raw");
+    const overheadOut = document.getElementById("out-overhead");
+    const toleranceOut = document.getElementById("out-tolerance");
+    const noteOut = document.getElementById("out-note");
+    const warningOut = document.getElementById("out-warning");
+
+    if (
+      !sizesInput ||
+      !levelSelect ||
+      !usableOut ||
+      !rawOut ||
+      !overheadOut ||
+      !toleranceOut ||
+      !noteOut ||
+      !warningOut
+    )
+      return;
+
+    const level = LEVELS[levelSelect.value];
+    const sizes = parseSizes(sizesInput.value);
+
+    if (!level || sizes.length === 0) {
+      usableOut.textContent = "—";
+      rawOut.textContent = "—";
+      overheadOut.textContent = "—";
+      toleranceOut.textContent = "—";
+      noteOut.textContent =
+        "Enter at least one drive size in TB to see the usable capacity.";
+      warningOut.classList.add("hidden");
+      return;
+    }
+
+    const raw = sizes.reduce((sum, size) => sum + size, 0);
+    const tooFewDrives = sizes.length < level.minDrives;
+    const usable = tooFewDrives ? 0 : usableFor(sizes, level);
+
+    usableOut.textContent = tooFewDrives ? "—" : `${fmt(usable)} TB`;
+    rawOut.textContent = `${fmt(raw)} TB`;
+    overheadOut.textContent = tooFewDrives ? "—" : `${fmt(raw - usable)} TB`;
+    toleranceOut.textContent = tooFewDrives
+      ? "—"
+      : String(toleranceFor(sizes, level));
+    noteOut.textContent = level.note;
+
+    if (tooFewDrives) {
+      warningOut.textContent = `${level.name} needs at least ${level.minDrives} drives. You entered ${sizes.length}.`;
+      warningOut.classList.remove("hidden");
+    } else if (level.parity === 0 && sizes.length > 1) {
+      warningOut.textContent = `${fmt(raw - usable)} TB is exactly the amount of data you would lose if a single drive failed.`;
+      warningOut.classList.remove("hidden");
+    } else {
+      warningOut.classList.add("hidden");
+    }
+
+    document.querySelectorAll("[data-raid-row]").forEach(function (rawRow) {
+      const row = rawRow as HTMLElement;
+      const id = row.dataset.raidRow;
+      if (!id) return;
+      const rowLevel = LEVELS[id];
+      const cells = row.querySelectorAll("td");
+      if (!rowLevel || cells.length < 3) return;
+
+      const notApplicable = sizes.length < rowLevel.minDrives;
+      const rowUsable = notApplicable ? 0 : usableFor(sizes, rowLevel);
+      cells[0].textContent = notApplicable ? "n/a" : `${fmt(rowUsable)} TB`;
+      cells[1].textContent = notApplicable
+        ? "n/a"
+        : `${fmt(raw - rowUsable)} TB`;
+      cells[2].textContent = notApplicable
+        ? "n/a"
+        : String(toleranceFor(sizes, rowLevel));
+    });
+  }
+
+  // Same astro:page-load pattern as EmailCapture and ProductCTA: a bundled
+  // module script runs once per session, but ClientRouter keeps the document
+  // alive between navigations, so re-render on every page load event.
+  function setup() {
+    const sizesInput = document.getElementById(
+      "raid-sizes",
+    ) as HTMLInputElement | null;
+    const levelSelect = document.getElementById(
+      "raid-level",
+    ) as HTMLSelectElement | null;
+    if (!sizesInput || !levelSelect) return;
+
+    if (sizesInput.dataset.wired !== "1") {
+      sizesInput.dataset.wired = "1";
+      sizesInput.addEventListener("input", render);
+    }
+    if (levelSelect.dataset.wired !== "1") {
+      levelSelect.dataset.wired = "1";
+      levelSelect.addEventListener("change", render);
+    }
+    render();
+  }
+
+  document.addEventListener("astro:page-load", setup);
+</script>

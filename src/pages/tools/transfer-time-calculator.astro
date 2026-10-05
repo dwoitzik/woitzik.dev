@@ -1,0 +1,407 @@
+---
+import ToolLayout from "@components/ToolLayout.astro";
+
+const faqs = [
+  {
+    q: "Why does 1 GbE never reach 125 MB/s?",
+    a: "Because the link rate is quoted in bits per second, not bytes. 1 GbE is 1000 Mbit/s, which is 125 MB/s only before any overhead is subtracted. Ethernet framing, inter-frame gaps, TCP and SMB or NFS overhead all take a cut, so a healthy 1 GbE transfer typically lands somewhere around 110 MB/s. The calculator works in bits throughout for exactly this reason.",
+  },
+  {
+    q: "What is a realistic efficiency figure to pick?",
+    a: "It depends entirely on the two ends. Two modern machines with a direct cable on 2.5 GbE can approach 90% of line rate. A NAS over gigabit ethernet to a laptop with a spinning drive on the other end is often limited by the disk, not the network, and might sit at 50% or less. Pick the share of line rate you actually expect and treat the theoretical figure as the ceiling.",
+  },
+  {
+    q: "Why is my backup slower on Wi-Fi than on ethernet?",
+    a: "Wi-Fi advertises a link rate that is shared and negotiated per frame, and the usable throughput is a fraction of it. A client on 5 GHz with a 866 Mbit link will see far less than 866 Mbit of real transfer because of contention, retries and protocol overhead. That gap between advertised and actual throughput is also what makes bufferbloat visible, since a saturated link queues packets and latency climbs before throughput does.",
+  },
+  {
+    q: "Does this account for compression or deduplication?",
+    a: "No. The calculation is raw wire throughput for uncompressed data, which is the worst case and therefore the number to size a link against. Compression on a backup source with compressible content will shorten the transfer; heavily deduplicated data shortens it further. Neither can be predicted without inspecting the data.",
+  },
+];
+
+const related = [
+  { href: "/tools/", label: "All tools" },
+  {
+    href: "/blog/best-nas-home-backup-2026/",
+    label: "Best NAS for home backup in 2026",
+  },
+  {
+    href: "/blog/mikrotik-wan-qos-bufferbloat-discord/",
+    label: "Discord voice choppy? It was bufferbloat",
+  },
+  {
+    href: "/blog/slo-burn-rate-alerting-prometheus-k3s/",
+    label: "SLO burn rate alerting on Prometheus and k3s",
+  },
+];
+
+// Static throughput ceiling per standard Ethernet rate, in bytes per second.
+// Decimal units throughout, matching how vendors quote both drive capacity and
+// link speed. 125 MB/s for gigabit is exact arithmetic (1000 Mbit / 8), not a
+// measurement, so it needs no caveat beyond the overhead the FAQ explains.
+const LINKS = [
+  {
+    label: "100 Mbit (Fast Ethernet)",
+    mbps: 100,
+    use: "Legacy or long cable runs",
+  },
+  { label: "1 GbE", mbps: 1000, use: "Default NAS and office LAN" },
+  {
+    label: "2.5 GbE",
+    mbps: 2500,
+    use: "Modern switch, single large file copies",
+  },
+  { label: "5 GbE", mbps: 5000, use: "NVMe shares and NAS to NAS" },
+  { label: "10 GbE", mbps: 10000, use: "Server room backbone" },
+  {
+    label: "25 GbE",
+    mbps: 25000,
+    use: "Data centre leaf, rarely needed at home",
+  },
+];
+
+const DEFAULT_TB = 8;
+const DEFAULT_MBPS = 1000;
+const DEFAULT_EFFICIENCY = 70;
+
+function duration(seconds: number): string {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = Math.round(seconds % 60);
+
+  const chunks: string[] = [];
+  if (days) chunks.push(`${days}d`);
+  if (hours) chunks.push(`${hours}h`);
+  if (minutes) chunks.push(`${minutes}m`);
+  if (rest || !chunks.length) chunks.push(`${rest}s`);
+  return chunks.join(" ");
+}
+
+const defaultBits = DEFAULT_TB * 1e12 * 8;
+const defaultTheoretical = defaultBits / (DEFAULT_MBPS * 1e6);
+const defaultReal = defaultTheoretical / (DEFAULT_EFFICIENCY / 100);
+---
+
+<ToolLayout
+  title="Network Transfer Time Calculator"
+  path="/tools/transfer-time-calculator/"
+  description="Free calculator for how long a file or backup takes to transfer over 100 Mbit to 25 Gbit ethernet, at line rate or at the share of throughput you actually expect."
+  intro="Work out how long a copy actually takes before you start it. Enter the data size and the link speed, pick the share of line rate you expect to see, and get the wall-clock time for a NAS backup, a media library sync or an offsite replication job."
+  faqs={faqs}
+  related={related}
+>
+  <div
+    class="p-5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 space-y-4"
+  >
+    <div class="grid gap-4 sm:grid-cols-3">
+      <div class="space-y-1.5">
+        <label
+          for="amount"
+          class="block text-sm font-semibold text-black dark:text-white"
+        >
+          Data size
+        </label>
+        <input
+          id="amount"
+          type="number"
+          min="0"
+          step="any"
+          inputmode="decimal"
+          value={DEFAULT_TB}
+          class="w-full px-3 py-2 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-black dark:text-white focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 transition-colors"
+        />
+      </div>
+      <div class="space-y-1.5">
+        <label
+          for="unit"
+          class="block text-sm font-semibold text-black dark:text-white"
+        >
+          Unit
+        </label>
+        <select
+          id="unit"
+          class="w-full px-3 py-2 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-black dark:text-white focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 transition-colors"
+        >
+          <option value="1e12" selected>terabytes (TB)</option>
+          <option value="1e9">gigabytes (GB)</option>
+          <option value="1e6">megabytes (MB)</option>
+        </select>
+      </div>
+      <div class="space-y-1.5">
+        <label
+          for="efficiency"
+          class="block text-sm font-semibold text-black dark:text-white"
+        >
+          Expected share of line rate
+        </label>
+        <select
+          id="efficiency"
+          class="w-full px-3 py-2 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-black dark:text-white focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 transition-colors"
+        >
+          <option value="100">100% (theoretical ceiling)</option>
+          <option value="90">90%</option>
+          <option value="70" selected>70% (typical wired transfer)</option>
+          <option value="50">50% (disk or wifi limited)</option>
+          <option value="20">20% (shared or contended link)</option>
+        </select>
+      </div>
+    </div>
+
+    <fieldset class="space-y-1.5">
+      <legend class="block text-sm font-semibold text-black dark:text-white">
+        Link speed
+      </legend>
+      <select
+        id="link"
+        aria-describedby="link-hint"
+        class="w-full px-3 py-2 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-black dark:text-white focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 transition-colors"
+      >
+        {
+          LINKS.map((link) => (
+            <option value={link.mbps} selected={link.mbps === DEFAULT_MBPS}>
+              {link.label}
+            </option>
+          ))
+        }
+      </select>
+      <p
+        id="link-hint"
+        class="text-xs text-neutral-500 dark:text-neutral-400 m-0"
+      >
+        Quoted as 1000 Mbit per gigabit, the way vendors label the port.
+      </p>
+    </fieldset>
+  </div>
+
+  <div
+    class="p-5 rounded-xl border border-sky-200 dark:border-sky-900 bg-sky-50 dark:bg-sky-950/40"
+    aria-live="polite"
+  >
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          At your expected rate
+        </p>
+        <p
+          id="out-real"
+          class="text-xl font-bold text-black dark:text-white m-0 tabular-nums"
+        >
+          {duration(defaultReal)}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Theoretical minimum
+        </p>
+        <p
+          id="out-theoretical"
+          class="text-xl font-semibold text-black dark:text-white m-0 tabular-nums"
+        >
+          {duration(defaultTheoretical)}
+        </p>
+      </div>
+      <div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+          Effective throughput
+        </p>
+        <p
+          id="out-throughput"
+          class="text-xl font-semibold text-black dark:text-white m-0 tabular-nums"
+        >
+          {
+            (
+              (DEFAULT_MBPS * 1e6 * (DEFAULT_EFFICIENCY / 100)) /
+              8 /
+              1e6
+            ).toFixed(0)
+          } MB/s
+        </p>
+      </div>
+    </div>
+    <p
+      id="out-error"
+      class="text-sm mt-4 mb-0 text-red-600 dark:text-red-400 hidden"
+    >
+    </p>
+  </div>
+
+  <h2 class="font-semibold text-lg text-black dark:text-white">
+    The same transfer across link speeds
+  </h2>
+  <div class="overflow-x-auto">
+    <table
+      id="compare-table"
+      class="w-full text-sm border-collapse border border-neutral-200 dark:border-neutral-800"
+    >
+      <thead>
+        <tr class="bg-neutral-50 dark:bg-neutral-900/50">
+          <th
+            scope="col"
+            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Link
+          </th>
+          <th
+            scope="col"
+            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Ceiling
+          </th>
+          <th
+            scope="col"
+            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            At your rate
+          </th>
+          <th
+            scope="col"
+            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Typical use
+          </th>
+        </tr>
+      </thead>
+      <tbody id="compare-body">
+        {
+          LINKS.map((link) => (
+            <tr data-link-mbps={link.mbps}>
+              <th
+                scope="row"
+                class="text-left font-normal px-3 py-2 text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+              >
+                {link.label}
+              </th>
+              <td class="text-right px-3 py-2 tabular-nums border-b border-neutral-100 dark:border-neutral-800/60">
+                {(link.mbps / 8).toFixed(0)} MB/s
+              </td>
+              <td
+                data-cell="duration"
+                class="text-right px-3 py-2 tabular-nums border-b border-neutral-100 dark:border-neutral-800/60"
+              >
+                {duration(
+                  defaultBits / (link.mbps * 1e6 * (DEFAULT_EFFICIENCY / 100)),
+                )}
+              </td>
+              <td class="px-3 py-2 text-neutral-500 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800/60">
+                {link.use}
+              </td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+    The ceiling column is link rate divided by eight, with no protocol overhead
+    subtracted. Treat it as the number you could never exceed, not a target.
+  </p>
+</ToolLayout>
+
+<script>
+  function duration(seconds: number): string {
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const rest = Math.round(seconds % 60);
+
+    const chunks: string[] = [];
+    if (days) chunks.push(days + "d");
+    if (hours) chunks.push(hours + "h");
+    if (minutes) chunks.push(minutes + "m");
+    if (rest || !chunks.length) chunks.push(rest + "s");
+    return chunks.join(" ");
+  }
+
+  type Inputs = { bytes: number; efficiencyRatio: number; mbps: number };
+
+  function readInputs(): Inputs | { error: string } | null {
+    const amount = document.getElementById("amount") as HTMLInputElement | null;
+    const unit = document.getElementById("unit") as HTMLSelectElement | null;
+    const efficiency = document.getElementById(
+      "efficiency",
+    ) as HTMLSelectElement | null;
+    const link = document.getElementById("link") as HTMLSelectElement | null;
+    if (!amount || !unit || !efficiency || !link) return null;
+
+    const bytes = Number(amount.value) * Number(unit.value);
+    const efficiencyRatio = Number(efficiency.value) / 100;
+    const mbps = Number(link.value);
+
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return { error: "Enter a data size greater than zero." };
+    }
+    if (!Number.isFinite(mbps) || mbps <= 0) {
+      return { error: "Pick a link speed." };
+    }
+    if (!Number.isFinite(efficiencyRatio) || efficiencyRatio <= 0) {
+      return { error: "Pick a throughput share above zero." };
+    }
+
+    return { bytes, efficiencyRatio, mbps };
+  }
+
+  function render(): void {
+    const realOut = document.getElementById("out-real");
+    const theoreticalOut = document.getElementById("out-theoretical");
+    const throughputOut = document.getElementById("out-throughput");
+    const errorOut = document.getElementById("out-error");
+    if (!realOut || !theoreticalOut || !throughputOut || !errorOut) return;
+
+    const input = readInputs();
+    if (!input) return;
+
+    if ("error" in input) {
+      errorOut.textContent = input.error;
+      errorOut.classList.remove("hidden");
+      realOut.textContent = "—";
+      theoreticalOut.textContent = "—";
+      throughputOut.textContent = "—";
+      return;
+    }
+
+    const bits = input.bytes * 8;
+    const lineRate = input.mbps * 1e6;
+
+    errorOut.classList.add("hidden");
+    theoreticalOut.textContent = duration(bits / lineRate);
+    realOut.textContent = duration(bits / (lineRate * input.efficiencyRatio));
+    throughputOut.textContent =
+      Math.round((lineRate * input.efficiencyRatio) / 8 / 1e6) + " MB/s";
+
+    document.querySelectorAll("[data-link-mbps]").forEach(function (
+      row: Element,
+    ) {
+      const rowMbps = Number(row.getAttribute("data-link-mbps"));
+      const cell = row.querySelector("[data-cell=duration]");
+      if (!cell || !Number.isFinite(rowMbps) || rowMbps <= 0) return;
+      cell.textContent = duration(
+        bits / (rowMbps * 1e6 * input.efficiencyRatio),
+      );
+    });
+  }
+
+  function setup(): void {
+    const amount = document.getElementById("amount") as HTMLInputElement | null;
+    const unit = document.getElementById("unit") as HTMLSelectElement | null;
+    const efficiency = document.getElementById(
+      "efficiency",
+    ) as HTMLSelectElement | null;
+    const link = document.getElementById("link") as HTMLSelectElement | null;
+    if (!amount || !unit || !efficiency || !link) return;
+
+    // astro:page-load fires again after a ClientRouter navigation, but the
+    // module only evaluates once, so the listener is attached behind a guard.
+    if (amount.dataset.wired !== "1") {
+      amount.dataset.wired = "1";
+      amount.addEventListener("input", render);
+      unit.addEventListener("change", render);
+      efficiency.addEventListener("change", render);
+      link.addEventListener("change", render);
+    }
+    render();
+  }
+
+  document.addEventListener("astro:page-load", setup);
+</script>
