@@ -18,6 +18,18 @@ const faqs = [
     q: "How many hosts does a /24 leave for VLANs and gateways?",
     a: "254 usable addresses, of which the router interface consumes one. Splitting a /24 into /26s gives four networks of 62 usable hosts each, which is a common pattern for separating management, IoT, guests and servers on one uplink.",
   },
+  {
+    q: "How many usable addresses does an IPv6 subnet have?",
+    a: "An IPv6 /64 has 18446744073709551614 usable addresses, because 2^64 is the total and the subnet-router anycast address plus the all-nodes address take two off the top. That number looks absurd next to an IPv4 /24 because IPv6 hands out a whole /64 to a single customer network and expects SLAAC or DHCPv6 to subdivide it internally.",
+  },
+  {
+    q: "Why does IPv6 have no broadcast address?",
+    a: "IPv6 replaced broadcast with multicast, so there is no reserved all-host bits address. The highest address of the range is simply the last usable address and it is not excluded. That is why the calculator shows the last address for IPv6 instead of a broadcast address, and it is also why no wildcard mask appears: IPv6 access lists are written in prefix notation rather than against an inverted bitmask.",
+  },
+  {
+    q: "Is a /127 or /128 IPv6 subnet usable?",
+    a: "Yes. RFC 6164 applies the same reasoning to IPv6 that RFC 3021 applies to IPv4: a /127 is a point-to-point link with 2 usable addresses and a /128 is a single host with 1. Treating them like a normal subnet and subtracting two would leave zero addresses, which is why the calculator special-cases both.",
+  },
 ];
 
 const related = [
@@ -44,21 +56,30 @@ const reference = Array.from({ length: 15 }, (_, index) => {
   return { prefix, total, usable: total - 2 };
 });
 
+// IPv6 side: the usable counts are BigInt, so they are formatted here once
+// rather than in the template.
+const reference6 = [
+  { prefix: 48, use: "Site allocation, large enterprise" },
+  { prefix: 56, use: "Site sub-allocation" },
+  { prefix: 64, use: "Standard subnet (SLAAC, the usual VLAN size)" },
+  { prefix: 96, use: "Point-to-point or compatibility range" },
+  { prefix: 112, use: "Reserved range" },
+  { prefix: 127, use: "Point-to-point link (RFC 6164)" },
+  { prefix: 128, use: "Single host (RFC 6164)" },
+].map((row) => ({
+  ...row,
+  total: (1n << BigInt(128 - row.prefix)).toString(),
+  usable: usableHosts6(row.prefix).toString(),
+}));
+
+// ─── IPv4 ────────────────────────────────────────────────────────────────
+
 function dotted(n: number): string {
   return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join(
     ".",
   );
 }
 
-const DEFAULT_CIDR = "192.168.1.0/24";
-const [defaultIp, defaultPrefixText] = DEFAULT_CIDR.split("/");
-const defaultPrefix = Number(defaultPrefixText);
-const defaultIpNum =
-  defaultIp.split(".").reduce((acc, part) => acc * 256 + Number(part), 0) >>> 0;
-const defaultMask =
-  defaultPrefix === 0 ? 0 : (0xffffffff << (32 - defaultPrefix)) >>> 0;
-const defaultNetwork = (defaultIpNum & defaultMask) >>> 0;
-const defaultBroadcast = (defaultNetwork | (~defaultMask >>> 0)) >>> 0;
 // Mirrors usableHosts() in the client script: RFC 3021 makes /31 a usable
 // point-to-point pair and /32 a single host, so neither loses two addresses.
 // Kept here as well so the server-rendered value cannot drift from the one the
@@ -70,6 +91,135 @@ function usableHosts(prefix: number): number {
   return total - 2;
 }
 
+// ─── IPv6 ────────────────────────────────────────────────────────────────
+//
+// 128-bit arithmetic cannot use Number. Every value is a BigInt, so the two
+// families stay in separate code paths rather than sharing a helper that would
+// have to hide the difference. The algorithms are mirrored in the client
+// script; scripts/ check subnet-ipv6.test.mjs asserts the two agree.
+
+const IPV6_ALL_ONES = (1n << 128n) - 1n;
+
+// RFC 5952: lowercase hex, no leading zeros per group, and "::" collapses the
+// longest run of zero groups when that run is longer than one group.
+function toIp6(value: bigint): string {
+  const groups = value
+    .toString(16)
+    .padStart(32, "0")
+    .match(/.{1,4}/g)!
+    .map((g) => g.replace(/^0+(?=.)/, ""));
+
+  let bestStart = -1;
+  let bestLen = 0;
+  let runStart = -1;
+  let runLen = 0;
+  for (let i = 0; i <= groups.length; i++) {
+    if (i < groups.length && groups[i] === "0") {
+      if (runStart === -1) runStart = i;
+      runLen++;
+    } else if (runStart !== -1) {
+      if (runLen > bestLen && runLen > 1) {
+        bestStart = runStart;
+        bestLen = runLen;
+      }
+      runStart = -1;
+      runLen = 0;
+    }
+  }
+  if (bestStart === -1) return groups.join(":");
+
+  return (
+    groups.slice(0, bestStart).join(":") +
+    "::" +
+    groups.slice(bestStart + bestLen).join(":")
+  );
+}
+
+function mask6(prefix: number): bigint {
+  if (prefix === 0) return 0n;
+  return (IPV6_ALL_ONES << BigInt(128 - prefix)) & IPV6_ALL_ONES;
+}
+
+// RFC 6164: /127 and /128 are point-to-point and host routes and do not lose
+// the two addresses the IPv4 model reserves.
+function usableHosts6(prefix: number): bigint {
+  if (prefix === 128) return 1n;
+  if (prefix === 127) return 2n;
+  return (1n << BigInt(128 - prefix)) - 2n;
+}
+
+function expandIpv6(addr: string): { hex: string } | { error: string } {
+  const dbl = addr.indexOf("::");
+  if (dbl !== -1 && addr.indexOf("::", dbl + 1) !== -1) {
+    // Template literal rather than an escaped double-quoted string: prettier
+    // rewrites "\"::\"" to the single-quote form, which the eslint quotes rule
+    // then rejects. A template literal satisfies both.
+    return { error: `Only one "::" is allowed in an IPv6 address.` };
+  }
+
+  let groups: string[];
+  if (dbl === -1) {
+    groups = addr.split(":");
+  } else {
+    const left = addr.slice(0, dbl);
+    const right = addr.slice(dbl + 2);
+    const ls = left === "" ? [] : left.split(":");
+    const rs = right === "" ? [] : right.split(":");
+    // "::" has to stand in for at least one group.
+    const fill = 8 - ls.length - rs.length;
+    if (fill < 1) return { error: "Too many groups for this address." };
+    groups = [...ls, ...Array(fill).fill("0"), ...rs];
+  }
+
+  // Validate the groups before counting them: for input like
+  // 20011:2:3:4:5:6:7 the group count is also wrong, but "invalid hextet
+  // 20011" is the part the user can act on. Same for a pasted IPv4
+  // address, which would otherwise read as "expected 8 groups".
+  for (const g of groups) {
+    if (!/^[0-9a-fA-F]{1,4}$/.test(g)) {
+      return { error: `Invalid hextet: ${g}` };
+    }
+  }
+  if (groups.length !== 8) {
+    return { error: "Not a valid IPv6 address: expected 8 groups." };
+  }
+  // Pad before concatenating, otherwise a "0" group becomes "" and the value
+  // silently loses its leading zeros.
+  return { hex: groups.map((g) => g.padStart(4, "0")).join("") };
+}
+
+// Same shape as the client script's parseIpv6, so the two cannot drift.
+function parseIpv6(
+  input: string,
+):
+  | { prefix: number; mask: bigint; network: bigint; last: bigint }
+  | { error: string } {
+  const [addr, prefixText = "128"] = input.trim().split("/");
+  if (!/^\d{1,3}$/.test(prefixText)) {
+    return { error: "The prefix has to be a number from 0 to 128." };
+  }
+  const prefix = Number(prefixText);
+  if (prefix > 128) return { error: "The prefix has to be between 0 and 128." };
+
+  const e = expandIpv6(addr);
+  if ("error" in e) return e;
+
+  const mask = mask6(prefix);
+  const network = BigInt("0x" + e.hex) & mask;
+  return { prefix, mask, network, last: network | (~mask & IPV6_ALL_ONES) };
+}
+
+const DEFAULT_CIDR = "192.168.1.0/24";
+const DEFAULT_CIDR6 = "fd00:10::/64";
+
+const [defaultIp, defaultPrefixText] = DEFAULT_CIDR.split("/");
+const defaultPrefix = Number(defaultPrefixText);
+const defaultIpNum =
+  defaultIp.split(".").reduce((acc, part) => acc * 256 + Number(part), 0) >>> 0;
+const defaultMask =
+  defaultPrefix === 0 ? 0 : (0xffffffff << (32 - defaultPrefix)) >>> 0;
+const defaultNetwork = (defaultIpNum & defaultMask) >>> 0;
+const defaultBroadcast = (defaultNetwork | (~defaultMask >>> 0)) >>> 0;
 const defaultUsable = usableHosts(defaultPrefix);
 const defaultWildcard = ~defaultMask >>> 0;
 
@@ -80,19 +230,51 @@ const defaultSplits = [24, 26, 28]
   .filter((target) => defaultPrefix <= target)
   .map((target) => `${Math.pow(2, target - defaultPrefix)} x /${target}`)
   .join(", ");
+
+const default6 = parseIpv6(DEFAULT_CIDR6);
+if ("error" in default6) throw new Error(DEFAULT_CIDR6 + ": " + default6.error);
+const default6Mask = default6.mask;
+const default6Network = default6.network;
+const default6Broadcast = default6.last;
+const default6Usable = usableHosts6(default6.prefix);
 ---
 
 <ToolLayout
-  title="IPv4 Subnet Calculator"
+  title="IPv4 and IPv6 Subnet Calculator"
   path="/tools/subnet-calculator/"
-  description="Free IPv4 subnet calculator: network and broadcast address, netmask, wildcard mask, usable host count and subnet splitting for any CIDR notation."
-  intro="Enter any address in CIDR notation to get the network address, broadcast address, netmask, wildcard mask and how many hosts you can actually use. Point-to-point and host routes are handled per RFC 3021."
+  description="Free IPv4 and IPv6 subnet calculator: network address, broadcast or last address, netmask, wildcard mask, usable host count and subnet splitting for any CIDR notation."
+  intro="Enter any IPv4 or IPv6 address in CIDR notation to get the network address, the broadcast or last address in the range, the netmask and how many hosts you can actually use. IPv4 point-to-point and host routes follow RFC 3021, IPv6 point-to-point and host routes follow RFC 6164."
   faqs={faqs}
   related={related}
 >
   <div
     class="p-5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 space-y-4"
   >
+    <fieldset class="space-y-2 border-0 p-0 m-0">
+      <legend class="text-sm font-semibold text-black dark:text-white p-0 mb-2">
+        Address family
+      </legend>
+      <div class="flex gap-2">
+        {
+          ["ipv4", "ipv6"].map((family) => (
+            <label class="flex items-center gap-1.5 text-sm cursor-pointer">
+              <input
+                type="radio"
+                name="family"
+                value={family}
+                checked={family === "ipv4"}
+                data-family-radio
+                class="accent-sky-500"
+              />
+              <span class="text-black dark:text-white">
+                {family.toUpperCase()}
+              </span>
+            </label>
+          ))
+        }
+      </div>
+    </fieldset>
+
     <div class="space-y-1.5">
       <label
         for="cidr"
@@ -106,7 +288,7 @@ const defaultSplits = [24, 26, 28]
         autocomplete="off"
         spellcheck="false"
         value={DEFAULT_CIDR}
-        placeholder="192.168.1.0/24"
+        placeholder="192.168.1.0/24 or fd00:10::/64"
         aria-describedby="cidr-hint"
         class="w-full px-3 py-2 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-black dark:text-white placeholder-neutral-400 focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 transition-colors font-mono"
       />
@@ -114,9 +296,34 @@ const defaultSplits = [24, 26, 28]
         id="cidr-hint"
         class="text-xs text-neutral-500 dark:text-neutral-400 m-0"
       >
-        IPv4 only, prefix from 0 to 32. A host address is accepted too and is
-        snapped down to its containing network.
+        Prefix from 0 to 32. A host address is accepted too and is snapped down
+        to its containing network.
       </p>
+      <p
+        id="cidr-hint-6"
+        class="text-xs text-neutral-500 dark:text-neutral-400 m-0 hidden"
+      >
+        Prefix from 0 to 128, compressed ("::") or expanded form. Point-to-point
+        and host routes follow RFC 6164.
+      </p>
+      <div class="hidden" id="ipv6-example">
+        <button
+          type="button"
+          data-example="ipv6"
+          class="text-xs text-sky-600 dark:text-sky-400 hover:underline"
+        >
+          Try fd00:10::/64
+        </button>
+      </div>
+      <div id="ipv4-example">
+        <button
+          type="button"
+          data-example="ipv4"
+          class="text-xs text-sky-600 dark:text-sky-400 hover:underline"
+        >
+          Try 192.168.1.0/24
+        </button>
+      </div>
     </div>
   </div>
 
@@ -124,6 +331,59 @@ const defaultSplits = [24, 26, 28]
     class="p-5 rounded-xl border border-sky-200 dark:border-sky-900 bg-sky-50 dark:bg-sky-950/40"
     aria-live="polite"
   >
+    <div
+      id="ipv6-result"
+      class="hidden border-t border-neutral-200 dark:border-neutral-800 pt-4 mt-4 space-y-4"
+    >
+      <p
+        class="text-xs text-neutral-500 dark:text-neutral-400 m-0"
+        id="out-6-label"
+      >
+        Usable addresses
+      </p>
+      <p
+        id="out-usable-6"
+        class="text-xl font-bold text-black dark:text-white m-0 tabular-nums break-all"
+      >
+        {default6Usable.toString()}
+      </p>
+      <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <div class="col-span-2 sm:col-span-3">
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+            Network
+          </p>
+          <p
+            id="out-network-6"
+            class="text-sm font-semibold text-black dark:text-white m-0 font-mono break-all"
+          >
+            {toIp6(default6Network)}/{default6.prefix}
+          </p>
+        </div>
+        <div class="col-span-2 sm:col-span-3">
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+            Last address in range
+          </p>
+          <p
+            id="out-broadcast-6"
+            class="text-sm font-semibold text-black dark:text-white m-0 font-mono break-all"
+          >
+            {toIp6(default6Broadcast)}
+          </p>
+        </div>
+        <div class="col-span-2 sm:col-span-3">
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+            Netmask
+          </p>
+          <p
+            id="out-netmask-6"
+            class="text-sm font-semibold text-black dark:text-white m-0 font-mono break-all"
+          >
+            {toIp6(default6Mask)}
+          </p>
+        </div>
+      </div>
+    </div>
+
     <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
       <div class="col-span-2 sm:col-span-3">
         <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
@@ -221,7 +481,10 @@ const defaultSplits = [24, 26, 28]
     >
     </p>
 
-    <div class="mt-4 pt-4 border-t border-sky-200 dark:border-sky-900">
+    <div
+      id="ipv4-splits"
+      class="mt-4 pt-4 border-t border-sky-200 dark:border-sky-900"
+    >
       <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0 mb-1">
         Splitting this network
       </p>
@@ -230,6 +493,74 @@ const defaultSplits = [24, 26, 28]
       </p>
     </div>
   </div>
+
+  <h2 class="font-semibold text-lg text-black dark:text-white">
+    IPv6 host counts by prefix
+  </h2>
+  <div class="overflow-x-auto">
+    <table
+      class="w-full text-sm border-collapse border border-neutral-200 dark:border-neutral-800"
+    >
+      <thead>
+        <tr>
+          <th
+            scope="col"
+            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Prefix
+          </th>
+          <th
+            scope="col"
+            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Usable
+          </th>
+          <th
+            scope="col"
+            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Total
+          </th>
+          <th
+            scope="col"
+            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+          >
+            Typical use
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {
+          reference6.map((row) => (
+            <tr>
+              <th
+                scope="row"
+                class="text-left font-normal px-3 py-2 font-mono text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+              >
+                /{row.prefix}
+              </th>
+              <td class="text-right px-3 py-2 tabular-nums text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60">
+                {row.usable}
+              </td>
+              <td class="text-right px-3 py-2 tabular-nums text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60">
+                {row.total}
+              </td>
+              <td class="text-left px-3 py-2 text-neutral-600 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800/60">
+                {row.use}
+              </td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+  <p class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed m-0">
+    IPv6 has no wildcard mask in the sense IPv4 has, because access lists are
+    written in prefix notation rather than against an inverted bitmask. There is
+    no broadcast address either: the highest address of the range is the last
+    usable address and is not excluded, which is why /64 and /127 show different
+    arithmetic than their IPv4 counterparts.
+  </p>
 
   <h2 class="font-semibold text-lg text-black dark:text-white">
     Host counts by prefix
@@ -310,6 +641,20 @@ const defaultSplits = [24, 26, 28]
   // return signed 32-bit results, so every mask is coerced back with >>> 0
   // before it is formatted; skipping that turns any address >= 128.0.0.0 into
   // a negative number.
+  interface Parsed {
+    prefix: number;
+    mask: number;
+    network: number;
+    broadcast: number;
+  }
+
+  interface Parsed6 {
+    prefix: number;
+    mask: bigint;
+    network: bigint;
+    last: bigint;
+  }
+
   function toIp(value: number): string {
     return [
       (value >>> 24) & 255,
@@ -318,13 +663,6 @@ const defaultSplits = [24, 26, 28]
       value & 255,
     ].join(".");
   }
-
-  type Parsed = {
-    prefix: number;
-    mask: number;
-    network: number;
-    broadcast: number;
-  };
 
   function parseCidr(raw: string): Parsed | { error: string } {
     const trimmed = raw.trim();
@@ -370,6 +708,128 @@ const defaultSplits = [24, 26, 28]
     return total - 2;
   }
 
+  // ─── IPv6 ──────────────────────────────────────────────────────────────
+  //
+  // 128-bit values cannot go through Number or the bitwise operators, so
+  // every mask and address here is a BigInt. scripts/subnet-ipv6.test.mjs
+  // asserts these against known prefixes; the server-rendered defaults use the
+  // same rules so the first paint cannot disagree with the script.
+
+  const IPV6_ALL_ONES = (1n << 128n) - 1n;
+
+  // RFC 5952: lowercase hex, no leading zeros, "::" over the longest zero run
+  // of more than one group.
+  function toIp6(value: bigint): string {
+    const groups = value
+      .toString(16)
+      .padStart(32, "0")
+      .match(/.{1,4}/g)!
+      .map((g) => g.replace(/^0+(?=.)/, ""));
+
+    let bestStart = -1;
+    let bestLen = 0;
+    let runStart = -1;
+    let runLen = 0;
+    for (let i = 0; i <= groups.length; i++) {
+      if (i < groups.length && groups[i] === "0") {
+        if (runStart === -1) runStart = i;
+        runLen++;
+      } else if (runStart !== -1) {
+        if (runLen > bestLen && runLen > 1) {
+          bestStart = runStart;
+          bestLen = runLen;
+        }
+        runStart = -1;
+        runLen = 0;
+      }
+    }
+    if (bestStart === -1) return groups.join(":");
+    return (
+      groups.slice(0, bestStart).join(":") +
+      "::" +
+      groups.slice(bestStart + bestLen).join(":")
+    );
+  }
+
+  function mask6(prefix: number): bigint {
+    if (prefix === 0) return 0n;
+    return (IPV6_ALL_ONES << BigInt(128 - prefix)) & IPV6_ALL_ONES;
+  }
+
+  // RFC 6164: /127 and /128 are point-to-point and host routes and lose no
+  // addresses.
+  function usableHosts6(prefix: number): bigint {
+    if (prefix === 128) return 1n;
+    if (prefix === 127) return 2n;
+    return (1n << BigInt(128 - prefix)) - 2n;
+  }
+
+  function expandIpv6(addr: string): { hex: string } | { error: string } {
+    const dbl = addr.indexOf("::");
+    if (dbl !== -1 && addr.indexOf("::", dbl + 1) !== -1) {
+      return { error: `Only one "::" is allowed in an IPv6 address.` };
+    }
+
+    let groups: string[];
+    if (dbl === -1) {
+      groups = addr.split(":");
+    } else {
+      const left = addr.slice(0, dbl);
+      const right = addr.slice(dbl + 2);
+      const ls = left === "" ? [] : left.split(":");
+      const rs = right === "" ? [] : right.split(":");
+      // "::" has to stand in for at least one group, so eight explicit groups
+      // plus a "::" is a nine-group address.
+      const fill = 8 - ls.length - rs.length;
+      if (fill < 1) return { error: "Too many groups for this address." };
+      groups = [...ls, ...Array(fill).fill("0"), ...rs];
+    }
+
+    // Validate the groups before counting them: for input like
+    // 20011:2:3:4:5:6:7 the group count is also wrong, but "invalid hextet
+    // 20011" is the part the user can act on. Same for a pasted IPv4
+    // address, which would otherwise read as "expected 8 groups".
+    for (const g of groups) {
+      if (!/^[0-9a-fA-F]{1,4}$/.test(g)) {
+        return { error: "Invalid hextet: " + g };
+      }
+    }
+    if (groups.length !== 8) {
+      return { error: "Not a valid IPv6 address: expected 8 groups." };
+    }
+    // Pad before concatenating: a "0" group would otherwise become "" and the
+    // value would silently lose its leading zeros.
+    return { hex: groups.map((g) => g.padStart(4, "0")).join("") };
+  }
+
+  function parseIpv6(input: string): Parsed6 | { error: string } {
+    const parts = input.trim().split("/");
+    const addr = parts[0];
+    const prefixText = parts[1] === undefined ? "128" : parts[1];
+
+    if (!/^\d{1,3}$/.test(prefixText)) {
+      return { error: "The prefix has to be a number from 0 to 128." };
+    }
+    const prefix = Number(prefixText);
+    if (prefix > 128) {
+      return { error: "The prefix has to be between 0 and 128." };
+    }
+
+    const e = expandIpv6(addr);
+    if ("error" in e) return e;
+
+    const ip = BigInt("0x" + e.hex);
+    const mask = mask6(prefix);
+    const network = ip & mask;
+    const last = network | (~mask & IPV6_ALL_ONES);
+    return { prefix, mask, network, last };
+  }
+
+  // Same two defaults the frontmatter renders, so the initial paint and the
+  // first input event cannot disagree.
+  const DEFAULT_CIDR = "192.168.1.0/24";
+  const DEFAULT_CIDR6 = "fd00:10::/64";
+
   const OUT_IDS = [
     "out-usable",
     "out-network",
@@ -383,7 +843,18 @@ const defaultSplits = [24, 26, 28]
     "out-error",
   ];
 
+  // "out-error" is the shared message element: both families write to it, so it
+  // has to be in both lists or the IPv6 path dereferences undefined.
+  const OUT_IDS_6 = [
+    "out-usable-6",
+    "out-network-6",
+    "out-broadcast-6",
+    "out-netmask-6",
+    "out-error",
+  ];
+
   const nf = new Intl.NumberFormat("en-GB");
+  const nf6 = new Intl.NumberFormat("en-GB");
 
   function collect(): Record<string, HTMLElement> | null {
     const map: Record<string, HTMLElement> = {};
@@ -395,13 +866,27 @@ const defaultSplits = [24, 26, 28]
     return map;
   }
 
-  function render(): void {
-    const input = document.getElementById("cidr") as HTMLInputElement | null;
-    if (!input) return;
+  function collect6(): Record<string, HTMLElement> | null {
+    const map: Record<string, HTMLElement> = {};
+    for (const id of OUT_IDS_6) {
+      const node = document.getElementById(id);
+      if (!node) return null;
+      map[id] = node;
+    }
+    return map;
+  }
 
-    const out = collect();
-    if (!out) return;
+  function activeFamily(): "ipv4" | "ipv6" {
+    const checked = document.querySelector("[data-family-radio]:checked");
+    return checked && checked.getAttribute("value") === "ipv6"
+      ? "ipv6"
+      : "ipv4";
+  }
 
+  function renderIpv4(
+    input: HTMLInputElement,
+    out: Record<string, HTMLElement>,
+  ): void {
     const parsed = parseCidr(input.value);
 
     if ("error" in parsed) {
@@ -445,6 +930,79 @@ const defaultSplits = [24, 26, 28]
       : "This network is too small to split further.";
   }
 
+  function renderIpv6(
+    input: HTMLInputElement,
+    out: Record<string, HTMLElement>,
+  ): void {
+    const parsed = parseIpv6(input.value);
+
+    if ("error" in parsed) {
+      out["out-error"].textContent = parsed.error;
+      out["out-error"].classList.remove("hidden");
+      for (const id of OUT_IDS_6) {
+        if (id === "out-error") continue;
+        out[id].textContent = "—";
+      }
+      return;
+    }
+
+    out["out-error"].classList.add("hidden");
+    out["out-usable-6"].textContent = nf6.format(usableHosts6(parsed.prefix));
+    out["out-network-6"].textContent =
+      toIp6(parsed.network) + "/" + parsed.prefix;
+    out["out-broadcast-6"].textContent = toIp6(parsed.last);
+    out["out-netmask-6"].textContent = toIp6(parsed.mask);
+  }
+
+  function render(): void {
+    const input = document.getElementById("cidr") as HTMLInputElement | null;
+    if (!input) return;
+
+    const out4 = collect();
+    if (!out4) return;
+    const out6 = collect6();
+    if (!out6) return;
+
+    const family = activeFamily();
+    const is6 = family === "ipv6";
+
+    // The IPv4 result grid hides the two cells that have no IPv6 equivalent, and
+    // vice versa. Doing it here rather than in CSS keeps one source of truth.
+    const grid = out4["out-usable"].parentElement?.parentElement;
+    if (grid) {
+      grid.classList.toggle("hidden", is6);
+      document.getElementById("ipv4-splits")?.classList.toggle("hidden", is6);
+      document.getElementById("ipv6-result")?.classList.toggle("hidden", !is6);
+    }
+
+    const hint4 = document.getElementById("cidr-hint");
+    const hint6 = document.getElementById("cidr-hint-6");
+    const ex4 = document.getElementById("ipv4-example");
+    const ex6 = document.getElementById("ipv6-example");
+    hint4?.classList.toggle("hidden", is6);
+    hint6?.classList.toggle("hidden", !is6);
+    ex4?.classList.toggle("hidden", is6);
+    ex6?.classList.toggle("hidden", !is6);
+
+    // Both paths own the shared error element, so neither clears it here:
+    // renderIpv6 has just either shown a message or hidden it, and touching it
+    // again would wipe the message it just wrote.
+    if (is6) {
+      renderIpv6(input, out6);
+    } else {
+      renderIpv4(input, out4);
+    }
+  }
+
+  // Dotted quad and hextet notation share no valid string, so the current value
+  // can never survive a family switch. Refilling with that family's example is
+  // therefore unconditional: it would otherwise land in an error state on the
+  // first keystroke.
+  function onFamilyChange(input: HTMLInputElement): void {
+    input.value = activeFamily() === "ipv6" ? DEFAULT_CIDR6 : DEFAULT_CIDR;
+    render();
+  }
+
   function setup(): void {
     const input = document.getElementById("cidr") as HTMLInputElement | null;
     if (!input) return;
@@ -454,6 +1012,28 @@ const defaultSplits = [24, 26, 28]
     if (input.dataset.wired !== "1") {
       input.dataset.wired = "1";
       input.addEventListener("input", render);
+
+      document.querySelectorAll("[data-family-radio]").forEach(function (
+        radio: Element,
+      ) {
+        radio.addEventListener("change", function () {
+          onFamilyChange(input);
+        });
+      });
+
+      document.querySelectorAll("[data-example]").forEach(function (
+        button: Element,
+      ) {
+        button.addEventListener("click", function () {
+          const family = button.getAttribute("data-example");
+          const radio = document.querySelector(
+            `[data-family-radio][value="${family}"]`,
+          ) as HTMLInputElement | null;
+          if (radio) radio.checked = true;
+          input.value = family === "ipv6" ? DEFAULT_CIDR6 : DEFAULT_CIDR;
+          render();
+        });
+      });
     }
     render();
   }

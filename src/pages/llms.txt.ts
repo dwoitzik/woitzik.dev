@@ -38,7 +38,7 @@ export const GET: APIRoute = async () => {
     "",
     "- [Tool index](https://woitzik.dev/tools/): All calculators on one page",
     "- [RAID Capacity Calculator](https://woitzik.dev/tools/raid-calculator/): Usable capacity, parity overhead and drive failure tolerance for RAID 0/1/5/6/10 and SHR-1/SHR-2, including mixed drive sizes",
-    "- [IPv4 Subnet Calculator](https://woitzik.dev/tools/subnet-calculator/): Network and broadcast address, netmask, wildcard mask and usable host count for any CIDR",
+    "- [IPv4 and IPv6 Subnet Calculator](https://woitzik.dev/tools/subnet-calculator/): Network address, broadcast or last address, netmask and usable host count for any IPv4 or IPv6 CIDR",
     "- [Network Transfer Time Calculator](https://woitzik.dev/tools/transfer-time-calculator/): How long a copy takes over 100 Mbit to 25 Gbit ethernet at a given share of line rate",
     "- [VLAN ID Planner](https://woitzik.dev/tools/vlan-planner/): Validates 802.1Q VLAN IDs against the 1-4094 range, finds duplicates and locates free ID blocks",
     "",

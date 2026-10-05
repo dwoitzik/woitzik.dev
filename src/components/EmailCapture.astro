@@ -56,6 +56,26 @@ const {
   // and silently falls back to a native form submit (looks like a refresh).
   // astro:page-load fires on every navigation, including the initial one -
   // re-running setup here keeps the handler attached every time.
+
+  // Fires on the confirmed subscription, not on the button press: a rejected
+  // address or a Brevo outage is not a conversion, and counting those as
+  // signups would inflate the funnel. The address itself is never sent to
+  // analytics, only the page it was submitted from.
+  function trackSubscription() {
+    const page = location.pathname;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const analytics = window as any;
+    if (typeof analytics.va === "function") {
+      analytics.va("event", {
+        name: "form_submit",
+        data: { form: "newsletter", page },
+      });
+    }
+    if (analytics.rybbit && typeof analytics.rybbit.event === "function") {
+      analytics.rybbit.event("form_submit", { form: "newsletter", page });
+    }
+  }
+
   function setup() {
     const form = document.getElementById(
       "email-capture-form",
@@ -90,6 +110,7 @@ const {
             form.dataset.successMessage ??
             "Check your inbox for the welcome email.";
           message.className = "text-sm mt-3 text-green-600 dark:text-green-400";
+          trackSubscription();
         } else {
           message.textContent =
             data.error ?? "Something went wrong. Please try again.";

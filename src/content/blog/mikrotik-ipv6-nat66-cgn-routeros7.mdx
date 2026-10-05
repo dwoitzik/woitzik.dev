@@ -40,7 +40,7 @@ Internally, I use ULA (`fd00::/8`, RFC 4193). ULA is the IPv6 equivalent of RFC1
 
 ## Step 1: ULA Addresses Per VLAN
 
-Each VLAN gets a /64 from the `fd::/8` space. I use the VLAN number as the second octet for readability:
+Each VLAN gets a /64 from the `fd::/8` space. I use the VLAN number as the second octet for readability. If you want to check the address range or last address of a prefix before you commit it to a VLAN, the [IPv4 and IPv6 subnet calculator](https://woitzik.dev/tools/subnet-calculator/) shows the network, last address and usable count for any of these:
 
 ```hcl
 # terraform/stacks/network/ipv6_network.tf
