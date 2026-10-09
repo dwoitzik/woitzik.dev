@@ -4,6 +4,15 @@
 // Markdown syntax, so those links never pass through AffiliateLink.astro.
 // This plugin stamps both attributes on any link pointing at a /go/ path or an
 // amazon.* host, and leaves editorial and internal links alone.
+//
+// It also sets data-astro-prefetch="false". Astro's ClientRouter calls
+// init({ prefetchAll: true }) whenever View Transitions are enabled, so every
+// same-origin link is fetched on hover. A /go/ link is a redirector: the
+// prefetch follows the 302 to the tagged Amazon URL, and Amazon counts that
+// request as an affiliate click with no purchase behind it. That inflated the
+// click count ~10x (236 dashboard clicks vs 25 real tracked clicks) and risks
+// the Associates account. Disabling prefetch per-link keeps it on for internal
+// navigation, where it is genuinely useful.
 const AFFILIATE_REL = "sponsored nofollow";
 
 function isAffiliateUrl(href) {
@@ -36,6 +45,8 @@ function mergeRel(properties) {
   if (typeof properties.target !== "string" || !properties.target) {
     properties.target = "_blank";
   }
+  // See the header comment: a prefetched /go/ link is an Amazon click.
+  properties.dataAstroPrefetch = "false";
 }
 
 function walk(node) {
