@@ -66,9 +66,33 @@ export default async function handler(
     return;
   }
 
+  // Server-side logging for go/ redirects to support attribution (privacy-preserving)
+  const logGoRedirect = (p: Record<string, unknown>) => {
+    try {
+      // no-op in dev/build; Vercel will capture stdout/stderr
+      console.log(JSON.stringify(p));
+    } catch (e) {
+      // ignore
+    }
+  };
   const country = (req.headers["x-vercel-ip-country"] as string) ?? "";
   const { domain, tag } = MARKETPLACES[country] ?? DEFAULT_MARKETPLACE;
 
+  logGoRedirect({
+    ts: new Date().toISOString(),
+    key,
+    asin,
+    country,
+    domain,
+    ua: req.headers["user-agent"] ?? "",
+    referer: req.headers["referer"] ?? req.headers["referrer"] ?? "",
+    ip:
+      req.headers["x-vercel-forwarded-for"]?.toString().split(",")[0].trim() ??
+      req.headers["x-real-ip"]?.toString() ??
+      "",
+    path: url.pathname,
+    query: url.search,
+  });
   res.writeHead(302, {
     Location: `https://www.${domain}/dp/${asin}?tag=${tag}`,
     "Cache-Control": "no-store",
