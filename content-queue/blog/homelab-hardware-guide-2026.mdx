@@ -27,7 +27,7 @@ Buy in this order, not by whatever's cheapest first. Compute without a way to ne
 
 The goal at this tier is one always-on box that can run Proxmox or a bare Docker host, plus a router capable of at least basic VLANs.
 
-**Compute:** an Intel N100 mini PC. I've compared the current options in depth in [Best Mini PC for Homelab 2026](/blog/best-mini-pc-homelab-2026/) - the short version is the [Beelink S12 Pro*](/go/4gGnuZ3), a single 2.5GbE port and 7-9W idle draw. The dual-NIC EQ12 this guide used to recommend is no longer sold on amazon.de.
+**Compute:** an Intel N100 mini PC. I've compared the current options in depth in [Best Mini PC for Homelab 2026](/blog/best-mini-pc-homelab-2026/) - the short version is the Beelink S12 Pro, a single 2.5GbE port and 7-9W idle draw. The dual-NIC EQ12 this guide used to recommend is no longer sold on amazon.de.
 
 **Network:** at this budget, a consumer router with VLAN support is defensible, but if IaC-managed networking is part of the point of the homelab, the [MikroTik RB5009*](/go/4w08b21) at ~€180 is worth stretching for even at this tier - see the full [MikroTik vs Ubiquiti comparison](/blog/mikrotik-vs-ubiquiti-home-network-2026/) for why.
 
@@ -37,11 +37,11 @@ The goal at this tier is one always-on box that can run Proxmox or a bare Docker
 
 This is where a homelab stops being "a box under the desk" and starts needing actual rack infrastructure, redundant edge devices, and a proper NAS.
 
-**Compute:** step up to a Ryzen mobile chip if you're running more than a handful of containers or any local LLM inference - the [BMAX Ryzen 7 8745HS*](/go/4bv3yF1) is the one I run the successor generation of myself, documented in the [hardware tour](/blog/homelab-hardware-tour-physical-rack/).
+**Compute:** step up to a Ryzen mobile chip if you're running more than a handful of containers or any local LLM inference - I run an older BMAX B5A Pro, and the current BMAX Ryzen 7 8745HS is its successor. The [hardware tour](/blog/homelab-hardware-tour-physical-rack/) documents what is actually in my rack.
 
 **Storage/NAS:** a 2-bay NAS with real RAID 1 redundancy. My pick and the reasoning behind it is in [Best NAS for Home Backup 2026](/blog/best-nas-home-backup-2026/) - currently the Synology DS225+.
 
-**Edge/DNS redundancy:** a pair of Raspberry Pis for DNS and Keepalived failover, not a single point of failure. I'd buy the [Raspberry Pi 5 (8GB)*](/go/4wETNfv) today over the 4B I started with - the performance jump for containerized workloads is worth the difference at this budget tier. If you want the fuller alternatives comparison first, see [Raspberry Pi 5 Alternatives Compared](/blog/raspberry-pi-5-alternatives-2026/).
+**Edge/DNS redundancy:** a pair of Raspberry Pis for DNS and Keepalived failover, not a single point of failure. I run the Pi 4B I started with; if you are buying today, the [Raspberry Pi 5 Alternatives Compared](/blog/raspberry-pi-5-alternatives-2026/) covers the current options and the performance difference.
 
 **Rack basics:** a compact enclosure keeps cable chaos contained once you're past two or three devices. I use a [DIGITUS 10-Inch 6U Wall Mounting Cabinet*](/go/4pGBkxb) - full reasoning on 10" vs 19" in the hardware tour above.
 
