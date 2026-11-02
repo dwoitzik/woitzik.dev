@@ -1,0 +1,111 @@
+---
+title: "Homelab Gift Guide 2026: Gear I Actually Use"
+description: "A gift guide for the person who self-hosts: rack hardware, tools, network gear and books I run in my own lab, with honest notes on what to skip."
+date: "2026-11-17"
+tags: ["Hardware", "Homelab", "Review"]
+---
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Buying a gift for someone who runs a homelab is harder than buying for someone who just wants a laptop. The wrong switch, the wrong rack size, or a second device that does the same job as the one already in the rack is worse than no gift at all. This list is deliberately narrow: it is gear I run in my own setup, documented in the [full hardware tour](/blog/homelab-hardware-tour-physical-rack/), not a list of sponsored picks.
+
+Prices move constantly, especially around Black Friday. I have left hard prices out on purpose. Check the current listing before you buy, and read the [Black Friday checklist](/blog/homelab-black-friday-2026/) if you are shopping during sale week.
+
+## First: what does their lab already have?
+
+A gift only helps if it fills a real gap. A few questions narrow it down faster than any list:
+
+- **No always-on machine yet?** Start with compute or a Raspberry Pi, not rack hardware.
+- **Already running a mini PC or Proxmox host?** Tools, storage and cooling are safer than another computer.
+- **Rack already built?** Ask for the rack width. A 10-inch accessory does not fit a 19-inch cabinet, and the reverse is also true.
+- **No backup target?** An external drive is the least glamorous and most useful gift on this page.
+
+If you do not know the answer, a book or a tool kit is the low-risk option.
+
+## For someone building their first node
+
+### Raspberry Pi 4 starter kit
+
+I started with the [db-tronic Raspberry Pi 4 (8GB) Starter Set*](/go/4wNS0oI), and it is still the easiest way to get a first always-on node running without sourcing a case, power supply and SD card separately. It is enough for DNS, a reverse proxy, monitoring, or a small Docker host.
+
+The Pi 4 is not a compute substitute for a mini PC. It is a good first step for someone who wants to learn Linux and container basics without spending mini-PC money. If they already have a Pi, do not buy a second one as a surprise; two identical Pis are only useful if the person has a specific redundancy plan. My own pair runs [edge DNS with Keepalived failover](/blog/unbound-adguard-keepalived-homelab/), which was a deliberate design choice, not a spare-parts accident.
+
+### External backup drive
+
+I use a [Seagate Portable 2TB External HDD*](/go/4vxwLpY) as a directly attached backup target. It is not a complete 3-2-1 strategy on its own, but it is the difference between having a backup and having a plan. For a first homelab, that is a better gift than another compute node.
+
+Pair it with the [backup restore test article](/blog/backup-restore-test-never-verified-network-conflict) if you want the gift to come with homework. An untested backup is a rumour.
+
+### Memory for an existing mini PC
+
+If they already run a mini PC and complain about containers getting killed, memory is often the real bottleneck. I upgraded my node with a [Crucial 64GB DDR4 SODIMM Kit*](/go/3QZejZn) and would buy the same brand again for a 24/7 box. Mini-PC platforms can be picky about memory compatibility, and stability matters more than the fastest kit on paper.
+
+Check the exact generation first. DDR4 and DDR5 are not interchangeable, and a gift that does not fit is not a gift.
+
+## For someone with a rack
+
+### A small rack cabinet
+
+I use a [DIGITUS 10-Inch 6U Wall Mounting Cabinet*](/go/4pGBkxb). Ten inches rather than nineteen was a deliberate choice: it mounts on a wall without studs, the smaller volume contains noise better, and every device I run has a 10-inch option. A 19-inch rack in a home office is usually overkill unless the person is running full-size servers.
+
+Do not buy this without checking the rack width they already use. A cabinet is the one gift on this list where a surprise is likely to be returned.
+
+### Shelving and airflow
+
+For mounting Raspberry Pis and smaller devices, I use a [DIGITUS 1U 10-Inch Perforated Shelf*](/go/456lv9g). The perforation matters: it lets air move through the shelf instead of trapping heat around the boards.
+
+For a closed rack, I added [ARCTIC P12 120mm Fans*](/go/44vgXJy) as exhaust. The difference was measurable in my own rack: the Proxmox host's NVMe was hitting 72°C under sustained summer load, and exhaust fans brought it down to 58°C. Mount them as exhaust, not intake, in a small closed cabinet.
+
+### Power distribution and monitoring
+
+A [DIGITUS 4-Way 10-Inch PDU*](/go/3RiBttM) keeps the power side of a small rack tidy. It is not exciting, which is exactly why it makes a good gift: nobody wants to admit they need one.
+
+For power costs, I run the rack through a [TP-Link Tapo P110 Smart Plug with Energy Monitoring*](/go/3STKPwD). In Germany, knowing the actual idle draw is the difference between a useful upgrade and an expensive space heater. It also makes a good gift for someone who keeps guessing what their lab costs.
+
+### Cable management
+
+I use a [15m roll of Velcro cable ties*](/go/4bnvY3K) instead of zip ties. Reusable ties do not damage the copper when the rack changes, and a homelab rack changes constantly. This is a small, cheap gift that gets used.
+
+## For the network side
+
+### MikroTik RB5009
+
+My core router is a [MikroTik RB5009*](/go/4w08b21). It replaced a separate router and switch, and it gives me VLAN filtering, firewall rules and WireGuard termination in one box managed through Terraform. It is not a plug-and-play consumer router, so it is a good gift only for someone who actually wants to learn RouterOS.
+
+If they are still deciding between ecosystems, the [MikroTik vs Ubiquiti comparison](/blog/mikrotik-vs-ubiquiti-home-network-2026/) is the article to read first. Buying a router for someone else without knowing which ecosystem they have picked is a good way to start a network argument.
+
+### Patch cables
+
+Short [deleyCON 0.5m CAT7 Patch Cables*](/go/4plOgZ5) are the unglamorous consumable of every rack. Fifty-centimetre cables keep a small rack clean without cable management bars. Buy the length the rack actually needs, not the longest one in the listing.
+
+## Tools that earn their place
+
+### iFixit Pro Tech Toolkit
+
+I reach for the [iFixit Pro Tech Toolkit*](/go/4wKbVEW) every time I open a mini PC or swap an M.2 drive. It has the security bits that consumer tool kits miss, and it is the closest thing to a lifetime purchase in this list.
+
+### Label maker
+
+I use a [Brother PT-H110 Label Maker*](/go/4wcr4PG) for patch panels and cables. This is the gift I would buy before the rack, not after the third time tracing an unlabelled cable. It sounds boring until you have spent twenty minutes on a cable you swore you would remember.
+
+### Books
+
+Books are the safest homelab gift because they do not need to match a rack width or a memory generation.
+
+- [Designing Data-Intensive Applications by Martin Kleppmann*](/go/4aUtkCs) is the book I recommend for anyone running databases or distributed systems, even at homelab scale.
+- [The Phoenix Project by Gene Kim*](/go/4f4RHQf) is the one to give someone who works in operations and needs a novel that feels painfully familiar.
+- [The Linux Command Line by William Shotts*](/go/4gEAhv9) is the best starting point for someone who is comfortable with a desktop but not with a headless server.
+- [Netzwerke: Verstehen, Einrichten, Administrieren*](/go/4f3kTar) is the German-language networking book I recommend when someone wants the fundamentals in German rather than translated jargon.
+
+## What I would not buy as a surprise
+
+- **A second compute node.** Without a plan for clustering, redundancy or a specific workload, it becomes another device to patch.
+- **A 19-inch rack for a first homelab.** It takes space, needs airflow planning, and most starters do not fill it.
+- **A managed switch with no VLAN plan.** The hardware is fine; the gift creates work.
+- **Any subscription that expires.** A one-year service is a bill disguised as a present.
+
+## The short version
+
+If you know nothing about their setup, buy a book or the iFixit kit. If they are building their first node, the Pi starter set or the external drive is the useful gift. If they already have a rack, stay inside the rack width they use and buy consumables: fans, cables, Velcro, a PDU.
+
+The full list of what I run, and why, is in the [hardware tour](/blog/homelab-hardware-tour-physical-rack/). If you are shopping during sale week, read the [Black Friday checklist](/blog/homelab-black-friday-2026/) before you trust a discount badge.

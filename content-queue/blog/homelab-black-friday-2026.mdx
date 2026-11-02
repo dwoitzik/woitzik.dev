@@ -1,0 +1,76 @@
+---
+title: "Homelab Black Friday 2026: A Checklist, Not a Deal Feed"
+description: "How to tell a real homelab discount from a fake one during Black Friday and Cyber Monday 2026, plus the gear I would actually buy if it drops."
+date: "2026-11-17"
+tags: ["Hardware", "Homelab", "Review"]
+---
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+
+Black Friday 2026 falls on 27 November, with Cyber Monday on 30 November. Every year the same pattern appears: a wall of "deals" posts, most of them generated from an affiliate feed, many of them listing products the author has never touched. I am not going to pretend I know which homelab products will be discounted this year. I do not. What I can do is show the checks I use before buying anything for my own rack.
+
+## The discount badge is not the deal
+
+A struck-through price is a claim, not evidence. Retailers can raise a list price before a sale and then "discount" it back to the normal price. The only number that matters is what the product actually sold for over the last few weeks.
+
+Before buying, check the price history:
+
+- **CamelCamelCamel** and **Keepa** track Amazon price history. Look at the 30-day and 90-day range, not the percentage on the page.
+- **The current price versus the usual price.** If the sale price is within a few euros of the normal range, it is not a deal; it is a normal day with a red badge.
+- **The seller.** "Sold by Amazon" and a third-party marketplace seller are not the same purchase. Check who ships it and who handles the return.
+- **The exact configuration.** A cheap listing often swaps the RAM, SSD or CPU generation without changing the product name. That is how a 16GB model becomes a "discount" on a 32GB claim.
+
+## My rule: buy the project, not the discount
+
+The most expensive homelab purchase is the one you did not plan for. A discount on a device you do not need is still money spent, and it takes rack space, power and attention after the sale ends.
+
+I use one test before buying: **does this replace something broken, or does it complete a project that is already planned?** If the answer is no, the discount is irrelevant.
+
+That rule eliminates most of the temptation. It also means the useful Black Friday list is short.
+
+## If you already know what you need
+
+This is the gear I run myself. I am not claiming any of it will be discounted. I am saying that if it is on your list anyway, these are the versions I would check first.
+
+### Backup target
+
+A [Seagate Portable 2TB External HDD*](/go/4vxwLpY) is the least exciting purchase on this page and the one most likely to save you. It is my directly attached backup target, not a complete 3-2-1 strategy. If you do not have a backup target yet, buy this before any compute upgrade.
+
+Read the [backup restore test writeup](/blog/backup-restore-test-never-verified-network-conflict) before you trust it with data.
+
+### Memory for an existing mini PC
+
+If containers are getting OOM-killed, check memory before buying a new machine. I upgraded my node with a [Crucial 64GB DDR4 SODIMM Kit*](/go/3QZejZn). Match the generation exactly: DDR4 and DDR5 are not interchangeable.
+
+The [k3s OOM cascade article](/blog/k3s-cascading-failure-oomkill-dns-storm) is the long version of why this upgrade mattered in my lab.
+
+### Cooling and cable management
+
+A closed rack traps heat. I added [ARCTIC P12 120mm Fans*](/go/44vgXJy) as exhaust after watching an NVMe drive hit 72°C in summer. That is a real measurement from my rack, not a benchmark from a product page.
+
+For cables, [Velcro cable ties*](/go/4bnvY3K) beat zip ties because the rack changes. Both are small purchases that are easy to justify if you already have the rack.
+
+### Tools
+
+The [iFixit Pro Tech Toolkit*](/go/4wKbVEW) is the tool kit I reach for when opening a mini PC or swapping an M.2 drive. The [Brother PT-H110 Label Maker*](/go/4wcr4PG) is the one I would buy before building a rack, not after.
+
+### Network gear
+
+The [MikroTik RB5009*](/go/4w08b21) is my core router. It is a bad impulse buy: RouterOS is not a consumer interface, and it only makes sense if you already plan to manage the network as code. Read the [MikroTik vs Ubiquiti comparison](/blog/mikrotik-vs-ubiquiti-home-network-2026/) before choosing an ecosystem.
+
+### Books
+
+Books do not go stale like hardware listings. [Designing Data-Intensive Applications*](/go/4aUtkCs), [The Phoenix Project*](/go/4f4RHQf), [The Linux Command Line*](/go/4gEAhv9) and [Netzwerke: Verstehen, Einrichten, Administrieren*](/go/4f3kTar) are the four I recommend most often.
+
+## What I would skip
+
+- **A second compute node without a plan.** Two nodes without clustering or a specific workload are just two machines to patch.
+- **A 19-inch rack for a first homelab.** Check the [hardware tour](/blog/homelab-hardware-tour-physical-rack/) for why I chose 10-inch instead.
+- **A "deal" on a discontinued model.** The Beelink EQ12 is the example I keep using because it was recommended here before it disappeared from amazon.de. A discount on hardware you cannot buy replacement parts for is not a bargain.
+- **Anything with a subscription attached.** A discounted device that requires a monthly service is a bill with a welcome offer.
+
+## A shorter version
+
+If you are shopping for someone else, the [homelab gift guide](/blog/homelab-gift-guide-2026/) is organized by what they already own, not by discount percentage. If you are shopping for yourself, write the project down first, then check the price history. The sale is only useful if the project was already real.
+
+I will not be updating this page with a live deal feed. A page that claims to track prices in real time is usually tracking clicks.
