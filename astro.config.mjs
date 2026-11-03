@@ -8,6 +8,7 @@ import tailwind from "@astrojs/tailwind";
 import rehypeSlug from "rehype-slug";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import rehypeAffiliateRel from "./src/plugins/rehype-affiliate-rel.mjs";
+import rehypeInternalTrailingSlash from "./src/plugins/rehype-internal-trailing-slash.mjs";
 
 const contentRoot = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -186,6 +187,7 @@ export default defineConfig({
       rehypeSlug,
       [rehypeAutolinkHeadings, { behavior: "wrap" }],
       rehypeAffiliateRel,
+      rehypeInternalTrailingSlash,
     ],
   },
 });
