@@ -5,6 +5,18 @@
   "redirects": [
     { "source": "/agb", "destination": "/legal/", "permanent": true },
     { "source": "/widerruf", "destination": "/legal/", "permanent": true },
-    { "source": "/widerrufsbutton", "destination": "/legal/", "permanent": true }
+    { "source": "/widerrufsbutton", "destination": "/legal/", "permanent": true },
+    { "source": "/blog", "destination": "/blog/", "permanent": true },
+    { "source": "/blog/:slug", "destination": "/blog/:slug/", "permanent": true },
+    { "source": "/blog/tag/:tag", "destination": "/blog/tag/:tag/", "permanent": true },
+    { "source": "/tools", "destination": "/tools/", "permanent": true },
+    { "source": "/tools/:slug", "destination": "/tools/:slug/", "permanent": true },
+    { "source": "/projects", "destination": "/projects/", "permanent": true },
+    { "source": "/projects/:slug", "destination": "/projects/:slug/", "permanent": true },
+    { "source": "/certs", "destination": "/certs/", "permanent": true },
+    { "source": "/legal", "destination": "/legal/", "permanent": true },
+    { "source": "/accessibility", "destination": "/accessibility/", "permanent": true },
+    { "source": "/templates", "destination": "/templates/", "permanent": true },
+    { "source": "/search", "destination": "/search/", "permanent": true }
   ]
 }
