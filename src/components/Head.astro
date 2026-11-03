@@ -24,6 +24,7 @@ interface Props {
   // this page. Each entry must also carry the language code so the tags below
   // form a complete hreflang cluster including x-default.
   alternates?: { href: string; hreflang: string }[];
+  noindex?: boolean;
 }
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
@@ -37,6 +38,7 @@ const {
   tags,
   lang = "en",
   alternates = [],
+  noindex = false,
 } = Astro.props;
 
 // x-default always points at the English version of a translated page: that's
@@ -64,7 +66,7 @@ const hreflangLinks = alternates.length
 <!-- Global Metadata -->
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<meta name="robots" content="index, follow" />
+<meta name="robots" content={noindex ? "noindex, follow" : "index, follow"} />
 <link
   rel="icon"
   type="image/svg+xml"
@@ -124,11 +126,11 @@ const hreflangLinks = alternates.length
 {tags && tags.map((tag) => <meta property="article:tag" content={tag} />)}
 
 <!-- Twitter -->
-<meta property="twitter:card" content="summary_large_image" />
-<meta property="twitter:url" content={canonicalURL} />
-<meta property="twitter:title" content={title} />
-<meta property="twitter:description" content={description} />
-<meta property="twitter:image" content={new URL(image, canonicalURL)} />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:url" content={canonicalURL} />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={new URL(image, canonicalURL)} />
 
 <!-- Schema.org JSON-LD.
 

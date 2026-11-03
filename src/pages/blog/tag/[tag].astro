@@ -22,13 +22,10 @@ export async function getStaticPaths() {
 const { tag, posts } = Astro.props;
 const description =
   (tagDescriptions as Record<string, string>)[tag] ??
-  `All articles tagged with ${tag}.`;
+  `Articles tagged ${tag} on woitzik.dev — hands-on infrastructure guides, homelab notes, and troubleshooting write-ups.`;
 ---
 
-<PageLayout
-  title={`${tag} articles`}
-  description={`All articles tagged with ${tag} on woitzik.dev`}
->
+<PageLayout title={`${tag} articles`} description={description}>
   <Container>
     <div class="space-y-8">
       <div class="animate space-y-1">

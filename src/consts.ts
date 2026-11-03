@@ -17,15 +17,18 @@ export const HOME: Metadata = {
 
 export const BLOG: Metadata = {
   TITLE: "Blog",
-  DESCRIPTION: "Thoughts on infrastructure, automation and cloud.",
+  DESCRIPTION:
+    "Hands-on guides on Kubernetes, Azure, Terraform, homelab hardware, and backup/restore — field notes from production and a three-node K3s cluster.",
 };
 
 export const PROJECTS: Metadata = {
   TITLE: "Projects",
-  DESCRIPTION: "A collection of my work and homelab experiments.",
+  DESCRIPTION:
+    "Infrastructure projects and homelab experiments: Azure landing zones, private networking, certificate automation, Kubernetes, and self-hosted services.",
 };
 
 export const CERTS = {
   TITLE: "Certifications",
-  DESCRIPTION: "My professional certifications and badges.",
+  DESCRIPTION:
+    "Microsoft Azure, security, and HashiCorp Terraform certifications with issue dates and the hands-on work behind each badge.",
 };

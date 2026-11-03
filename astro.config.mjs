@@ -110,6 +110,7 @@ export default defineConfig({
   integrations: [
     mdx(),
     sitemap({
+      filter: (page) => page !== "https://woitzik.dev/search/",
       namespaces: { xhtml: true },
       // Google reads the hreflang cluster from the sitemap as well as from the
       // page head. Emitting it here means the relationship between an English

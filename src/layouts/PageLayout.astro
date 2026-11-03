@@ -14,6 +14,7 @@ type Props = {
   tags?: string[];
   lang?: "en" | "de";
   alternates?: { href: string; hreflang: string }[];
+  noindex?: boolean;
 };
 
 const {
@@ -25,6 +26,7 @@ const {
   tags,
   lang = "en",
   alternates = [],
+  noindex = false,
 } = Astro.props;
 ---
 
@@ -40,6 +42,7 @@ const {
       tags={tags}
       lang={lang}
       alternates={alternates}
+      noindex={noindex}
     />
     <script
       src="https://analytics.woitzik.dev/api/script.js"
