@@ -48,7 +48,7 @@ const RAID_LEVELS = [
     minDrives: 2,
     parity: 1,
     tolerance: 1,
-    note: "Synology's flexible RAID. Sized like RAID 5, but you can mix drive capacities and expand later without a rebuild.",
+    note: "Synology's flexible RAID. Single parity like RAID 5, but mixed drive sizes are used in full and the pool can grow later by adding or swapping drives.",
   },
   {
     id: "shr2",
@@ -81,6 +81,17 @@ function usableCapacity(
       return smallest;
     case "raid10":
       return Math.floor(count / 2) * smallest;
+    case "shr1":
+    case "shr2":
+      // SHR slices drives and builds RAID across the slices, so only the
+      // largest drive (SHR-1) or two largest (SHR-2) are lost to parity.
+      return (
+        total -
+        [...sizes]
+          .sort((a, b) => b - a)
+          .slice(0, level.parity)
+          .reduce((sum, size) => sum + size, 0)
+      );
     default:
       return (count - level.parity) * smallest;
   }
@@ -104,7 +115,7 @@ const faqs = [
   },
   {
     q: "How do mixed drive sizes change the result?",
-    a: "Every parity-based level is limited by the smallest drive in the array. A 4 TB + 2 TB pair in SHR-1 gives 2 TB usable, not 6 TB, because the 4 TB drive cannot hold parity for a capacity the 2 TB drive cannot match. SHR and RAID 10 let you start small and expand later; classic RAID 5 and 6 generally want matching drives.",
+    a: "Classic RAID 5, 6 and 10 treat every drive as if it were the smallest one, so extra capacity on larger drives is unused. SHR slices drives and builds RAID across the slices, so usable capacity is the total minus the largest drive (SHR-1) or the two largest (SHR-2). A 4 TB + 2 TB pair in SHR-1 still gives 2 TB, because the mirror can only be as big as the smaller drive, but 2 + 4 + 4 TB gives 6 TB in SHR-1 where RAID 5 gives 4 TB.",
   },
   {
     q: "Which RAID level should a home NAS use?",
@@ -324,12 +335,14 @@ const related = [
     How this is calculated
   </h2>
   <p class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed m-0">
-    Parity-based levels store one parity stripe per drive group for RAID 5 and
-    SHR-1, and two for RAID 6 and SHR-2, so usable capacity is the drive count
-    minus the parity count, multiplied by the <em>smallest</em> drive in the array.
-    RAID 1 mirrors every drive, so only one drive's worth survives. RAID 10 mirrors
-    in pairs, giving half the count at the smallest drive size. RAID 0 stripes with
-    no redundancy, so usable capacity equals the sum of all drives.
+    RAID 5 stores one parity stripe per drive group and RAID 6 two, so usable
+    capacity is the drive count minus the parity count, multiplied by the
+    <em>smallest</em> drive in the array. SHR-1 and SHR-2 use the full size of mixed
+    drives, so usable capacity is the total minus the largest drive (SHR-1) or the
+    two largest drives (SHR-2). RAID 1 mirrors every drive, so only one drive's worth
+    survives. RAID 10 mirrors in pairs, giving half the count at the smallest drive
+    size. RAID 0 stripes with no redundancy, so usable capacity equals the sum of
+    all drives.
   </p>
   <p class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed">
     Planning the hardware? The
@@ -397,7 +410,7 @@ const related = [
       minDrives: 2,
       parity: 1,
       tolerance: 1,
-      note: "Synology's flexible RAID. Sized like RAID 5, but you can mix drive capacities and expand later without a rebuild.",
+      note: "Synology's flexible RAID. Single parity like RAID 5, but mixed drive sizes are used in full and the pool can grow later by adding or swapping drives.",
     },
     shr2: {
       name: "SHR-2 (Synology Hybrid RAID)",
@@ -432,6 +445,15 @@ const related = [
         : smallest;
     }
     if (level.parity === 0) return total;
+    if (level.name.startsWith("SHR")) {
+      // SHR slices drives and builds RAID across the slices, so only the
+      // largest drive (SHR-1) or two largest (SHR-2) are lost to parity.
+      const largest = [...sizes]
+        .sort((a, b) => b - a)
+        .slice(0, level.parity)
+        .reduce((sum, size) => sum + size, 0);
+      return total - largest;
+    }
     return (count - level.parity) * smallest;
   }
 
