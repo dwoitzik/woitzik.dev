@@ -18,7 +18,7 @@ export const HOME: Metadata = {
 export const BLOG: Metadata = {
   TITLE: "Blog",
   DESCRIPTION:
-    "Hands-on guides on Kubernetes, Azure, Terraform, homelab hardware, and backup/restore — field notes from production and a three-node K3s cluster.",
+    "Hands-on guides on Kubernetes, Azure, Terraform, homelab hardware, and backup/restore, written from production work and a three-node k3s cluster.",
 };
 
 export const PROJECTS: Metadata = {

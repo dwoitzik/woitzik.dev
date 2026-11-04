@@ -1,11 +1,11 @@
 ---
 title: "Azure Hub & Spoke Network"
-description: "Production-ready Terraform template for a standard Hub & Spoke topology in Azure — VNet peering, Zero-Trust NSGs, centralized Private DNS, free to use."
+description: "Terraform template for a standard Hub & Spoke topology in Azure: VNet peering, Zero-Trust NSGs, and centralized Private DNS. Free and MIT licensed."
 date: "2026-01-15"
 repoURL: "https://github.com/dwoitzik/terraform-azurerm-hub-spoke"
 ---
 
-A clean, deployable Hub & Spoke foundation for Azure. Establishes isolated Spoke VNets connected via bidirectional VNet peering to a central Hub — ready for workload deployment in minutes.
+A deployable Hub & Spoke foundation for Azure. Two isolated Spoke VNets connect to a central Hub through bidirectional VNet peering, ready for workloads.
 
 ### What's included
 
@@ -13,6 +13,6 @@ A clean, deployable Hub & Spoke foundation for Azure. Establishes isolated Spoke
 - Two pre-configured Spoke VNets with bidirectional peering
 - Zero-Trust NSG baseline bound to every spoke subnet
 - Centralized Private DNS Zones with DINE-policy-safe lifecycle rules
-- Clean variable structure — customize via `terraform.tfvars`
+- All settings in one place: `terraform.tfvars`
 
-Free and MIT licensed — see the [full module](/templates/).
+Free and MIT licensed. See the [full module](/templates/).

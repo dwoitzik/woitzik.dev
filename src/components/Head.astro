@@ -47,7 +47,7 @@ const {
 // x-default equal to its own canonical tells a crawler nothing, so emit none.
 //
 // The cluster also has to list the page itself. A canonical URL is not an
-// hreflang self-reference — Google requires every URL in the set, including
+// hreflang self-reference - Google requires every URL in the set, including
 // its own, or it discards the annotations as incomplete.
 const ownLang = lang === "de" ? "de" : "en";
 const englishAlternate = alternates.find((a) => a.hreflang === "en");

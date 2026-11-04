@@ -1,17 +1,17 @@
 ---
 title: "Azure OpenAI RAG Network"
-description: "Terraform template for a zero-trust Azure OpenAI + AI Search deployment — VNet injection, Private DNS, and RBAC identity chaining."
+description: "Terraform template for a zero-trust Azure OpenAI and AI Search deployment: Private Endpoints, Private DNS, and Managed Identity RBAC instead of keys."
 date: "2026-03-10"
 repoURL: "https://github.com/dwoitzik/terraform-azurerm-openai-rag"
 ---
 
-Network foundation for a production AI RAG stack on Azure. Deploys Azure OpenAI and AI Search with VNet injection and Private DNS — no public endpoint exposure.
+Network foundation for a RAG stack on Azure. Deploys Azure OpenAI and AI Search behind Private Endpoints with matching Private DNS zones. Neither service has a public endpoint.
 
 ### What's included
 
-- Azure OpenAI + AI Search with VNet injection
-- Private Endpoints for both services (no public network access)
-- Private DNS Zones for both services
-- System Managed Identities with RBAC chaining — no shared keys, no manual Portal approval steps
+- Azure OpenAI and AI Search with Private Endpoints on a dedicated subnet
+- Public network access disabled on both services
+- Private DNS Zones for both services, linked to the VNet
+- AI Search calls Azure OpenAI with its System-Assigned Managed Identity and the `Cognitive Services OpenAI User` role: no shared keys, no manual Private Endpoint approval
 
-Free and MIT licensed — see the [full module](/templates/).
+Free and MIT licensed. See the [full module](/templates/).

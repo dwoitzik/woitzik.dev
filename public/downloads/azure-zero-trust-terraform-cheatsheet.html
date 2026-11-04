@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Azure Zero-Trust Terraform Cheat Sheet — woitzik.dev</title>
+  <title>Azure Zero-Trust Terraform Cheat Sheet | woitzik.dev</title>
   <link rel="canonical" href="https://woitzik.dev/downloads/azure-zero-trust-terraform-cheatsheet.html" />
   <meta name="description" content="Terraform cheat sheet for Azure zero-trust networks: private endpoints, NSGs, Private Link, route tables and the resource blocks that go with them, copy-paste ready." />
   <meta property="og:type" content="article" />
@@ -105,7 +105,7 @@
       margin-bottom: 6px;
     }
 
-    /* ── Section wrapper — groups a heading with its first content block so
+    /* ── Section wrapper - groups a heading with its first content block so
        the heading never gets orphaned at the bottom of a page while the
        content it introduces gets pushed to the next page. ── */
     .section { margin-top: 16px; }
@@ -235,10 +235,10 @@
   </header>
 
   <!-- ─────────────────────────────────────────────
-       SECTION 1 — NSG Default-Deny Baseline
+       SECTION 1: NSG Default-Deny Baseline
   ───────────────────────────────────────────── -->
   <div class="section no-break">
-  <h2>1 — NSG Default-Deny Baseline</h2>
+  <h2>1: NSG Default-Deny Baseline</h2>
 
   <div class="card" style="margin-bottom: 12px;">
     <div class="card-header"><span class="dot"></span>Deny-All Outbound (ISO 27001 baseline)</div>
@@ -260,7 +260,7 @@
 
   <div class="card no-break">
     <div class="card-header"><span class="dot"></span>Deny-All Inbound + Allow VNet Internal</div>
-<pre><span class="cm"># 4095 — allow internal VNet traffic</span>
+<pre><span class="cm"># 4095: allow internal VNet traffic</span>
 <span class="cf">resource</span> <span class="cs">"azurerm_network_security_rule"</span> <span class="cs">"allow_vnet_in"</span> {
   priority                   = <span class="cv">4095</span>
   direction                  = <span class="cs">"Inbound"</span>
@@ -270,7 +270,7 @@
   destination_address_prefix = <span class="cs">"VirtualNetwork"</span>
   <span class="cm"># ... (name, rg, nsg_name)</span>
 }
-<span class="cm"># 4096 — deny everything else</span>
+<span class="cm"># 4096: deny everything else</span>
 <span class="cf">resource</span> <span class="cs">"azurerm_network_security_rule"</span> <span class="cs">"deny_all_in"</span> {
   priority  = <span class="cv">4096</span>
   direction = <span class="cs">"Inbound"</span>
@@ -279,15 +279,15 @@
 }</pre>
   </div>
 
-  <div class="tip"><strong>Rule:</strong> Always set 4096 deny-all as the last rule. Never rely on Azure's implicit deny — make it explicit for audit evidence.</div>
+  <div class="tip"><strong>Rule:</strong> Always set 4096 deny-all as the last rule. Never rely on Azure's implicit deny. Make it explicit for audit evidence.</div>
 
   <!-- ─────────────────────────────────────────────
-       SECTION 2 — Private Endpoint Pattern
+       SECTION 2: Private Endpoint Pattern
   ───────────────────────────────────────────── -->
   <div class="section no-break">
-  <h2>2 — Private Endpoint + Automatic DNS</h2>
+  <h2>2: Private Endpoint + Automatic DNS</h2>
   <div class="card">
-    <div class="card-header"><span class="dot"></span>Key Vault — full Private Link stack (works identically for Storage, ACR, SQL)</div>
+    <div class="card-header"><span class="dot"></span>Key Vault: full Private Link stack (works identically for Storage, ACR, SQL)</div>
 <pre><span class="cf">resource</span> <span class="cs">"azurerm_private_endpoint"</span> <span class="cs">"kv"</span> {
   name                = <span class="cs">"pe-kv-${var.environment}"</span>
   location            = <span class="ck">var</span>.location
@@ -323,14 +323,14 @@
   </div>
 
   <div class="section no-break">
-  <h2>Private DNS Zone Names — Quick Reference</h2>
+  <h2>Private DNS Zone Names: Quick Reference</h2>
   <div class="card">
     <table>
       <thead><tr><th>Service</th><th>subresource_names</th><th>Private DNS Zone</th></tr></thead>
       <tbody>
         <tr><td>Key Vault</td><td><code>["vault"]</code></td><td><code>privatelink.vaultcore.azure.net</code></td></tr>
-        <tr><td>Storage — Blob</td><td><code>["blob"]</code></td><td><code>privatelink.blob.core.windows.net</code></td></tr>
-        <tr><td>Storage — File</td><td><code>["file"]</code></td><td><code>privatelink.file.core.windows.net</code></td></tr>
+        <tr><td>Storage: Blob</td><td><code>["blob"]</code></td><td><code>privatelink.blob.core.windows.net</code></td></tr>
+        <tr><td>Storage: File</td><td><code>["file"]</code></td><td><code>privatelink.file.core.windows.net</code></td></tr>
         <tr><td>Azure SQL</td><td><code>["sqlServer"]</code></td><td><code>privatelink.database.windows.net</code></td></tr>
         <tr><td>Azure Container Registry</td><td><code>["registry"]</code></td><td><code>privatelink.azurecr.io</code></td></tr>
         <tr><td>Azure OpenAI</td><td><code>["account"]</code></td><td><code>privatelink.openai.azure.com</code></td></tr>
@@ -342,10 +342,10 @@
   </div>
 
   <!-- ─────────────────────────────────────────────
-       SECTION 3 — Managed Identity + RBAC
+       SECTION 3: Managed Identity + RBAC
   ───────────────────────────────────────────── -->
   <div class="section no-break">
-  <h2>3 — Managed Identity + RBAC Assignment</h2>
+  <h2>3: Managed Identity + RBAC Assignment</h2>
 
   <div class="card" style="margin-bottom: 12px;">
     <div class="card-header"><span class="dot"></span>System-Assigned (simplest)</div>
@@ -385,20 +385,20 @@
   <div class="tip"><strong>Role Principle:</strong> Always use the least-privileged built-in role. <code>Key Vault Secrets User</code> (read-only) beats <code>Key Vault Contributor</code> (control plane). Never assign <code>Owner</code> to a managed identity.</div>
 
   <!-- ─────────────────────────────────────────────
-       SECTION 4 — Forced Tunneling
+       SECTION 4 - Forced Tunneling
   ───────────────────────────────────────────── -->
   <div class="section no-break">
-  <h2>4 — Azure Firewall Forced Tunneling Routes</h2>
+  <h2>4: Azure Firewall Forced Tunneling Routes</h2>
   <div class="card">
-    <div class="card-header"><span class="dot"></span>Route table — default route + KMS / Azure AD bypass (prevents broken Windows VMs &amp; auth failures)</div>
+    <div class="card-header"><span class="dot"></span>Route table: default route + KMS / Azure AD bypass (prevents broken Windows VMs &amp; auth failures)</div>
 <pre><span class="cf">resource</span> <span class="cs">"azurerm_route_table"</span> <span class="cs">"spoke"</span> {
   name                          = <span class="cs">"rt-spoke-${var.environment}"</span>
   location                      = <span class="ck">var</span>.location
   resource_group_name           = <span class="ck">var</span>.resource_group_name
-  disable_bgp_route_propagation = <span class="cv">true</span>
+  bgp_route_propagation_enabled = <span class="cv">false</span>
 }
 
-<span class="cm"># Default route — send everything to the firewall</span>
+<span class="cm"># Default route: send everything to the firewall</span>
 <span class="cf">resource</span> <span class="cs">"azurerm_route"</span> <span class="cs">"default"</span> {
   name                   = <span class="cs">"DefaultRoute"</span>
   resource_group_name    = <span class="ck">var</span>.resource_group_name
@@ -408,30 +408,33 @@
   next_hop_in_ip_address = <span class="ck">azurerm_firewall</span>.main.ip_configuration[<span class="cv">0</span>].private_ip_address
 }
 
-<span class="cm"># KMS bypass — without this, Windows VMs fail to activate</span>
+<span class="cm"># KMS bypass (azkms.core.windows.net:1688), without this Windows VMs fail to activate</span>
 <span class="cf">resource</span> <span class="cs">"azurerm_route"</span> <span class="cs">"kms"</span> {
-  name                = <span class="cs">"KMSBypass"</span>
+  for_each            = toset([<span class="cs">"20.118.99.224/32"</span>, <span class="cs">"40.83.235.53/32"</span>])
+  name                = <span class="cs">"KMSBypass-${replace(each.key, "/", "_")}"</span>
+  resource_group_name = <span class="ck">var</span>.resource_group_name
   route_table_name    = <span class="ck">azurerm_route_table</span>.spoke.name
-  address_prefix      = <span class="cs">"168.63.129.16/32"</span>   <span class="cm"># Azure platform IP</span>
+  address_prefix      = <span class="ck">each</span>.key
   next_hop_type       = <span class="cs">"Internet"</span>
 }
 
-<span class="cm"># AzureAD bypass — prevents Managed Identity auth failures</span>
+<span class="cm"># AzureAD bypass (service tag): prevents Managed Identity auth failures</span>
 <span class="cf">resource</span> <span class="cs">"azurerm_route"</span> <span class="cs">"aad"</span> {
   name                = <span class="cs">"AzureADBypass"</span>
+  resource_group_name = <span class="ck">var</span>.resource_group_name
   route_table_name    = <span class="ck">azurerm_route_table</span>.spoke.name
   address_prefix      = <span class="cs">"AzureActiveDirectory"</span>
   next_hop_type       = <span class="cs">"Internet"</span>
 }</pre>
   </div>
-  <div class="tip"><strong>Why 168.63.129.16/32?</strong> This is Azure's internal platform IP used for KMS activation, health probes, and DNS. Routing it through a firewall drops these platform calls silently — Windows VMs will activate but show license errors hours later.</div>
+  <div class="tip"><strong>Why these two IPs?</strong> Azure KMS (<code>azkms.core.windows.net</code>, TCP 1688) resolves to 20.118.99.224 and 40.83.235.53. A forced-tunnel 0.0.0.0/0 route sends activation through the firewall, which drops it unless allowed, and Windows VMs fall into notification mode. 168.63.129.16 (DNS, health probes, DHCP) is not affected by UDRs and needs no route.</div>
   </div>
 
   <!-- ─────────────────────────────────────────────
-       SECTION 5 — DINE Policy Bypass
+       SECTION 5: DINE Policy Bypass
   ───────────────────────────────────────────── -->
   <div class="section no-break">
-  <h2>5 — DINE Policy Lifecycle Bypass</h2>
+  <h2>5: DINE Policy Lifecycle Bypass</h2>
   <div class="card">
     <div class="card-header"><span class="dot"></span>Prevent "Resource was modified after deployment" pipeline failures</div>
 <pre><span class="cf">resource</span> <span class="cs">"azurerm_private_dns_zone_virtual_network_link"</span> <span class="cs">"kv"</span> {
@@ -445,7 +448,7 @@
   }
 }
 
-<span class="cm"># Same pattern for NSGs — DeployIfNotExists policies</span>
+<span class="cm"># Same pattern for NSGs: DeployIfNotExists policies</span>
 <span class="cm"># modify NSG rules or add diagnostic settings:</span>
 <span class="cf">resource</span> <span class="cs">"azurerm_network_security_group"</span> <span class="cs">"spoke"</span> {
   <span class="cm"># ...</span>
@@ -454,53 +457,67 @@
   }
 }</pre>
   </div>
-  <div class="tip"><strong>When to use:</strong> Any resource in a tenant with Azure Policy (DINE or Modify effects). Without this, every <code>terraform plan</code> after policy remediation shows a diff — and applies break the policy-managed state.</div>
+  <div class="tip"><strong>When to use:</strong> Any resource in a tenant with Azure Policy (DINE or Modify effects). Without this, every <code>terraform plan</code> after policy remediation shows a diff, and applies break the policy-managed state.</div>
   </div>
 
   <!-- ─────────────────────────────────────────────
-       SECTION 6 — AzAPI Private Link Approval
+       SECTION 6: AzAPI Private Link Approval
   ───────────────────────────────────────────── -->
   <div class="section no-break">
-  <h2>6 — AzAPI Shared Private Link Auto-Approval (AI / Search)</h2>
+  <h2>6: AzAPI Shared Private Link Auto-Approval (AI / Search)</h2>
   <div class="card">
     <div class="card-header"><span class="dot"></span>Automate the Portal click that blocks every AI RAG deployment</div>
-<pre><span class="cf">resource</span> <span class="cs">"azapi_update_resource"</span> <span class="cs">"approve_search_link"</span> {
-  type      = <span class="cs">"Microsoft.Search/searchServices@2024-03-01-preview"</span>
-  resource_id = <span class="ck">azurerm_search_service</span>.main.id
-
-  body = {
-    properties = {
-      sharedPrivateLinkResources = [
-        {
-          name = <span class="cs">"pl-to-openai"</span>
-          properties = {
-            groupId             = <span class="cs">"openai_account"</span>
-            privateLinkResourceId = <span class="ck">azurerm_cognitive_account</span>.openai.id
-            requestMessage      = <span class="cs">"Approved by Terraform"</span>
-            status              = <span class="cs">"Approved"</span>
-          }
-        }
-      ]
-    }
-  }
-
-  depends_on = [<span class="ck">azurerm_search_service</span>.main]
+<pre><span class="cm"># 1. Search requests the link (azurerm can do this part)</span>
+<span class="cf">resource</span> <span class="cs">"azurerm_search_shared_private_link_service"</span> <span class="cs">"openai"</span> {
+  name               = <span class="cs">"spl-openai"</span>
+  search_service_id  = <span class="ck">azurerm_search_service</span>.main.id
+  subresource_name   = <span class="cs">"openai_account"</span>
+  target_resource_id = <span class="ck">azurerm_cognitive_account</span>.openai.id
+  request_message    = <span class="cs">"Requested by Terraform"</span>
 }
 
-<span class="cm"># Required provider block:</span>
+<span class="cm"># 2. Read the pending connection on the OpenAI side</span>
+<span class="cf">data</span> <span class="cs">"azapi_resource_list"</span> <span class="cs">"openai_pe"</span> {
+  type                   = <span class="cs">"Microsoft.CognitiveServices/accounts/privateEndpointConnections@2023-05-01"</span>
+  parent_id              = <span class="ck">azurerm_cognitive_account</span>.openai.id
+  response_export_values = [<span class="cs">"value"</span>]
+  depends_on             = [<span class="ck">azurerm_search_shared_private_link_service</span>.openai]
+}
+
+<span class="cm"># 3. Approve it on the target (OpenAI) resource.</span>
+<span class="cm">#    Match on the request message, not on "Pending": the description is</span>
+<span class="cm">#    kept on approval, so re-applies stay idempotent, and the auto-approved</span>
+<span class="cm">#    private endpoint from your own VNet is never picked up by mistake.</span>
+<span class="cf">resource</span> <span class="cs">"azapi_update_resource"</span> <span class="cs">"approve_openai_link"</span> {
+  type        = <span class="cs">"Microsoft.CognitiveServices/accounts/privateEndpointConnections@2023-05-01"</span>
+  resource_id = one([
+    <span class="cf">for</span> c <span class="cf">in</span> <span class="ck">data.azapi_resource_list</span>.openai_pe.output.value : c.id
+    <span class="cf">if</span> c.properties.privateLinkServiceConnectionState.description == <span class="cs">"Requested by Terraform"</span>
+  ])
+  body = {
+    properties = {
+      privateLinkServiceConnectionState = {
+        status      = <span class="cs">"Approved"</span>
+        description = <span class="cs">"Requested by Terraform"</span>
+      }
+    }
+  }
+}
+
+<span class="cm"># Required provider block (azapi 2.x: output is an object, body is HCL):</span>
 <span class="cm"># terraform { required_providers {</span>
-<span class="cm">#   azapi = { source = "Azure/azapi", version = "~> 1.0" } }}</span></pre>
+<span class="cm">#   azapi = { source = "Azure/azapi", version = "~> 2.0" } }}</span></pre>
   </div>
-  <div class="tip"><strong>Why AzAPI and not azurerm?</strong> The <code>azurerm</code> provider has no resource for Shared Private Link approval — it's missing from the SDK. <code>azapi_update_resource</code> patches the ARM API directly, eliminating the manual Portal approval step that breaks every automated AI RAG deployment.</div>
+  <div class="tip"><strong>Why AzAPI and not azurerm?</strong> <code>azurerm_search_shared_private_link_service</code> only creates the request from the Search side. The approval has to happen on the target OpenAI account, and azurerm has no resource for approving an inbound Cognitive Services connection.</div>
   </div>
 
   <!-- ─────────────────────────────────────────────
-       SECTION 7 — Key Vault Hardened Config
+       SECTION 7 - Key Vault Hardened Config
   ───────────────────────────────────────────── -->
   <div class="section no-break">
-  <h2>7 — Key Vault — Hardened Configuration</h2>
+  <h2>7: Key Vault Hardened Configuration</h2>
   <div class="card">
-    <div class="card-header"><span class="dot"></span>Zero public access, soft-delete, purge protection — ISO 27001 / NIS2 baseline</div>
+    <div class="card-header"><span class="dot"></span>Zero public access, soft-delete, purge protection: ISO 27001 / NIS2 baseline</div>
 <pre><span class="cf">resource</span> <span class="cs">"azurerm_key_vault"</span> <span class="cs">"main"</span> {
   name                          = <span class="cs">"kv-${var.project}-${var.environment}"</span>
   location                      = <span class="ck">var</span>.location
@@ -523,10 +540,10 @@
   </div>
 
   <!-- ─────────────────────────────────────────────
-       SECTION 8 — NIS2 / ISO 27001 Control Map
+       SECTION 8: NIS2 / ISO 27001 Control Map
   ───────────────────────────────────────────── -->
   <div class="section no-break">
-  <h2>8 — NIS2 Art. 21 / ISO 27001 Control → Terraform Resource Map</h2>
+  <h2>8: NIS2 Art. 21 / ISO 27001 Control → Terraform Resource Map</h2>
   <div class="card">
     <table>
       <thead>
@@ -552,14 +569,14 @@
         </tr>
         <tr>
           <td>Eliminate public exposure</td>
-          <td><span class="tag">§21(2)(h)</span></td>
+          <td><span class="tag">§21(2)(i)</span></td>
           <td><span class="tag green">A.8.21</span></td>
           <td><code>azurerm_private_endpoint</code> + <code>public_network_access_enabled = false</code></td>
         </tr>
         <tr>
           <td>Least-privilege identity</td>
-          <td><span class="tag">§21(2)(j)</span></td>
-          <td><span class="tag green">A.8.2</span></td>
+          <td><span class="tag">§21(2)(i)</span></td>
+          <td><span class="tag green">A.5.15</span></td>
           <td><code>azurerm_user_assigned_identity</code> + <code>azurerm_role_assignment</code></td>
         </tr>
         <tr>
@@ -576,14 +593,14 @@
         </tr>
         <tr>
           <td>Audit trail / immutable logging</td>
-          <td><span class="tag">§21(2)(f)</span></td>
+          <td><span class="tag">§21(2)(b)</span></td>
           <td><span class="tag green">A.8.15</span></td>
           <td><code>azurerm_monitor_diagnostic_setting</code> → Log Analytics / Storage</td>
         </tr>
         <tr>
           <td>Egress traffic filtering</td>
           <td><span class="tag">§21(2)(i)</span></td>
-          <td><span class="tag green">A.8.22</span></td>
+          <td><span class="tag green">A.8.23</span></td>
           <td><code>azurerm_firewall_policy_rule_collection_group</code> (FQDN allow-list)</td>
         </tr>
       </tbody>

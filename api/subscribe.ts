@@ -49,7 +49,7 @@ function emailBody(content: string): string {
 }
 
 // Bulletproof button: padding on the <td>, not the <a>. Outlook's Word engine
-// doesn't support display:inline-block or padding on anchor tags — that's what
+// doesn't support display:inline-block or padding on anchor tags, which is what
 // caused the buttons to look cut off / misplaced.
 function emailButton(href: string, label: string): string {
   return `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 auto">
@@ -63,7 +63,7 @@ function emailButton(href: string, label: string): string {
 
 const DAY0_SUBJECT = "Your Azure Zero-Trust Terraform Cheat Sheet";
 const DAY0_BODY = emailBody(`
-  <p style="margin:0 0 16px">Thanks for signing up. Here are the 8 Terraform patterns — NSGs, Private Endpoints, Managed Identities, Forced Tunneling, and the NIS2/ISO 27001 control map.</p>
+  <p style="margin:0 0 16px">Thanks for signing up. Here are the 8 Terraform patterns: NSGs, Private Endpoints, Managed Identities, Forced Tunneling, and the NIS2/ISO 27001 control map.</p>
   <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin:20px 0">
     <tr><td align="center" style="padding:0">
       ${emailButton(
@@ -73,51 +73,52 @@ const DAY0_BODY = emailBody(`
     </td></tr>
   </table>
   <hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0">
-  <p style="margin:0 0 8px;font-size:13px;color:#737373">I publish deep technical articles on Azure Terraform, zero-trust networking, and compliance automation — and every module is free and MIT licensed, no strings attached. No hand-wavy explanations, just code that deploys first time.</p>
-  <p style="margin:16px 0 0;font-size:13px;color:#737373">— David<br><a href="https://woitzik.dev" style="color:#0ea5e9;text-decoration:none">woitzik.dev</a></p>
+  <p style="margin:0 0 8px;font-size:13px;color:#737373">I write about Azure Terraform, zero-trust networking and compliance automation, mostly from things that broke in real deployments. Every module I publish is free and MIT licensed.</p>
+  <p style="margin:16px 0 0;font-size:13px;color:#737373">David<br><a href="https://woitzik.dev" style="color:#0ea5e9;text-decoration:none">woitzik.dev</a></p>
 `);
 
-const DAY3_SUBJECT =
-  "The Azure Firewall pattern that breaks every first deployment";
+const DAY3_SUBJECT = "The Azure Firewall cycle error on first apply";
 const DAY3_BODY = emailBody(`
-  <p style="margin:0 0 16px">Most Azure Firewall + Forced Tunneling deployments hit the same wall: a cycle dependency error on first apply that nothing in the docs explains.</p>
-  <p style="margin:0 0 16px">The root cause is that Azure Firewall needs a public IP before it can get a private IP, but the route table needs the private IP to create the default route — and Terraform tries to build them in the wrong order.</p>
-  <p style="margin:0 0 16px">I wrote a deep-dive on how to resolve this, including:</p>
+  <p style="margin:0 0 16px">Hi,</p>
+  <p style="margin:0 0 16px">If you've built forced tunneling with Azure Firewall in Terraform, you may have hit this on the first apply: <code>Error: Cycle: azurerm_subnet_route_table_association...</code></p>
+  <p style="margin:0 0 16px">The route table needs the firewall's private IP as next hop. The firewall needs its subnet first. The route table association binds everything to the spoke subnets at the same time. Structured the wrong way, Terraform can't work out the order and gives up.</p>
+  <p style="margin:0 0 16px">The article covers:</p>
   <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px">
-    <tr><td style="padding:0 0 6px 20px;font-size:15px;color:#404040">&bull;&nbsp; The correct resource ordering to avoid the cycle</td></tr>
-    <tr><td style="padding:0 0 6px 20px;font-size:15px;color:#404040">&bull;&nbsp; The KMS bypass route (23.102.135.246/32) that prevents Windows VMs from breaking</td></tr>
-    <tr><td style="padding:0 0 0 20px;font-size:15px;color:#404040">&bull;&nbsp; Why routing Azure AD through the firewall silently breaks Managed Identity auth</td></tr>
+    <tr><td style="padding:0 0 6px 20px;font-size:15px;color:#404040">&bull;&nbsp; The resource ordering that breaks the cycle</td></tr>
+    <tr><td style="padding:0 0 6px 20px;font-size:15px;color:#404040">&bull;&nbsp; The KMS bypass routes for Windows activation (Microsoft currently lists three global KMS IPs: 20.118.99.224, 40.83.235.53 and 23.102.135.246)</td></tr>
+    <tr><td style="padding:0 0 0 20px;font-size:15px;color:#404040">&bull;&nbsp; The Azure AD bypass route, and what fails without it</td></tr>
   </table>
   <p style="margin:0 0 20px">
-    <a href="https://woitzik.dev/blog/azure-firewall-cycle-error/" style="color:#0ea5e9;text-decoration:none;font-weight:600">Read: Azure Firewall Cycle Error — How to Fix It &rarr;</a>
+    <a href="https://woitzik.dev/blog/azure-firewall-cycle-error/" style="color:#0ea5e9;text-decoration:none;font-weight:600">Azure Firewall Cycle Error: How to Fix It &rarr;</a>
   </p>
   <hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0">
-  <p style="margin:0;font-size:13px;color:#737373">If you're already running a Hub &amp; Spoke with forced tunneling in production, the free module ships with all of this pre-wired: <a href="https://woitzik.dev/templates" style="color:#0ea5e9;text-decoration:none">woitzik.dev/templates</a></p>
-  <p style="margin:16px 0 0;font-size:13px;color:#737373">— David</p>
+  <p style="margin:0;font-size:13px;color:#737373">The free forced-tunneling module has all of this built in: <a href="https://woitzik.dev/templates/" style="color:#0ea5e9;text-decoration:none">woitzik.dev/templates</a></p>
+  <p style="margin:16px 0 0;font-size:13px;color:#737373">David</p>
 `);
 
-const DAY7_SUBJECT = "If you're dealing with a compliance deadline...";
+const DAY7_SUBJECT = "If you're facing a compliance deadline";
 const DAY7_BODY = emailBody(`
-  <p style="margin:0 0 16px">If you're reading this, there's a decent chance someone in your org has mentioned ISO 27001, NIS2, or KRITIS recently — and you're the one who has to make the infrastructure compliant.</p>
-  <p style="margin:0 0 16px">The problem isn't that the controls are hard to understand. It's that nobody maps them to actual Terraform resources.</p>
-  <p style="margin:0 0 8px;font-weight:600;color:#0a0a0a">The cheat sheet covers the basics. The open source modules go further:</p>
+  <p style="margin:0 0 16px">Hi,</p>
+  <p style="margin:0 0 16px">If someone in your org has brought up ISO 27001, NIS2 or KRITIS lately, the infrastructure part probably landed on your desk.</p>
+  <p style="margin:0 0 16px">The controls themselves are documented well enough. What's missing is the mapping to actual Terraform resources.</p>
+  <p style="margin:0 0 8px;font-weight:600;color:#0a0a0a">The cheat sheet covers the basics; the modules go further:</p>
   <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin:16px 0;border:1px solid #e5e5e5;border-radius:6px">
     <tr><td style="padding:14px 16px;border-bottom:1px solid #e5e5e5">
-      <p style="margin:0 0 4px;font-weight:700;font-size:14px;color:#0a0a0a">Hub &amp; Spoke — Zero-Trust Edition <span style="color:#10b981">Free</span></p>
-      <p style="margin:0;font-size:13px;color:#737373">Zero-Trust NSG baselines, centralized Private DNS Zones, DINE policy lifecycle bypass. Audit-ready on day one.</p>
+      <p style="margin:0 0 4px;font-weight:700;font-size:14px;color:#0a0a0a">Hub &amp; Spoke - Zero-Trust Edition <span style="color:#10b981">Free</span></p>
+      <p style="margin:0;font-size:13px;color:#737373">Zero-trust NSG baselines, central Private DNS Zones, and lifecycle handling for DINE policies.</p>
     </td></tr>
     <tr><td style="padding:14px 16px">
-      <p style="margin:0 0 4px;font-weight:700;font-size:14px;color:#0a0a0a">Azure Firewall — Forced Tunneling Edition <span style="color:#10b981">Free</span></p>
-      <p style="margin:0;font-size:13px;color:#737373">Cycle-error-free. KMS + Azure AD bypasses included. Drops into any Hub &amp; Spoke without breaking anything.</p>
+      <p style="margin:0 0 4px;font-weight:700;font-size:14px;color:#0a0a0a">Azure Firewall - Forced Tunneling Edition <span style="color:#10b981">Free</span></p>
+      <p style="margin:0;font-size:13px;color:#737373">No cycle error, KMS and Azure AD bypass routes included.</p>
     </td></tr>
   </table>
   <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin:20px 0">
     <tr><td align="center" style="padding:0">
-      ${emailButton("https://woitzik.dev/templates", "View all modules &rarr;")}
+      ${emailButton("https://woitzik.dev/templates/", "View all modules &rarr;")}
     </td></tr>
   </table>
-  <p style="margin:0;font-size:13px;color:#737373">Both ship with full source code, MIT licensed — no lock-in, no black box. If the timing isn't right, no worries. I'll keep publishing deep dives.</p>
-  <p style="margin:16px 0 0;font-size:13px;color:#737373">— David<br><a href="https://woitzik.dev" style="color:#0ea5e9;text-decoration:none">woitzik.dev</a></p>
+  <p style="margin:0;font-size:13px;color:#737373">Full source, MIT licensed. If the timing is wrong, no problem. I'll keep writing up what I run into.</p>
+  <p style="margin:16px 0 0;font-size:13px;color:#737373">David<br><a href="https://woitzik.dev" style="color:#0ea5e9;text-decoration:none">woitzik.dev</a></p>
 `);
 
 export default async function handler(
@@ -197,7 +198,7 @@ export default async function handler(
 
   // Brevo returns 201 for a brand-new contact, 204 when the email already
   // existed (updateEnabled just refreshed it). Only a brand-new signup should
-  // trigger the welcome sequence — without this check, re-submitting the form
+  // trigger the welcome sequence. Without this check, re-submitting the form
   // (double-click, or someone signing up a second time) re-sends Day 0
   // immediately and schedules a second, overlapping Day 3 + Day 7 on top of
   // whatever's already pending from the first signup.
@@ -258,7 +259,7 @@ export default async function handler(
 
   if (day3.status === "rejected" || day7.status === "rejected") {
     console.error(
-      "Day 0 sent but a follow-up email failed to schedule — sequence incomplete for",
+      "Day 0 sent but a follow-up email failed to schedule, sequence incomplete for",
       email,
     );
   }

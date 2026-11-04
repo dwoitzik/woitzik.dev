@@ -56,7 +56,7 @@ export async function GET(context: Context) {
   const newest = items[0]?.data.date ?? new Date();
 
   return rss({
-    title: `${SITE.NAME} — ${HOME.DESCRIPTION}`,
+    title: `${SITE.NAME} | ${HOME.DESCRIPTION}`,
     description: HOME.DESCRIPTION,
     site: context.site,
     trailingSlash: true,
@@ -96,7 +96,7 @@ export async function GET(context: Context) {
           categories: tags,
           // content:encoded is the module readers actually look for; `content`
           // alone is dropped by most of them. The XML serialiser escapes the
-          // markup on the way out, which is why no CDATA wrapper is needed —
+          // markup on the way out, which is why no CDATA wrapper is needed -
           // and why a literal "]]>" in a post cannot break the document.
           customData: `<dc:language>${lang}</dc:language>` + encoded,
         };

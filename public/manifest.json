@@ -1,7 +1,7 @@
 {
   "name": "woitzik.dev",
   "short_name": "woitzik.dev",
-  "description": "Hybrid Cloud Engineer & Infrastructure Automation — Azure, Terraform, Zero-Trust",
+  "description": "Hybrid Cloud Engineer: Azure, Terraform, Zero-Trust infrastructure automation",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1c1917",

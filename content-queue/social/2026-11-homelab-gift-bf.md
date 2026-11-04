@@ -1,4 +1,4 @@
-# Social drafts — Homelab Gift Guide + Black Friday 2026
+# Social drafts: Homelab Gift Guide + Black Friday 2026
 
 Internal distribution notes. Do not publish this file. Articles:
 
@@ -13,17 +13,17 @@ Rules for every post:
 - No invented discounts, no "lowest price ever" claims.
 - Check each community's current self-promotion rules before posting.
 
-## Reddit — r/homelab (gift guide, from 2026-11-18)
+## Reddit: r/homelab (gift guide, from 2026-11-18)
 
 Title:
 
-> I stopped recommending homelab gifts I do not run myself — here is the short list
+> I stopped recommending homelab gifts I don't run myself. Here's the short list
 
 Body:
 
 > Every gift guide this month is a list of affiliate links. This one is limited to gear that is actually in my rack: the Pi starter kit I began with, the 10-inch cabinet I chose over 19-inch, the PDU and fans, the RB5009, and the books I keep coming back to.
 >
-> It is organised by what the person already owns, because the wrong switch or a second compute node is worse than no gift. The section I would read first is "what I would not buy as a surprise".
+> It's organized by what the person already owns, because the wrong switch or a second compute node is worse than no gift. The section I would read first is "what I would not buy as a surprise".
 >
 > I wrote it, and the post has Amazon affiliate links. No affiliate links in this Reddit post.
 >
@@ -31,7 +31,7 @@ Body:
 
 Suggested flair: Discussion / Blog (use whatever the subreddit requires).
 
-## Reddit — r/selfhosted (Black Friday checklist, from 2026-11-24)
+## Reddit: r/selfhosted (Black Friday checklist, from 2026-11-24)
 
 Title:
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ISO 27001 Auditor Checklist — Azure Zero-Trust Starter Pack — woitzik.dev</title>
+  <title>ISO 27001 Auditor Checklist: Azure Zero-Trust Starter Pack | woitzik.dev</title>
   <link rel="canonical" href="https://woitzik.dev/downloads/iso27001-auditor-checklist.html" />
   <meta name="description" content="The ISO 27001 auditor checklist I use for every Azure hardening pass: control-by-control evidence requests, auditor questions to expect, and the findings that recur most." />
   <meta property="og:type" content="article" />
@@ -178,7 +178,7 @@
 
   <header>
     <div class="headline">
-      <div class="badge">Bundle Exclusive — Starter Pack</div>
+      <div class="badge">Bundle Exclusive: Starter Pack</div>
       <h1>ISO 27001 Auditor Checklist</h1>
       <p>Annex A control mapping for the Azure Zero-Trust Starter Pack (Acmebot, Hub &amp; Spoke, Firewall)</p>
     </div>
@@ -191,7 +191,7 @@
   <h2>How to Use This Sheet</h2>
   <p style="font-size: 9.5pt; color: var(--gray-600); margin-bottom: 4px;">
     Hand this to your auditor or compliance lead alongside the deployed Terraform state. Each row maps a deployed
-    resource to the Annex A control it satisfies — check it off once you've confirmed the resource is live and
+    resource to the Annex A control it satisfies. Check it off once you've confirmed the resource is live and
     configured as documented in the module README.
   </p>
 
@@ -226,7 +226,7 @@
         <td><span class="check"></span></td>
         <td><span class="module-label">Acmebot</span></td>
         <td>Least-privilege identity for cert renewal</td>
-        <td><span class="tag">A.8.2</span></td>
+        <td><span class="tag">A.5.15</span></td>
         <td><code>azurerm_user_assigned_identity</code> + RBAC</td>
       </tr>
       <tr>
@@ -268,7 +268,7 @@
         <td><span class="check"></span></td>
         <td><span class="module-label">Firewall</span></td>
         <td>FQDN allow-list for outbound traffic</td>
-        <td><span class="tag">A.8.22</span></td>
+        <td><span class="tag">A.8.23</span></td>
         <td><code>azurerm_firewall_policy_rule_collection_group</code></td>
       </tr>
       <tr>
@@ -293,7 +293,7 @@
     <strong>Auditor note:</strong> This checklist covers the technical network infrastructure controls these three
     modules implement. Full ISO 27001 certification requires organizational measures (risk assessment, ISMS
     documentation, incident response procedures) beyond what infrastructure code alone provides. This sheet is
-    evidence for Annex A technical controls — not a substitute for a full Statement of Applicability.
+    evidence for Annex A technical controls, not a substitute for a full Statement of Applicability.
   </div>
 
   <footer>

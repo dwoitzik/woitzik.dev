@@ -41,12 +41,12 @@ const accessibilityFeatures = [
   {
     title: "Reduced Motion",
     description:
-      "Animations use CSS transitions that can be overridden by the prefers-reduced-motion media query.",
+      "If your system is set to reduce motion (prefers-reduced-motion), the fade-in animations are turned off.",
   },
   {
     title: "Form Labels",
     description:
-      "All form inputs have associated labels or placeholder text for screen reader compatibility.",
+      "All form inputs have a label or an aria-label, so screen readers announce what each field is for.",
   },
   {
     title: "ARIA Attributes",
@@ -69,10 +69,9 @@ const accessibilityFeatures = [
         <p
           class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed"
         >
-          I am committed to ensuring digital accessibility for all visitors to
-          woitzik.dev. This page describes the accessibility features
-          implemented on this site and my ongoing commitment to maintaining an
-          inclusive experience.
+          I want woitzik.dev to work for everyone, including people using a
+          keyboard, a screen reader, or high zoom. This page lists what the site
+          does for that and how to report a problem.
         </p>
       </div>
 
@@ -111,8 +110,7 @@ const accessibilityFeatures = [
           href="mailto:david@woitzik.dev"
           class="text-sky-600 dark:text-sky-400 hover:underline"
           >david@woitzik.dev</a
-        >. I take accessibility reports seriously and will respond within 48
-        hours.
+        >. I reply to accessibility reports within 48 hours.
       </p>
 
       <p class="text-xs text-neutral-400 dark:text-neutral-500">

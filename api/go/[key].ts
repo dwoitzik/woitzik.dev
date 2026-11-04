@@ -44,7 +44,7 @@ const ASINS: Record<string, string> = {
 };
 
 // Amazon Associates tracking IDs, one per marketplace this account is
-// registered in. Everything outside GB/US falls back to the DE storefront —
+// registered in. Everything outside GB/US falls back to the DE storefront;
 // that's the marketplace the ASIN catalog above was sourced from.
 const MARKETPLACES: Record<string, { domain: string; tag: string }> = {
   GB: { domain: "amazon.co.uk", tag: "woitzikdev0e-21" },

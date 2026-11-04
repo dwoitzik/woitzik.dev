@@ -1,20 +1,23 @@
-# woitzik.dev 🚀
+# woitzik.dev
 
-My personal corner of the internet. A minimalist, high-performance portfolio and blog built with a focus on speed and transparency.
+Source for [woitzik.dev](https://woitzik.dev), my blog on Azure, Terraform, Kubernetes, and homelab infrastructure. Static site, built for speed, with no tracking cookies.
 
-## 🛠 Tech Stack
-- **Framework:** [Astro](https://astro.build/) (Static Site Generation)
+## Tech stack
+
+- **Framework:** [Astro](https://astro.build/) (static site generation)
 - **Styling:** [Tailwind CSS](https://tailwindcss.com/)
-- **Theme:** Based on Astro Nano (heavily customized)
+- **Theme:** based on Astro Nano, heavily customized
 - **Deployment:** Vercel
 
-## 🏠 Projects
-Source code and documentation for my infrastructure blueprints 
-and compliance-ready Terraform modules.
+## Projects
 
-## ⚡ Quick Start
+The site also lists my free, MIT-licensed Terraform modules for Azure and the infrastructure behind my homelab.
+
+## Quick start
+
 1. `npm install`
 2. `npm run dev`
 
-## 🏛 License
-MIT - Feel free to use this code for your own inspiration.
+## License
+
+MIT. Feel free to reuse the code for your own site.

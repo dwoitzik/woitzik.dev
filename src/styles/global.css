@@ -117,6 +117,16 @@ article figcaption {
   @apply opacity-100 translate-y-0;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .animate {
+    @apply opacity-100 translate-y-0 transition-none;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+}
+
 html #back-to-top {
   @apply opacity-0 pointer-events-none;
 }

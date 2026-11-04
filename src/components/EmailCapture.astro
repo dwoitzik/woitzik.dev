@@ -8,7 +8,7 @@ interface Props {
 
 const {
   title = "Stay in the loop",
-  description = "New enterprise modules and deep dives - straight to your inbox. No spam.",
+  description = "New Terraform modules and articles by email. No spam.",
   buttonText = "Subscribe",
   successMessage = "Check your inbox for the welcome email.",
 } = Astro.props;
@@ -33,6 +33,8 @@ const {
       type="email"
       name="email"
       required
+      aria-label="Email address"
+      autocomplete="email"
       placeholder="you@company.com"
       class="flex-1 px-3 py-2 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-black dark:text-white placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 transition-colors"
     />

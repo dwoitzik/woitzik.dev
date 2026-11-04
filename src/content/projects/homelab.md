@@ -1,17 +1,17 @@
 ---
 title: "Homelab Infrastructure as Code"
-description: "Full-stack homelab managed entirely through Terraform and Ansible — Proxmox, k3s, MikroTik, and GitOps via Atlantis."
+description: "Full-stack homelab managed through Terraform and Ansible: Proxmox, a three-node k3s cluster, MikroTik, and GitOps via Atlantis."
 date: "2026-03-24"
 repoURL: "https://github.com/dwoitzik/homelab-infrastructure"
 ---
 
-Production-grade infrastructure patterns running on consumer hardware. Everything is code — no manual clicks, no configuration drift.
+Production infrastructure patterns on consumer hardware. Proxmox, the MikroTik router, and the k3s cluster are defined in Git and changed through Atlantis and ArgoCD, not by hand.
 
 ### Stack
 
-- **Hypervisor:** Proxmox VE on Ryzen 7 5725U
-- **Orchestration:** k3s (single-node) with ArgoCD GitOps
-- **Networking:** MikroTik RB5009 — zero-trust firewall, VLAN segmentation, WireGuard VPN
+- **Hypervisor:** Proxmox VE on Ryzen 7 5825U
+- **Orchestration:** k3s, three nodes (one server, two agents) with ArgoCD GitOps
+- **Networking:** MikroTik RB5009 with a default-drop firewall and VLAN segmentation
 - **Edge:** 2× Raspberry Pi 4B for lightweight DNS and monitoring
 - **Provisioning:** Terraform (Proxmox, MikroTik, Cloudflare)
 - **Configuration:** Ansible with Vault-encrypted secrets

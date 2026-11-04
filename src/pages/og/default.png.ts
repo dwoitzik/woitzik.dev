@@ -69,7 +69,7 @@ export const GET: APIRoute = async () => {
                       lineHeight: 1.5,
                     },
                     children:
-                      "Hybrid Cloud Engineer — Azure · Terraform · Zero-Trust",
+                      "Hybrid Cloud Engineer · Azure · Terraform · Zero-Trust",
                   },
                 },
               ],
