@@ -1,6 +1,6 @@
 ---
 title: "WireGuard-VPN auf MikroTik automatisiert: Role-based Peers via Terraform"
-description: "Einen MikroTik als WireGuard-Server per Hand zu konfigurieren ist quick & dirty - bis der zehnte Peer dazukommt und du einen Tag mit /interface/wireguard/peers verbringst. Die Terraform-Lösung: Peers als Rollen-Module (Admin, App, IoT), Access per IP-Firewall durchgesetzt, alles in Git. Mit dem WireGuard-Wissen, das die RouterOS-Doku dir nicht sagt."
+description: "WireGuard-VPN auf MikroTik per Terraform: feste Peer-IPs pro Gerät und rollenbasierter Zugriff per Firewall, damit das Handy nicht dasselbe erreicht wie der Admin-Laptop."
 lang: de
 translationOf: "mikrotik-wireguard-vpn-terraform"
 date: 2026-09-22
@@ -9,85 +9,150 @@ pinned: false
 tags: ["MikroTik", "WireGuard", "Terraform", "VPN"]
 ---
 
-WireGuard auf MikroTik (RouterOS 7) ist inzwischen stabil genug für den Produktivbetrieb - aber es ist immer noch die „ich füge einen Peer per Winbox hinzu"-Falle, die mich zurückgeholt hat. Die Route aus meinem Betrieb: **Peers und Access nicht mehr von Hand, sondern als Terraform-Code, versioniert und per Rolle verwaltet.**
+> **Update (Mai 2026):** Dieses WireGuard-Setup habe ich am 20.05.2026 abgeschaltet. Remote-Zugriff läuft seitdem über [Headscale mit OIDC über Authelia](/blog/headscale-oidc-k3s-authelia/) (englischer Artikel). Die Terraform-Muster unten funktionieren auf RouterOS 7 weiterhin, laufen bei mir aber nicht mehr.
 
-## Die Rollen-Kette (ohne sie gerätst du in Access-Hölle)
+WireGuard ist inzwischen der Standard für Remote-Access-VPNs: schnell, einfach und mit moderner Kryptografie. Dieses Setup läuft auf einem MikroTik RB5009, auf dem RouterOS 7 WireGuard nativ beherrscht, ganz ohne zusätzlichen Container. Die einfache Einrichtung verleitet allerdings zu schlampiger Sicherheit, etwa jedem verbundenen Gerät vollen Zugriff aufs gesamte interne Netz zu geben.
+
+In einer sicheren Umgebung, ob Unternehmensnetz oder Homelab, sollte ein Handy, das ein Dashboard abruft, nicht dieselben Netzwerkrechte haben wie ein Admin-Laptop, der Infrastruktur deployt.
+
+Dieser Artikel automatisiert ein WireGuard-„Roadwarrior"-Setup auf MikroTik RouterOS mit Terraform und setzt rollenbasierten Zugriff über Firewall-Filter durch.
+
+**[View the complete MikroTik IaC source code on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## 1. Die VPN-Topologie festlegen
 
 > **🇬🇧 English:** Die englische Fassung dieses Artikels: [Automating MikroTik WireGuard VPN with Role-Based Access via Terraform →](/blog/mikrotik-wireguard-vpn-terraform/).
 
-
-Statt jedes Gerät einzeln zu pflegen, definiere ich drei Rollen - die decken 95% aller Homelab-Zugriffe ab:
-
-- **Admin**: dein Laptop, dein Handy mit externem Zugriff - darf alles im Netz (10.0.0.0/16).
-- **App**: die LXC-Container, die VPN-Gegenstellen sind (z.B. der Tunnel zum Proxmox-Standort).
-- **IoT**: Smart-Home-Geräte mit starker Segmentierung - dürfen nur zu ihrem eigenen Broker (10.0.40.0/24), sonst: Drop.
+Am Anfang stehen das VPN-Subnetz, der Listen-Port und die festen IPs für jeden Peer (jedes Gerät). In Terraform-`locals` liegt das alles an einer Stelle, und IP-Konflikte fallen später gar nicht erst an.
 
 ```hcl
-# Peers als Datenstruktur statt als 15 Blöcke zu kopieren
-variable "wireguard_peers" {
-  type = map(object({
-    role     = string
-    public   = string
-    allowed  = list(string)
-  }))
-  default = {
-    laptop = {
-      role    = "admin"
-      public  = "wRXr..."   # aus der Generierung, nie im Repo hardcoden
-      allowed = ["10.0.0.0/16"]
-    }
+locals {
+  vpn_config = {
+    subnet = "10.6.0.0/24"
+    port   = 51820
+    name   = "wg-roadwarrior"
+  }
+
+  vpn_handy_ip  = "10.6.0.2/32"
+  vpn_laptop_ip = "10.6.0.3/32"
+}
+```
+
+## 2. Das WireGuard-Interface anlegen
+
+Mit dem `terraform-routeros`-Provider brauchen WireGuard-Interface und Gateway-IP des Routers im VPN-Subnetz genau zwei Ressourcen.
+
+```hcl
+# Create the WireGuard Interface
+resource "routeros_wireguard" "wg_vpn" {
+  name        = local.vpn_config.name
+  listen_port = local.vpn_config.port
+  comment     = "Remote Access VPN"
+}
+
+# Assign the Gateway IP to the Router
+resource "routeros_ip_address" "wg_ip" {
+  interface = routeros_wireguard.wg_vpn.name
+  # Uses cidrhost to automatically calculate the first IP (.1)
+  address   = "${cidrhost(local.vpn_config.subnet, 1)}/24"
+}
+```
+
+*`cidrhost()` berechnet die `.1`-Adresse aus dem Subnetz in den `locals`, es gibt also keine Adresse, bei der man sich vertippen kann. Wer den Bereich `10.6.0.0/24` von Hand wählt, prüft ihn vorher im [IPv4-Subnetzrechner](https://woitzik.dev/tools/subnet-calculator/) auf Überschneidungen. Ein VPN-Bereich, der sich mit einem LAN-Bereich überlappt, fällt oft erst Wochen später als kaputte Route auf.*
+
+## 3. Die Peers (Geräte) anlegen
+
+Als Nächstes kommen die Public Keys der Geräte auf den Router. WireGuard arbeitet mit Cryptokey Routing: Über das Feld `allowed_address` entscheidet der Router, zu welchem Peer eine IP gehört, und verwirft Pakete eines Peers, deren Quell-IP nicht in dessen Liste steht.
+
+Weil jede `/32`-Adresse fest an einen Key gebunden ist, hat jedes Gerät eine feste Identität, auf die sich die Firewall-Regeln später verlassen können.
+
+```hcl
+resource "routeros_wireguard_peer" "handy_dw" {
+  interface            = routeros_wireguard.wg_vpn.name
+  comment              = "Smartphone DW - Limited Access"
+  public_key           = "X9iI0RGNf7kTxdBOs4CsDcOQtKRFMYALY/ugHv67uAo="
+  allowed_address      = [local.vpn_handy_ip]
+  persistent_keepalive = "25s"
+}
+
+resource "routeros_wireguard_peer" "laptop_dw" {
+  interface            = routeros_wireguard.wg_vpn.name
+  comment              = "Laptop DW - Full Admin Access"
+  public_key           = "zD+/yfLfjQ7N1H5NBIwa2zKNd/bLZ6VRdEbKBxCmOVA="
+  allowed_address      = [local.vpn_laptop_ip]
+  persistent_keepalive = "25s"
+}
+```
+
+## 4. Rollenbasierten Zugriff durchsetzen (die Firewall)
+
+Das VPN steht, aber ohne Firewall-Regeln kommt der Verkehr nirgendwo an, vorausgesetzt, es gibt eine strikte Default-Deny-Firewall wie in meinem [Artikel zur Zero-Trust-Firewall auf MikroTik](/blog/mikrotik-zero-trust-firewall-terraform/).
+
+Die Forward-Chain legt fest, was jedes Gerät erreichen darf.
+
+### Der Admin-Laptop (voller Zugriff)
+
+Der Laptop ist ein vertrauenswürdiges Admin-Gerät. Er bekommt den gesamten Block `10.0.0.0/16`: Server, Management-Interfaces und die DMZ.
+
+```hcl
+resource "routeros_ip_firewall_filter" "fwd_06_vpn_laptop" {
+  action       = "accept"
+  chain        = "forward"
+  src_address  = local.vpn_laptop_ip
+  dst_address  = "10.0.0.0/16"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "06: VPN - Laptop Full Access"
+  
+  lifecycle {
+    ignore_changes = [src_address]
   }
 }
 ```
 
-## Terraform-Modul für den Peer
+### Das Handy (Split-Tunnel, eingeschränkter Zugriff)
 
-Das Modul macht dasselbe, was du per CLI bei `admin@mikrotik:/interface/wireguard/peers add` machen würdest - nur eben reproduzierbar:
-
-```hcl
-resource "routeros_interface_wireguard_peers" "peer" {
-  interface     = "wireguard1"
-  public_key    = var.peer.public
-  allowed_address = var.peer.allowed[0]
-  comment       = "${var.peer.role}-${each.key}"
-  for_each      = var.wireguard_peers
-}
-```
-
-## WireGuard, das dir die Doku nicht sagt
-
-1. **`listen-port` und `interface` ändern sich nicht per Peer** — die sind global. Der Fehler, den ich stundenlang gemacht habe: pro Peer eine eigene IP-Addresse aus `/interface/wireguard/peers add` zu ziehen, wo es bei WireGuard nur die `allowed_address` gibt, die entscheidet, welches Subnetz durch den Tunnel darf.
-2. **Kein NAT nötig für Site-to-Site**: Der Proxmox-Standort (10.0.20.0/24) spricht das Hauptnetz direkt über die Peer-Route an. NAT wäre hier die falsche Abkürzung - sie zerstört genau die Rollen-Segmentierung, die du aufgebaut hast.
-
-## Die Access-Kette: Feuerwehr per Firewall, nicht per Peer
-
-Der Peer selbst darf nichts — die `RouterOS`-Firewall erzwingt die Rollen:
+Handys sind das größere Risiko. Sie hängen in öffentlichen WLANs und gehen verloren. Das Handy darf deshalb nur in bestimmte Service-Subnetze: das [Server-Netz `vlan20`](/blog/mikrotik-vlan-filtering-terraform-proxmox/) und den DMZ-Proxy. Auf das Proxmox-Management-VLAN und interne Infrastruktur-Backends hat es keinen Zugriff.
 
 ```hcl
-# role "iot" → nur zum MQTT-Broker
-resource "routeros_ip_firewall_filter" "iot_allow_broker" {
-  chain        = "forward"
-  src_address  = "10.0.40.0/24"
-  dst_address  = "10.0.50.10"
-  dst_port     = "1883"
-  protocol     = "tcp"
+resource "routeros_ip_firewall_filter" "fwd_07_vpn_handy_srv" {
   action       = "accept"
-  place_before = "drop-all"
+  chain        = "forward"
+  src_address  = local.vpn_handy_ip
+  dst_address  = "10.0.20.0/24"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "07: VPN - Mobile limited to internal services"
+}
+
+resource "routeros_ip_firewall_filter" "fwd_08_vpn_handy_dmz" {
+  action       = "accept"
+  chain        = "forward"
+  src_address  = local.vpn_handy_ip
+  dst_address  = "10.0.30.0/24"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "08: VPN - Mobile access to DMZ (External Proxy)"
 }
 ```
 
-Das Muster, das hier funktioniert: **Default-Drop am Ende der Kette, jede Rolle bekommt explizite Allow-Regeln davor.** Wer in der Kette weiter unten liegt, ist raus - egal wie viele Peers du noch hinzufügst.
+*`place_before` setzt diese Regeln oberhalb der abschließenden „Drop All"-Regel ein, die die Chain verankert.*
 
-## Der ArgoCD-Gedanke: Dein Router als Code
+## 5. Die Input-Chain nicht vergessen
 
-Ich verwalte die RouterOS-Konfig nicht mehr über Winbox — die liegt als Terraform-HCL in `homelab-infrastructure/mikrotik/`, und ArgoCD/Atlantis (dein GitOps-Setup) spielt sie aus. Das gibt dir eine saubere Audit-Trail: Welcher Peer wurde wann und von wem eingefügt, steht im Git-Commit - und nicht im „ich hatte mal ein Skript"-Ordner.
+Damit das VPN überhaupt eine Verbindung aufbauen kann, muss der Listen-Port auf dem WAN-Interface des Routers offen sein. Diese Regel gehört in die `input`-Chain, weil der Handshake am Router selbst endet.
 
+```hcl
+resource "routeros_ip_firewall_filter" "in_02_wg" {
+  action       = "accept"
+  chain        = "input"
+  protocol     = "udp"
+  dst_port     = local.vpn_config.port
+  in_interface = "ether1"
+  place_before = routeros_ip_firewall_filter.drop_all_input.id
+  comment      = "IN-02: WireGuard handshake"
+}
 ```
-homelab-infrastructure/
-└── mikrotik/
-    ├── wireguard.tf        # interface + globale settings
-    ├── peers.tf            # role-basierte Peers
-    └── firewall.tf         # Default-Drop + Rollen-Access
-```
 
-**Verdrahtung:** Der perfekte Begleitartikel dazu ist [Zero-Trust MikroTik Firewall mit Terraform](/blog/mikrotik-zero-trust-firewall-terraform) — dort ist die komplette Access-Kette mit Default-Drop inklusive NAT-Details aufgebaut. Und die [WireGuard-Site-to-Site mit Role-Based Access](/blog/mikrotik-wireguard-vpn-terraform) zeigt, wie du das ganze als modulare Terraform-Einheit deployst.
+## Identität als Adresse
+
+Das statische Cryptokey Routing von WireGuard bindet jeden Geräte-Key an eine feste IP-Adresse. Liegt diese Zuordnung in Terraform, stehen Identität und Firewall-Policy im selben geprüften Code, und die Zero-Trust-Regeln bleiben strikt, lesbar und in Git dokumentiert.
+
+Kryptografische Identität an Netzwerkzugriff zu koppeln ist dasselbe Prinzip wie bei Azure Private Link und Managed Identity, nur eine Schicht höher.

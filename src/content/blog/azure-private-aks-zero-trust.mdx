@@ -1,17 +1,17 @@
 ---
 title: "Private AKS on Azure: No Public API Server, No Public Node IPs, No Default Outbound"
-description: "A production AKS cluster with private_cluster_enabled, forced-tunneled node egress via a Route Table, and private-endpoint-only ACR/Key Vault — the workload cluster that sits behind a Hub & Spoke and an Azure Firewall."
+description: "A production AKS cluster with private_cluster_enabled, forced-tunneled node egress via a Route Table, and private-endpoint-only ACR/Key Vault: the workload cluster behind a Hub & Spoke and an Azure Firewall."
 date: "2026-09-07"
 tags: ["Azure", "Terraform", "Kubernetes", "Zero-Trust"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Run `az aks create` with the defaults and you get a public API server FQDN, a Standard Load Balancer giving every node its own path to the internet, and — unless you go out of your way to stop it — an admin kubeconfig that works from anywhere with the right token. None of that is a bug. It's the fast path, and for a demo cluster it's fine.
+Run `az aks create` with the defaults and you get a public API server FQDN, a Standard Load Balancer that gives every node a direct outbound path to the internet, and local accounts enabled, so an admin kubeconfig works from anywhere the API server is reachable. None of that is a bug. It's the fast path, and for a demo cluster it's fine.
 
-For a cluster inside a governed Hub & Spoke, it's three separate audit findings. This is the Terraform to close all three at once: a private API server, forced-tunneled egress through a firewall you already control, and private-endpoint-only ACR and Key Vault.
+For a cluster inside a governed Hub & Spoke, those are three separate audit findings. This is the Terraform that closes them: a private API server, forced-tunneled egress through a firewall you already control, and private-endpoint-only ACR and Key Vault.
 
 **[Get the base template free on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-private-aks)**
 
@@ -35,11 +35,7 @@ For a cluster inside a governed Hub & Spoke, it's three separate audit findings.
               └─────────────────────┘  └─────────────────────┘
 ```
 
-Three engineering decisions drive this, same as the [Hub & Spoke module](/blog/azure-terraform-hub-spoke-zero-trust) this one is designed to sit behind:
-
-- **No public control-plane endpoint** — reachable only from inside the VNet, a peered network, or a VPN
-- **Forced tunneling, not default outbound** — every node packet leaves through a firewall you control
-- **Private-endpoint-only dependencies** — ACR and Key Vault never touch the public internet either
+Three decisions drive the design, the same ones behind the [Hub & Spoke module](/blog/azure-terraform-hub-spoke-zero-trust/) this cluster is built to sit behind. The control plane has no public endpoint and is reachable only from inside the VNet, a peered network, or a VPN. Node egress is forced-tunneled instead of using default outbound, so every packet leaves through a firewall you control. And the dependencies, ACR and Key Vault, are reachable only through private endpoints.
 
 ## Step 1: The API Server Has No Public FQDN
 
@@ -58,15 +54,15 @@ resource "azurerm_kubernetes_cluster" "this" {
 }
 ```
 
-`private_cluster_public_fqdn_enabled = false` is the setting people miss. `private_cluster_enabled = true` alone still publishes a public FQDN that resolves to nothing reachable — a fingerprintable artifact for no benefit. Turning it off means `az aks show` doesn't leak a hostname at all.
+`private_cluster_public_fqdn_enabled = false` is the setting people miss. With `private_cluster_enabled = true` alone, AKS still publishes a public DNS record for the API server that resolves to its private IP. Nobody outside can connect to it, but it advertises the cluster and leaks internal addressing for no benefit. With the public FQDN disabled, the only name left is the private one, resolvable only through the Private DNS Zone.
 
-The cluster needs its own Private DNS Zone for the API server (`privatelink.<region>.azmk8s.io`), linked to the VNet — same DINE-policy-safe `lifecycle.ignore_changes` pattern as the [Hub & Spoke module's](/blog/azure-terraform-hub-spoke-zero-trust) centralized zones, because Azure Policy tagging fights this resource too.
+The cluster needs its own Private DNS Zone for the API server (`privatelink.<region>.azmk8s.io`), linked to the VNet. It uses the same DINE-policy-safe `lifecycle.ignore_changes` pattern as the [Hub & Spoke module's](/blog/azure-terraform-hub-spoke-zero-trust/) centralized zones, because Azure Policy tagging fights this resource too.
 
-## Step 2: `userDefinedRouting` — the Setting That Actually Matters
+## Step 2: `userDefinedRouting`, the Setting That Matters Most
 
-`network_plugin = "azure"` and `network_policy = "azure"` get most of the attention in AKS networking guides. The setting that actually determines whether traffic is inspectable is `outbound_type`.
+`network_plugin = "azure"` and `network_policy = "azure"` get most of the attention in AKS networking guides. The setting that decides whether egress is inspectable is `outbound_type`.
 
-Left at its default (`loadBalancer`), AKS provisions its own Standard Load Balancer outbound rule and every node gets a direct, un-inspected path to the internet — a private API server with fully public node egress is a common half-measure that looks locked down in the portal and isn't.
+Left at its default (`loadBalancer`), AKS provisions its own Standard Load Balancer outbound rule and every node gets a direct, uninspected path to the internet. A private API server with fully public node egress is a common half-measure: it looks locked down in the portal and isn't.
 
 ```hcl
 resource "azurerm_route_table" "aks_egress" {
@@ -84,13 +80,13 @@ resource "azurerm_subnet_route_table_association" "aks_nodes" {
 }
 ```
 
-`outbound_type = "userDefinedRouting"` tells AKS to trust this route table instead of provisioning its own path. The Route Table has to exist and be associated to the node subnet *before* the cluster is created — `depends_on` enforces the ordering, because AKS validates the UDR is actually in place at cluster-creation time and fails otherwise.
+`outbound_type = "userDefinedRouting"` tells AKS to use this route table instead of provisioning its own path. The Route Table has to exist and be associated with the node subnet *before* the cluster is created. `depends_on` enforces that ordering, because AKS checks at creation time that the subnet has a `0.0.0.0/0` route and fails otherwise. The firewall also has to allow AKS's required outbound FQDNs and ports (the `AzureKubernetesService` FQDN tag on Azure Firewall covers most of them), or node provisioning fails.
 
 <ProductCTA variant="inline" slug="azure-private-aks-zero-trust" />
 
 ## Step 3: ACR and Key Vault Without a Public Endpoint
 
-Nodes still need to pull images and (often) read secrets. The naive fix — `admin_enabled = true` on the registry, a shared pull secret in a Kubernetes Secret — is a credential that outlives any single deployment and shows up in `kubectl get secret -o yaml` for anyone with namespace read access.
+Nodes still need to pull images and often read secrets. The naive fix, `admin_enabled = true` on the registry plus a shared pull secret in a Kubernetes Secret, is a credential that outlives any single deployment and shows up in `kubectl get secret -o yaml` for anyone who can read Secrets in that namespace.
 
 ```hcl
 resource "azurerm_container_registry" "this" {
@@ -107,12 +103,12 @@ resource "azurerm_role_assignment" "aks_acr_pull" {
 }
 ```
 
-The kubelet identity — the identity that actually pulls images, not the cluster's control-plane identity — gets `AcrPull` directly. No credential to rotate, nothing in a Secret, nothing that outlives the node it's bound to. Key Vault follows the identical shape: RBAC-authorized, `public_network_access_enabled = false`, kubelet identity gets `Key Vault Secrets User`, ready for the CSI Secrets Store driver to mount without ever touching a static key.
+The kubelet identity, which is the identity that pulls images (not the cluster's control-plane identity), gets `AcrPull` directly. No credential to rotate, nothing in a Secret, nothing to leak outside Entra ID. Key Vault follows the same shape: RBAC authorization, `public_network_access_enabled = false`, and `Key Vault Secrets User` for the kubelet identity, so the CSI Secrets Store driver can mount secrets without a static key.
 
 ## What This Doesn't Do
 
-It's a starting cluster, not a finished platform. No Entra ID–integrated `kubectl` auth (add `azure_active_directory_role_based_access_control` yourself), no multi-pool topology, no cluster autoscaler wiring, `sku_tier` defaults to `Free` (no uptime SLA — set `Standard` for production). And it assumes you already have a firewall to hand it a private IP — pair it with the [Azure Firewall Forced Tunneling module](https://github.com/dwoitzik/terraform-azurerm-firewall-forced-tunneling) if you don't.
+It's a starting cluster, not a finished platform. There's no Entra ID integration for `kubectl` auth (add `azure_active_directory_role_based_access_control` yourself), no multi-pool topology, and no cluster autoscaler wiring. `sku_tier` defaults to `Free`, which has no uptime SLA; set `Standard` for production. It also assumes you already have a firewall whose private IP you can hand it. If you don't, pair it with the [Azure Firewall Forced Tunneling module](https://github.com/dwoitzik/terraform-azurerm-firewall-forced-tunneling).
 
-For the operational reality of running production Kubernetes past the "it deployed" stage — the workflows and failure modes that don't show up in a getting-started guide — [GitOps and Kubernetes\*](/go/gitops-kubernetes-book) is the reference I've actually kept open while doing this.
+For running production Kubernetes past the "it deployed" stage, with the workflows and failure modes a getting-started guide skips, [GitOps and Kubernetes\*](/go/gitops-kubernetes-book) is the reference I kept open while building this.
 
 <ProductCTA variant="end" slug="azure-private-aks-zero-trust" />

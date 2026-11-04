@@ -1,49 +1,63 @@
 ---
 title: "Longhorn to NFS: Why Distributed Storage Didn't Make Sense Here"
-description: "Longhorn replicates PVCs across k3s nodes. On a single physical host, all three replicas live on the same NVMe. When a node failed, Longhorn's Multi-Attach error locked out every pod that needed the volume. NFS was the fix."
+description: "On one physical host, all three Longhorn replicas sit on the same NVMe. When a k3s node failed, Multi-Attach errors blocked pods. NFS was the fix."
 date: "2026-09-27"
 tags: ["Kubernetes", "Storage", "Homelab", "Debugging"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Longhorn is designed for multi-node Kubernetes clusters. It replicates PersistentVolume data across nodes, so if one node dies, the data survives on the other two. It's a great distributed storage system.
+Longhorn is designed for multi-node Kubernetes clusters. It replicates PersistentVolume data across nodes, so if one node dies, the data survives on the others. On real multi-host hardware it does that job well.
 
-I run three k3s nodes on a single physical host. All three nodes share the same NVMe. When Longhorn replicates a PVC across three nodes, all three replicas live on the same physical disk. There is no distribution. There is no redundancy. And when a node failed, Longhorn's own high-availability logic created a problem that wouldn't exist without it.
+I run three k3s nodes on a single physical host. All three nodes share the same NVMe. When Longhorn replicates a PVC across three nodes, all three replicas live on the same physical disk, so there is no real distribution and no real redundancy. And when a node failed, block-volume failover created a problem I would not have had without it.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Multi-Attach Error
 
-When a k3s node becomes unreachable (OomKill, kubelet crash, network blip), Longhorn marks its replicas as "rebuilding" and tries to attach the volume to a healthy node. But Longhorn's RWO (ReadWriteOnce) volumes can only be attached to one node at a time.
+Longhorn volumes are ReadWriteOnce (RWO) block devices: Kubernetes attaches each one to exactly one node at a time. When a k3s node becomes unreachable (OOMKill, kubelet crash, network blip), that attachment does not move on its own.
 
 The sequence:
 
-1. k3s-12 becomes unreachable (kubelet lost lease)
-2. Longhorn detaches the PVC from k3s-12
-3. Longhorn tries to attach the PVC to k3s-13
-4. k3s-12 recovers and comes back online
-5. Longhorn sees both nodes claiming the volume
-6. Multi-Attach error: the volume is "attached" to two nodes simultaneously
+1. k3s-12 becomes unreachable (its kubelet stops renewing its node lease)
+2. The node goes `NotReady`, and the pod on it is stuck in `Terminating` because nobody can confirm it stopped
+3. The controller schedules a replacement pod on k3s-13
+4. The volume's `VolumeAttachment` still points at k3s-12
+5. The attach/detach controller refuses a second attach for an RWO volume and reports a `Multi-Attach error` on the new pod
+6. The new pod sits in `ContainerCreating` until the old attachment is cleared
 
-The pod that needs the volume (Postgres, for example) can't start on either node because Longhorn refuses to mount a volume that's in a Multi-Attach state. The fix requires manually detaching the volume from both nodes and letting Longhorn re-attach it cleanly — a manual step during an outage, exactly when automation should be working.
+The pod that needs the volume (Postgres, for example) can't start anywhere until the old attachment is gone. Clearing it meant force-deleting the stuck pod and detaching the volume by hand so Longhorn could re-attach it cleanly: a manual step during an outage, exactly when automation should be working.
 
-On a multi-host cluster, this is a real HA scenario — the volume legitimately needs to failover to a different physical disk. On a single-host cluster, the "failover" is to the same NVMe, and the Multi-Attach error is pure overhead.
+On a multi-host cluster, this is a real HA scenario: the volume legitimately needs to fail over to a replica on a different physical disk, and the wait protects against two nodes writing at once. On a single-host cluster, the "failover" is to the same NVMe, and the Multi-Attach wait is pure overhead.
 
 ## The NFS Alternative
 
-NFS (Network File System) doesn't have a Multi-Attach problem because it's not a block storage system. NFS exports a directory over the network. Any number of clients can mount it simultaneously. There's no "attachment" state to conflict.
+NFS (Network File System) doesn't have a Multi-Attach problem because it isn't block storage. NFS exports a directory over the network, and any number of clients can mount it at the same time. There's no attachment state to conflict.
 
 The NFS server runs on a dedicated LXC (`ct-srv-nfs-01`) with a ZFS-backed dataset:
 
 ```hcl
 # terraform/stacks/proxmox/lxc.tf
-resource "proxmox_virtual_machine" "ct_srv_nfs_01" {
-  vm_id   = 220
-  name    = "ct-srv-nfs-01"
-  memory { dedicated = 2048 }
+resource "proxmox_virtual_environment_container" "ct_srv_nfs_01" {
+  vm_id = 220
+
+  initialization {
+    hostname = "ct-srv-nfs-01"
+    # ...
+  }
+
+  memory {
+    dedicated = 2048
+    swap      = 1024
+  }
+
+  # host bind mount holding every NFS-exported PVC
+  mount_point {
+    volume = "/nfs-data"
+    path   = "/nfs-data"
+  }
   # ...
 }
 ```
@@ -60,13 +74,17 @@ spec:
       values:
         nfs:
           server: 10.0.20.100
-          path: /archive
+          path: /nfs-data/k8s-general
+          mountOptions:
+            - nfsvers=4.1
+            - hard
         storageClass:
           name: nfs-client
-          defaultClass: true
+          defaultClass: false
+          reclaimPolicy: Retain
 ```
 
-When k3s-12 goes down, the pods reschedule to k3s-11 or k3s-13, mount the same NFS export, and continue where they left off. No Multi-Attach error, no manual detachment, no volume attachment state machine. NFS handles concurrent mounts natively.
+When k3s-12 goes down, the pods reschedule to k3s-11 or k3s-13, mount the same NFS export, and continue where they left off. No Multi-Attach error, no manual detachment, no attachment state machine.
 
 ## The Trade-offs
 
@@ -75,20 +93,20 @@ When k3s-12 goes down, the pods reschedule to k3s-11 or k3s-13, mount the same N
 | Feature | Longhorn | NFS |
 |---|---|---|
 | Replication across nodes | Yes (3x by default) | No (single server) |
-| Snapshots | Yes (per-volume) | Yes (ZFS snapshots) |
+| Snapshots | Yes (per-volume, CSI) | Yes (ZFS snapshots on the server, not CSI) |
 | ReadWriteMany | Yes | Yes |
-| CSI driver | Yes | Yes (nfs-subdir-external-provisioner) |
-| Performance | Block-level (faster) | Network-mounted (slower) |
+| Provisioner | CSI driver | nfs-subdir-external-provisioner (not CSI) |
+| Data path | Block device (iSCSI frontend, synchronous replica writes) | File-level over NFS |
 | Node failure tolerance | Yes | No (single server) |
 
-NFS gives up replication and node-failure tolerance. If the NFS server dies, every PVC it serves is unavailable. On a single physical host, this is the same risk as Longhorn — both storage systems live on the same NVMe. Longhorn's replication doesn't help when the underlying disk is the single point of failure.
+NFS gives up replication and node-failure tolerance. If the NFS server dies, every PVC it serves is unavailable. On a single physical host that is the same risk as with Longhorn, because both storage systems live on the same NVMe. Longhorn's replication doesn't help when the underlying disk is the single point of failure.
 
 ### What NFS Gives Back
 
 - **No Multi-Attach errors.** Pods reschedule freely without volume attachment conflicts.
-- **Simpler failure modes.** NFS is either up or down. No "rebuilding," "degraded," or "reverted" states.
+- **Simpler failure modes.** NFS is either up or down. No "rebuilding," "degraded," or "faulted" volume states.
 - **ZFS snapshots for backup.** PBS backs up the NFS server's ZFS dataset, giving point-in-time recovery without Longhorn's snapshot overhead.
-- **Lower resource usage.** Longhorn runs a per-node process (manager + driver) consuming ~200MB RAM per node. NFS is a single process on one LXC.
+- **Lower resource usage.** Longhorn runs a manager, a CSI plugin, and instance-manager pods on every node. NFS is one server on one LXC.
 
 ## The Storage Decision Matrix
 
@@ -101,7 +119,7 @@ After migrating from Longhorn to NFS, I defined the rule:
 | Mealie, Home Assistant | local-path | SQLite databases |
 | Everything else | nfs-client | Default, survives pod rescheduling |
 
-The principle: **embedded databases go on local-path (file-locking), everything else goes on NFS (survivability).** PostgreSQL doesn't fit either category because CNPG manages its own PV independently.
+The principle: **embedded databases go on local-path (file-locking), everything else goes on NFS (survivability).** PostgreSQL also lands on local-path, for a different reason: CNPG handles replication itself, so the storage underneath only needs to be local and fast.
 
 ## The Migration
 
@@ -114,7 +132,7 @@ Moving PVCs from Longhorn to NFS required:
 5. Delete the old Longhorn PVC (data is already on NFS)
 6. Remove Longhorn from the cluster
 
-Step 5 is the nerve-wracking part — deleting a PVC that contains production data. The verification before deletion:
+Step 5 is the nerve-wracking part: deleting a PVC that contains production data. The verification before deletion:
 
 ```bash
 # Verify data exists on NFS
@@ -126,12 +144,12 @@ kubectl delete pod authelia-xxxxx  # force reschedule
 # → Pod starts, mounts NFS, passes health checks
 ```
 
-After the migration, Longhorn was uninstalled. The cluster went from three storage replicas on one disk to a single NFS server on the same disk — simpler, more predictable, and without the Multi-Attach false alarm.
+After the migration, Longhorn was uninstalled. The cluster went from three storage replicas on one disk to a single NFS server on the same disk. That is simpler, more predictable, and free of the Multi-Attach stalls.
 
 ---
 
-Distributed storage on a single host is the same anti-pattern as Azure Zone-Redundant Storage across availability zones that share the same power source. If the underlying infrastructure isn't actually distributed, the replication layer adds complexity without adding resilience. The fix in both cases: match the storage topology to the actual infrastructure topology. Single host = single NFS server. Multi-host = distributed storage.
+Distributed storage on a single host is the same anti-pattern as replicating data across "zones" that share one power feed. Azure availability zones exist precisely because each has independent power, cooling, and networking; replication only buys resilience when the failure domains underneath are independent. If the underlying infrastructure isn't actually distributed, the replication layer adds complexity without adding resilience. Match the storage topology to the real infrastructure topology: single host, single NFS server; multiple hosts, distributed storage.
 
-[Designing Data-Intensive Applications\*](/go/4aUtkCs) has the clearest explanation I've read of why replication only buys you resilience when the replicas are actually independent - which is the whole lesson of this migration in one sentence.
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) has the clearest explanation I've read of why replication only buys you resilience when the replicas fail independently. That is the whole lesson of this migration.
 
 <NewsletterCTA />

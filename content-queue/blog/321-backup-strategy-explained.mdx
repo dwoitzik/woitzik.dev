@@ -1,54 +1,54 @@
 ---
 title: "The 3-2-1 Backup Strategy, Explained Properly"
-description: "What the 3-2-1 backup rule actually requires - three copies, two media types, one offsite - and the specific ways homelabs and small deployments quietly violate it without noticing."
+description: "What the 3-2-1 backup rule requires (three copies, two media types, one offsite) and the specific ways homelabs break it without noticing."
 date: "2026-12-23"
 tags: ["Backup", "Homelab", "Kubernetes"]
 ---
 
 import AffiliateLink from "@components/AffiliateLink.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Everyone who runs a homelab or a small production deployment has heard of the 3-2-1 rule: three copies of your data, on two different media types, with one copy offsite. Fewer people can actually explain why each of those three numbers exists, which is exactly how you end up with a backup strategy that satisfies the letter of the rule while failing the reason it exists.
+Anyone who runs a homelab or a small production deployment has heard of the 3-2-1 rule: three copies of your data, on two different media types, with one copy offsite. Fewer people can explain why each number is there, and that's how you end up with a setup that meets the letter of the rule and misses its purpose.
 
-I've written up the specific implementation on this blog already - [Velero backing up to Garage S3](/blog/velero-garage-k3s-backup/) inside the cluster, and the [restore test that found a network conflict](/blog/backup-restore-test-never-verified-network-conflict/) the documentation never mentioned. This article is the conceptual layer underneath those posts: what 3-2-1 is actually protecting against, and the specific ways homelabs violate it without realizing.
+I've already written up my implementation: [Velero backing up to Garage S3](/blog/velero-garage-k3s-backup/) inside the cluster, and the [restore test that found a network conflict](/blog/backup-restore-test-never-verified-network-conflict/) the documentation never mentioned. This article is the layer underneath those posts: what 3-2-1 protects against, and how homelabs break it without realizing.
 
 ## Why Three Copies
 
-The "3" isn't superstition - it's math about the probability of simultaneous failure. One copy has no redundancy at all; a single bad `apt upgrade`, a failing disk, or a fat-fingered `rm -rf` is unrecoverable. Two copies survive a single failure, but only if the second copy's failure is truly independent of the first's - which is the detail most setups get wrong (more on that below). Three copies, with independent failure modes, is the point where "everything fails at once" becomes rare enough to actually plan around instead of dreading.
+The "3" is about the probability of simultaneous failure. One copy has no redundancy: a bad `apt upgrade`, a failing disk or a fat-fingered `rm -rf` is unrecoverable. Two copies survive a single failure, but only if the two can fail independently, which is the detail most setups get wrong (more on that below). With three copies and independent failure modes, "everything fails at once" becomes rare enough to plan around.
 
-The number that matters is not literally 3 - it's "enough copies that a single event, including a slow-moving one like a ransomware infection encrypting files gradually, cannot take out all of them before someone notices."
+The number itself matters less than the idea behind it: enough copies that no single event can take out all of them before someone notices, including a slow one like ransomware encrypting files gradually.
 
 ## Why Two Media Types
 
-This is the rule's least obvious clause, and the one most homelabs skip entirely. "Two media types" doesn't mean two hard drives - it means two failure domains that don't share a common cause. A primary NVMe drive and a backup on a second NVMe drive in the same enclosure share a power supply, a filesystem driver, and often a batch of the same firmware bug. They are, for backup purposes, closer to one copy than two.
+This is the least obvious clause and the one most homelabs skip. The original intent was literal media (disk vs. tape vs. optical), but the point is two failure domains without a common cause. A primary NVMe and a backup on a second NVMe in the same machine share a power supply, a filesystem driver, and often the same firmware bug from the same batch. For backup purposes they are closer to one copy than two.
 
-Real media-type diversity looks like: local disk (fast, for day-to-day recovery) plus an external HDD or tape (slow, but immune to the failure modes that take out the primary array) plus cloud object storage (immune to anything physical happening to the building). Each layer exists specifically to not share a failure mode with the others.
+Diversity in practice looks like this: local disk for fast day-to-day recovery, an external HDD or tape that doesn't share the failure modes of the primary array, and cloud object storage that survives anything physical happening to the building. Each layer is there so it doesn't share a failure mode with the others.
 
 ## Why One Copy Offsite
 
-This is the clause that exists purely for the scenario everyone underestimates: total loss of the physical location. Fire, flood, theft, or - the mundane homelab version - a botched electrical project that takes out every device on the same circuit at once. A backup sitting in the same room as the thing it's protecting satisfies "3-2" but fails the entire point of "1," because the exact event most likely to destroy your primary data (something physical happening to where you live) destroys every local copy simultaneously.
+This clause covers the scenario everyone underestimates: losing the physical location. Fire, flood, theft, or the mundane homelab version, a botched electrical job that takes out every device on the circuit at once. A backup in the same room as the thing it protects satisfies "3-2" and misses the point of "1", because the event most likely to destroy your primary data (something physical happening where you live) destroys every local copy with it.
 
-"Offsite" doesn't have to mean a different continent. A cloud object store, a drive at a relative's house, or a second physical location you control all satisfy the requirement - the test is simply: does the failure mode that destroys copy one also reach copy three?
+"Offsite" doesn't have to mean another continent. A cloud object store, a drive at a relative's house or a second location you control all count. The test: does the event that destroys copy one also reach copy three?
 
 ## The Homelab-Specific Way This Rule Gets Violated
 
-The subtlest version of this failure, and the one I'd flag first for anyone building a homelab backup strategy, is **backing up to a target that depends on the thing you're protecting**. An S3-compatible bucket running as a pod inside the same Kubernetes cluster it's backing up looks like a second copy and a second media type - until the cluster itself fails, at which point the "backup" fails with it. That specific circularity is worth designing around explicitly rather than discovering during an actual outage; it's the reason an in-cluster object store is a useful layer for fast namespace-level restores, but cannot be the whole strategy on its own.
+The subtlest failure, and the first one I'd flag for anyone building a homelab backup, is **backing up to a target that depends on the thing you're protecting**. An S3-compatible bucket running as a pod inside the Kubernetes cluster it backs up looks like a second copy on a second medium until the cluster fails and takes the "backup" with it. Design around that circularity up front instead of discovering it during an outage. An in-cluster object store is a useful layer for fast namespace-level restores, but it can't be the whole strategy.
 
-A second common gap: **backups that complete without verifying they contain data**. A backup job reporting "success" for weeks while silently capturing zero actual file contents (because a flag governing filesystem-level backup wasn't set, or a credential rotated without updating the job) is worse than no backup at all - it creates false confidence exactly where you need the opposite. The only real defense is a scheduled test restore, not just a green checkmark on the backup job itself.
+The second gap is **backups that complete without containing data**. A job that reports "success" for weeks while capturing no file contents (because the flag for filesystem-level backup wasn't set, or a credential rotated without the job being updated) is worse than no backup, because it creates confidence exactly where you shouldn't have any. The only real defense is a scheduled test restore, not a green checkmark on the job.
 
-A third: **treating "offsite" as a checkbox instead of a tested path**. An offsite copy that has never actually been restored from is a hypothesis, not a backup. Rate limits, expired credentials, or a network path that only exists during initial setup and quietly breaks later are all things that only surface when you try to pull data back down under pressure - which is the worst possible time to discover them.
+The third is **treating "offsite" as a checkbox instead of a tested path**. An offsite copy you've never restored from is a hypothesis. Rate limits, expired credentials or a network path that only existed during initial setup all surface when you try to pull data back under pressure, which is the worst time to find them.
 
 ## A Practical Checklist
 
 - **Copy 1 (primary):** your live data, wherever it actually lives day to day.
-- **Copy 2 (local, different media):** a directly attached drive on a different bus/power path than the primary - I run a [Seagate 2TB Portable HDD*](/go/4vxwLpY) connected via USB specifically because it has zero shared failure surface with the internal NVMe it's backing up.
+- **Copy 2 (local, different media):** a directly attached drive on a different bus than the primary. I run a [Seagate 2TB Portable HDD\*](/go/4vxwLpY) over USB because it shares no controller, bus or disk technology with the internal NVMe it backs up. It still lives in the same building, which is what copy 3 is for.
 - **Copy 3 (offsite):** cloud object storage or a drive physically elsewhere, with a documented and periodically tested restore path.
 - **Verification:** a scheduled job that doesn't just check "backup completed" but checks "backup contains the expected data," plus a full test restore on a cadence you actually keep.
-- **Independence check:** for each pair of copies, ask explicitly what single event would take out both. If the answer is "the cluster/host/building failing," that pair doesn't satisfy the rule regardless of how it looks on paper.
+- **Independence check:** for each pair of copies, ask what single event would take out both. If the answer is "the cluster, host or building failing", that pair doesn't satisfy the rule, however it looks on paper.
 
 ## The Result
 
-3-2-1 isn't a box-ticking exercise - every clause maps to a specific failure mode it exists to survive: simultaneous failure (three), shared failure domains (two media types), and total site loss (one offsite). The homelab version of getting this wrong isn't usually skipping backups entirely - it's building something that looks like 3-2-1 on a diagram while quietly sharing a failure domain between two of the three copies, which is exactly the gap a real restore test is designed to expose.
+Each clause of 3-2-1 maps to a failure mode: simultaneous failure (three copies), shared failure domains (two media types) and total site loss (one offsite). Homelabs rarely get it wrong by skipping backups altogether. They get it wrong by building something that looks like 3-2-1 on a diagram while two of the three copies share a failure domain, and a real restore test is what exposes that.
 
-If you want to see the actual implementation - Velero, Garage S3, and the restore test that found the gap the documentation didn't mention - both linked at the top of this article walk through the real deployment, not just the theory.
+The two posts linked at the top cover the actual implementation: Velero, Garage S3, and the restore test that found the gap the documentation didn't mention.

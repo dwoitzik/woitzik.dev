@@ -1,134 +1,85 @@
 ---
 title: "Traefik Rate Limiting That Actually Works on k3s"
-description: "A single misconfigured rate limit took down my Grafana dashboard during a Prometheus scrape storm. Here's the Traefik RateLimit middleware config that protects services without blocking legitimate traffic."
+description: "Traefik's RateLimit middleware on k3s and the source criterion that decides whether it works. Why my Immich limit put every visitor into one bucket."
 date: "2026-10-29"
 tags: ["Kubernetes", "Traefik", "Security", "Homelab"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Prometheus scraped [Grafana](/blog/kube-prometheus-loki-grafana-k3s/) 30 times in 10 seconds. Grafana's API returned 429s. The dashboard went blank. The root cause: a misconfigured Prometheus service monitor with a 1-second scrape interval — the kind of runaway scrape config that also drives Prometheus's own RAM usage. The fix: Traefik's RateLimit middleware, correctly configured to protect against scrape storms without blocking normal dashboard access. This runs on a [BMAX Mini PC*](/go/4bv3yF1) with 20+ services behind Traefik — one misconfigured scrape can cascade into a cluster-wide outage.
+Opening my Immich photo library, I got "error loading dynamically imported module" and an HTTP 500 that went away on refresh. Traefik's access log showed the cause: the route's RateLimit middleware was answering `429`, and every rejected request carried the same client address. All visitors shared one 50 requests per second bucket, and a single Immich page load, which fetches dozens of JavaScript chunks, could use it up. A rate limit is only as good as its idea of who the client is. This runs on a [BMAX Mini PC*](/go/4bv3yF1) with 20+ services behind Traefik, so that question matters for every route, not just this one.
+
+> **Update (November 2026):** An earlier version of this post opened with a Grafana scrape storm and claimed that switching to `Cf-Connecting-Ip` fixed per-client bucketing behind the Cloudflare Tunnel. Both were wrong. The real incident is the Immich one above. Re-checking live: the public tunnel routes for Immich and Jellyfin go straight to the backends and never pass through Traefik, so these middlewares only see LAN and VPN traffic. That traffic carries no `Cf-Connecting-Ip` header, and the shared address in the log (`10.42.2.0`) is a k3s node's pod-network address from source NAT, not the cloudflared pod. The post now describes what the middleware actually does in this setup.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## The Scrape Storm
-
-Grafana runs on k3s behind Traefik. The Prometheus Operator's ServiceMonitor for Grafana had a `scrapeInterval: 1s` — a copy-paste error from a debug session. Prometheus fired 30 requests per second at Grafana's `/api/datasources` endpoint. Grafana's Go runtime couldn't handle the concurrent connections, started returning 503s, and the dashboard went blank.
-
-Without rate limiting, any misconfigured scraper — or any user refreshing aggressively — can DoS a service behind Traefik.
-
 ## The RateLimit Middleware
 
-Traefik's RateLimit middleware uses a token bucket algorithm. It's configured per-entrypoint or per-route:
+Traefik's RateLimit middleware is a token bucket per source. You attach it to a router (an IngressRoute route), or to an entrypoint as a default middleware. This is the one in front of Immich:
 
 ```yaml
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
-  name: rate-limit
-  namespace: traefik
-spec:
-  rateLimit:
-    average: 100
-    burst: 200
-    period: 1s
-    sourceCriterion:
-      ipStrategy:
-        depth: 1
-```
-
-- `average: 100` — 100 requests per second per source IP
-- `burst: 200` — allow bursts up to 200 requests
-- `period: 1s` — the averaging window
-- `sourceCriterion.ipStrategy.depth: 1` — trust the first X-Forwarded-For header (correct behind one proxy)
-
-The `depth: 1` is critical. Without it, Traefik uses the raw TCP connection IP, which is always the Traefik pod's IP in a Kubernetes cluster. Every client gets the same rate limit bucket. With `depth: 1`, Traefik reads the real client IP from X-Forwarded-For.
-
-## Applying It Per Service
-
-Not every service needs the same rate limit. Grafana's dashboard needs a higher burst than the API:
-
-```yaml
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: grafana-rate-limit
-  namespace: monitoring
+  name: immich-ratelimit
+  namespace: apps
 spec:
   rateLimit:
     average: 50
     burst: 100
     period: 1s
     sourceCriterion:
-      ipStrategy:
-        depth: 1
----
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: grafana
-  namespace: monitoring
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(`grafana.lab.woitzik.dev`)
-      kind: Rule
-      middlewares:
-        - name: grafana-rate-limit
-          namespace: monitoring
-      services:
-        - name: grafana
-          port: 3000
-  tls:
-    secretName: lab-wildcard-tls
+      requestHeaderName: Cf-Connecting-Ip
 ```
 
-## Whitelisting Internal Traffic
+- `average: 50`: 50 requests per `period` per source, here per second
+- `burst: 100`: up to 100 requests may pass in a short burst
+- `period: 1s`: the unit for `average`
+- `sourceCriterion`: how Traefik decides which bucket a request belongs to
 
-Prometheus, ArgoCD, and other internal services shouldn't be rate-limited. Traefik's RateLimit middleware supports `requestHost` and `requestHeaders` as source criteria, but the cleanest approach is a separate middleware for internal services:
+Immich has no Authelia in front of it, because the mobile app authenticates with API tokens and can't follow a browser redirect. That makes this middleware the only brute-force mitigation on its login and upload endpoints, so the limit is set high enough for mobile background sync but still bounds a credential-stuffing attempt. Jellyfin has the same auth model and a looser limit (`average: 100`, `burst: 200`) because HLS playback bursts many segment requests.
 
-```yaml
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: internal-rate-limit
-  namespace: traefik
-spec:
-  rateLimit:
-    average: 500
-    burst: 1000
-    period: 1s
-    sourceCriterion:
-      requestHost: {}
-```
+## The Source Criterion Decides Whether It Works
 
-Internal services use `requestHost` (the Host header) as the source instead of IP. Since internal services all share the same cluster IP, IP-based rate limiting would bucket them all together.
+`sourceCriterion` accepts exactly one of `ipStrategy`, `requestHeaderName`, or `requestHost`. Each one fails differently.
+
+**No criterion** means Traefik uses the request's remote address. If anything proxies or source-NATs traffic before it reaches Traefik, that address belongs to the proxy or the node, and every client lands in the same bucket. That is what happens on my cluster: the Traefik Service uses `externalTrafficPolicy: Cluster`, so LAN clients arrive with a node's pod-network address (`10.42.2.0`, `10.42.0.1`) instead of their own IP.
+
+**`ipStrategy`** reads the client from `X-Forwarded-For`. With `depth: 1` it takes the rightmost entry, which is correct when exactly one trusted proxy sits in front of Traefik and appends the header. If the header has fewer entries than `depth`, the client IP is empty. If nothing trusted in front of Traefik sets the header, clients can spoof it.
+
+**`requestHeaderName`** buckets by the value of a header. When the header is missing, Traefik's extractor returns an empty string and no error, so every request without the header shares one bucket. `Cf-Connecting-Ip` is the right header when Cloudflare's tunnel actually delivers requests to Traefik. In my setup it doesn't: `photos` and `media` are routed from the tunnel directly to the Immich Service and the Jellyfin LXC. The only traffic these middlewares see is LAN and VPN traffic, which has no Cloudflare header. Effectively, both limits are one shared bucket per route.
+
+**`requestHost`** buckets by Host header, so each hostname gets one shared budget regardless of client. That caps total load on a service, which is a legitimate goal, but it is not per-client protection.
+
+## Getting Real Client IPs
+
+For a per-client limit on the LAN path, Traefik has to see the real source address. On Kubernetes, `externalTrafficPolicy: Local` on the Traefik LoadBalancer Service preserves the client IP, at the cost of only nodes that run a Traefik pod accepting traffic for it. With that in place, the default remote-address criterion works and no header is needed.
+
+For the public path, the middleware has to be on the path at all. Cloudflare's WAF and DDoS protection in front of the tunnel are the current public-side control here. Routing the tunnel through Traefik would let the middleware apply publicly and make `Cf-Connecting-Ip` meaningful, but that changes how the tunnel is wired and hasn't been done yet.
 
 ## The 429 Response
 
-When a rate limit is hit, Traefik returns a `429 Too Many Requests` with a `Retry-After` header. The client should respect this. Most HTTP clients don't. The Grafana dashboard showed a blank page because the browser retried immediately. Adding a client-side backoff in the Prometheus scraper config fixed the retry behavior:
+When a request exceeds the limit, Traefik returns `429 Too Many Requests` with a `Retry-After` header. Well-behaved clients honor it; many don't. A browser loading a JavaScript-heavy single-page app is a bad case. It fires dozens of requests in parallel, doesn't retry the failed chunk, and shows the user an error that doesn't mention rate limiting at all. If a frontend breaks only on first load and works on refresh, check the access log for `429`s before debugging the app.
 
-```yaml
-scrapeConfig:
-  - scrapeInterval: 30s
-    scrapeTimeout: 10s
-    metricsPath: /metrics
+## Finding Rejections
+
+My Traefik isn't scraped by [the monitoring stack](/blog/kube-prometheus-loki-grafana-k3s/) yet, so the access log is where rejections show up. With JSON access logs enabled, this lists the hosts and client addresses that were rate limited:
+
+```bash
+kubectl -n kube-system logs deploy/traefik --since=24h \
+  | grep '"DownstreamStatus":429' \
+  | grep -o '"RequestHost":"[^"]*"\|"ClientHost":"[^"]*"' \
+  | sort | uniq -c
 ```
 
-The real fix was the scrape interval. The rate limit was the safety net.
+If every `429` comes from the same `ClientHost`, the bucket is shared and the source criterion is wrong for your traffic path. If you do scrape Traefik's metrics, rejections appear as `code="429"` in the standard request counters:
 
-## Monitoring Rate Limits
-
-Traefik exposes rate limit metrics in Prometheus format:
-
-```
-traefikmiddleware_ratelimit_requests_total{middleware="monitoring-grafana-rate-limit"} 42
-traefikmiddleware_ratelimit_rejected_total{middleware="monitoring-grafana-rate-limit"} 3
+```promql
+sum by (service) (increase(traefik_service_requests_total{code="429"}[5m]))
 ```
 
-Grafana alert: if `rejected_total` increases by more than 10 per minute, something is hammering the service. This is the early warning for scrape storms, bot attacks, or misconfigured clients.
+Before trusting any rate limit, confirm two things against live traffic: that the middleware is on the path the traffic actually takes, and that the source it buckets on differs per client.
 
 <NewsletterCTA />

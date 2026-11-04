@@ -1,26 +1,33 @@
 ---
 title: "Hardening Azure Acmebot for ISO 27001 & NIS2 Compliance"
-description: "A deep dive into architecting a Zero-Trust Let's Encrypt automation using Terraform, Azure Private Link, and VNet Integration."
+description: "Network-isolating Azure Acmebot for ISO 27001 and NIS2: Zero-Trust Let's Encrypt automation with Terraform, Azure Private Link, and VNet Integration."
 date: "2026-05-01"
 tags: ["Azure", "Terraform", "Security", "Compliance"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Automating SSL/TLS certificates with Let's Encrypt and Azure Key Vault is a solved problem.
-Tools like the fantastic [Azure Acmebot](https://github.com/shibayan/keyvault-acmebot) make
-deployment incredibly simple.
+Automating TLS certificates with Let's Encrypt and Azure Key Vault is a solved problem.
+[Azure Acmebot](https://github.com/shibayan/keyvault-acmebot) makes the deployment very
+simple.
 
-However, in corporate environments targeting **ISO 27001, KRITIS, or NIS2** compliance,
-"simple" is rarely sufficient. The standard Acmebot deployment relies on public endpoints -
-and in a hardened environment, a Storage Account or Key Vault reachable from the public
-internet will immediately trigger findings during a security audit, regardless of how strong
-your authentication is.
+In corporate environments targeting **ISO 27001, KRITIS, or NIS2** compliance, simple is
+rarely enough. The standard Acmebot deployment relies on public endpoints, and in a hardened
+environment a Storage Account or Key Vault reachable from the public internet triggers audit
+findings no matter how strong your authentication is.
 
-This article walks through how to transition from a standard Acmebot deployment to a
-fully network-isolated, Zero-Trust architecture - entirely managed with Terraform.
+Below is the move from a standard Acmebot deployment to a network-isolated, Zero-Trust
+architecture, managed entirely with Terraform.
+
+> **Update (November 2026):** Upstream Acmebot (the repo now lives at
+> [polymind-inc/acmebot](https://github.com/polymind-inc/acmebot)) deploys to a Flex Consumption
+> plan on Linux. The Terraform below targets a Windows Function App
+> (`azurerm_windows_function_app`) on a Premium or Dedicated App Service plan; the Windows
+> Consumption plan has no VNet integration at all. On Flex Consumption the pattern still holds,
+> but the function app resource is `azurerm_function_app_flex_consumption` and the integration
+> subnet must be delegated to `Microsoft.App/environments` instead of `Microsoft.Web/serverFarms`.
 
 **[View the standard deployment source code on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-acme-cert)**
 
@@ -36,27 +43,32 @@ Three components expose a public attack surface out of the box:
    management. By default, it accepts traffic from all networks.
 2. **Key Vault:** The certificate store operates with a public endpoint unless explicitly
    restricted.
-3. **Function App:** The Acmebot dashboard and ACME webhook are publicly reachable with
-   no network-layer restriction.
+3. **Function App:** The Acmebot dashboard and its HTTP API are publicly reachable,
+   protected by App Service Authentication but with no network-layer restriction.
 
-For any serious compliance framework, we need to invert this model entirely.
-The target principle: **Default-Deny at the network layer, not just the identity layer.**
+Any serious compliance framework requires inverting this model. The target principle:
+**Default-Deny at the network layer, in addition to the identity layer.**
 
 ## Target Architecture
 
-We replace public internet routing with Azure's internal backbone using three controls:
+Three controls replace public internet routing with Azure's internal backbone:
 
 - **VNet Integration:** The Function App is injected into a dedicated, delegated subnet.
   All outbound traffic originates from within your Virtual Network.
 - **Azure Private Link:** Storage Account and Key Vault receive private IP addresses inside
   the VNet via Private Endpoints. Their public endpoints are disabled entirely.
-- **Private DNS Zones:** Internal DNS resolution ensures the Function App resolves
-  `*.blob.core.windows.net` and `*.vaultcore.azure.net` to private IPs - not public ones.
+- **Private DNS Zones:** `privatelink.*` zones linked to the VNet make the Function App
+  resolve `*.blob.core.windows.net` and `*.vault.azure.net` to private IPs instead of
+  public ones.
+
+These controls lock down outbound traffic and the data plane. The Function App's own inbound
+endpoint (the dashboard) needs a separate Private Endpoint or access restrictions on top;
+the code below doesn't cover that part.
 
 ## Step 1: VNet Integration
 
 The Function App needs a dedicated subnet with a delegation to `Microsoft.Web/serverFarms`.
-Note the `/27` prefix - that's sufficient for this workload and avoids wasting address space.
+A `/27` is enough for this workload and doesn't waste address space.
 
 ```hcl
 resource "azurerm_subnet" "acmebot_integration" {
@@ -69,7 +81,7 @@ resource "azurerm_subnet" "acmebot_integration" {
     name = "delegation-acmebot"
     service_delegation {
       name    = "Microsoft.Web/serverFarms"
-      actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
+      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
     }
   }
 
@@ -93,18 +105,21 @@ resource "azurerm_windows_function_app" "acmebot" {
 }
 ```
 
-Two details that will cost you hours if you miss them: `vnet_route_all_enabled = true` forces
-all outbound traffic through the VNet - without it, the Function will still try to reach
-Storage over the public internet and fail silently once we lock it down. And
-`WEBSITE_DNS_SERVER = 168.63.129.16` tells the Function to use Azure's internal DNS resolver,
-which is what makes Private DNS Zone resolution work at all.
+Two details cost hours if you miss them. `vnet_route_all_enabled = true` forces all outbound
+traffic through the VNet; without it, some of the Function's traffic still takes the public
+path and fails without a clear error once Storage is locked down.
+`WEBSITE_DNS_SERVER = 168.63.129.16` pins name resolution to Azure's internal resolver, which
+answers from the Private DNS Zones linked to the VNet. An integrated app inherits the VNet's
+DNS settings anyway, so this matters most when the VNet points at custom DNS servers that
+don't forward the `privatelink` zones.
 
 ## Step 2: Private Endpoints & DNS
 
-This is the step where most engineers lose time. Private Endpoints alone are not enough -
-you also need Private DNS Zones linked to your VNet, otherwise the Function App will still
-resolve the public IP of the Storage Account and get blocked by the firewall rules we set
-in Step 3.
+This is where most engineers lose time. Private Endpoints alone are not enough. You also
+need Private DNS Zones linked to your VNet; otherwise the Function App still resolves the
+public IP of the Storage Account and gets blocked by the rules from Step 3. The endpoints
+go into their own subnet (`acmebot_endpoints`), because a subnet delegated to
+`Microsoft.Web/serverFarms` can't host Private Endpoints.
 
 ```hcl
 # One Private Endpoint per Storage subresource
@@ -149,18 +164,18 @@ resource "azurerm_private_endpoint" "kv_pe" {
 }
 ```
 
-The Storage Account requires four separate Private Endpoints - one each for `blob`, `table`,
-`queue`, and `file`. Azure Functions uses all four subresources internally. Skipping any one
-of them will result in a Function App that deploys successfully but fails at runtime with
-cryptic storage errors.
+The Storage Account needs four separate Private Endpoints, one each for `blob`, `table`,
+`queue`, and `file`. Acmebot's Functions runtime uses all four subresources. Skip one and
+the Function App deploys fine, then fails at runtime with cryptic storage errors.
 
 <ProductCTA variant="inline" slug="acmebot-enterprise-vnet" />
 
 ## Step 3: Default-Deny Firewall Rules
 
-With private routing in place, we can now enforce network-layer isolation. Both the Storage
-Account and Key Vault get explicit deny-all rules, with a narrow exception for the integration
-subnet.
+With private routing in place, network-layer isolation can be enforced. Both the Storage
+Account and Key Vault get public network access disabled. The default-deny network rules
+with a narrow exception for the integration subnet are a second layer, in case someone
+re-enables public access later.
 
 ```hcl
 resource "azurerm_storage_account" "acmebot_storage" {
@@ -190,25 +205,30 @@ resource "azurerm_key_vault" "acmebot_kv" {
 }
 ```
 
-`bypass = "AzureServices"` is required - it allows Azure's internal control plane operations
-(like diagnostic log shipping) to continue working. Without it, certain platform features
-will silently break.
+`bypass = "AzureServices"` lets trusted Microsoft services through the network rules.
+Which platform features depend on it varies by service, so test diagnostic settings and
+backups after the change instead of assuming they still work.
 
-At this point, neither resource has any publicly reachable endpoint. An external scanner
-will not even get a TCP connection - the endpoints simply don't resolve to a public IP.
+At this point, neither resource accepts traffic from the internet. From outside, the public
+FQDNs still resolve to Azure's shared frontend, but every request is rejected with a 403
+because public network access is disabled, before authentication even comes into play.
 
 ## The Result
 
-After applying this configuration, your Acmebot deployment meets the network isolation
-requirements of ISO 27001 Annex A.8, NIS2 Article 21, and KRITIS baseline controls:
+After this change, the Acmebot deployment covers the network-isolation controls auditors
+check under ISO 27001:2022 Annex A (8.20 network security, 8.22 segregation of networks),
+NIS2 Article 21, and KRITIS baselines:
 
-- No public endpoints on any data-plane resource
+- No public access on any data-plane resource
 - All inter-service traffic stays on Azure's private backbone
-- Identity-based access (Managed Identity + RBAC) layered on top of network controls
-- Full Infrastructure-as-Code - auditable, repeatable, version-controlled
+- Identity-based access (Managed Identity + RBAC) on top of the network controls
+- Everything in Terraform: auditable, repeatable, version-controlled
+
+How these controls fit into the full set of Article 21 obligations is covered in
+[implementing NIS2 Article 21 in Azure](/blog/nis2-article-21-azure-terraform/).
 
 If the network-security side of this (not just the Terraform) is what's new, [Netzwerke: Verstehen, Einrichten, Administrieren\*](/go/4f3kTar) is the reference I'd point at.
 
-I run this same checklist during every hardening pass - [grab the ISO 27001 Auditor Checklist PDF](/downloads/iso27001-auditor-checklist.pdf) if you want it for your own audits.
+I run this same checklist during every hardening pass. [Grab the ISO 27001 Auditor Checklist PDF](/downloads/iso27001-auditor-checklist.pdf) if you want it for your own audits.
 
 <ProductCTA variant="end" slug="acmebot-enterprise-vnet" />

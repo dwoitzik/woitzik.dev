@@ -1,27 +1,27 @@
 ---
 title: "Azure Policy-as-Code: Enforcing Your Own Guardrails Without Fighting Terraform"
-description: "Authoring and assigning Azure Policy definitions in Terraform - custom definitions, initiatives, and the exemption pattern that keeps your own policies from triggering the same DINE drift they're meant to prevent."
+description: "Azure Policy in Terraform: custom definitions, initiatives, Audit-first rollout, and the ignore_changes pattern that stops your own policies from causing drift."
 date: "2026-12-27"
 tags: ["Azure", "Terraform", "Compliance", "Security"]
 ---
 
 import AffiliateLink from "@components/AffiliateLink.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-The [Hub & Spoke article](/blog/azure-terraform-hub-spoke-zero-trust/) on this blog covers surviving Azure Policy imposed on you by someone else's governance tenant - the DINE Death Loop, and the `lifecycle { ignore_changes }` blocks that stop Terraform from fighting a policy engine it doesn't control. This article is the other side of that coin: authoring and assigning your own Azure Policy definitions as Terraform code, deliberately, as the actual enforcement mechanism behind every compliance mapping this blog has covered - not documentation that a control exists, but code that makes violating it fail at deploy time.
+The [Hub & Spoke article](/blog/azure-terraform-hub-spoke-zero-trust/) on this blog covers surviving Azure Policy imposed on you by someone else's governance tenant: the DINE Death Loop, and the `lifecycle { ignore_changes }` blocks that stop Terraform from fighting a policy engine it doesn't control. This article covers the other side: authoring and assigning your own Azure Policy definitions as Terraform code, as the enforcement mechanism behind every compliance mapping this blog has covered. Instead of documenting that a control exists, the code makes violating it fail at deploy time.
 
 **[The Hub & Spoke module these policies get assigned against is free on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-hub-spoke)**
 
-## Why Policy-as-Code, Not Just Terraform Modules Alone
+## Why Policy-as-Code on Top of Terraform Modules
 
-A well-built Terraform module gets a resource configured correctly the first time it's deployed. It says nothing about what happens the next time someone runs `terraform apply` with a slightly different variable, or when a different team member deploys a resource by hand outside the module entirely. Azure Policy closes that gap - it evaluates continuously, not just at deploy time, and can outright deny a non-compliant resource creation rather than merely flag it after the fact.
+A well-built Terraform module gets a resource configured correctly the first time it's deployed. It says nothing about what happens the next time someone runs `terraform apply` with a slightly different variable, or when a different team member deploys a resource by hand outside the module entirely. Azure Policy closes that gap. It evaluates continuously, not just at deploy time, and can deny a non-compliant resource creation outright instead of flagging it after the fact.
 
-The two mechanisms are complementary, not redundant: Terraform modules make the correct configuration the path of least resistance; Policy makes the incorrect configuration impossible (or at minimum, loudly flagged) even when someone bypasses the module.
+The two mechanisms complement each other. Terraform modules make the correct configuration the path of least resistance; Policy makes the incorrect configuration impossible (or at least loudly flagged) even when someone bypasses the module.
 
 ## Custom Policy Definitions
 
-Azure ships hundreds of built-in policy definitions, but the ones worth authoring yourself are the ones specific to your own architecture decisions - built-ins can't know that your Hub & Spoke design requires every Storage Account to disable public network access, for instance:
+Azure ships hundreds of built-in policy definitions. The ones worth authoring yourself encode your own architecture decisions. Built-ins exist for public network access on storage, but usually with defaults and parameters that don't match your design, and a custom definition lets you state exactly what your Hub & Spoke requires, for example that every Storage Account disables public network access:
 
 ```hcl
 resource "azurerm_policy_definition" "deny_public_storage" {
@@ -50,11 +50,11 @@ resource "azurerm_policy_definition" "deny_public_storage" {
 }
 ```
 
-`mode = "All"` matters here - it evaluates both resource groups and resources, versus `"Indexed"` which only evaluates resource types that support tags and location. For a control like this one, checking the resource itself, `"All"` is correct; using `"Indexed"` by habit is a common mistake that silently narrows what the policy actually catches.
+`mode = "All"` evaluates resource groups, subscriptions, and all resource types, while `"Indexed"` only evaluates resource types that support tags and location. Storage accounts support both, so either mode would catch them here. Microsoft recommends `"All"` for most definitions and reserves `"Indexed"` for policies that enforce tags or locations. Using `"Indexed"` out of habit silently narrows what a policy catches as soon as it targets a resource type without tag support.
 
 ## Grouping Related Controls into an Initiative
 
-A single deny policy is easy to reason about. A real compliance posture is a dozen or more related controls, which is what Policy Initiatives (Policy Sets) exist for - bundling related definitions so they can be assigned and tracked as one coherent unit rather than a dozen separate assignments:
+A single deny policy is easy to reason about. A real compliance posture is a dozen or more related controls. Policy initiatives (policy set definitions) bundle related definitions so they can be assigned and tracked as one unit instead of a dozen separate assignments:
 
 ```hcl
 resource "azurerm_policy_set_definition" "zero_trust_initiative" {
@@ -76,7 +76,7 @@ resource "azurerm_policy_set_definition" "zero_trust_initiative" {
 }
 ```
 
-Grouping these into `zero-trust-baseline` is what turns the individual controls from this blog's [NIS2](/blog/nis2-article-21-azure-terraform/) and [ISO 27001 Annex A](/blog/iso27001-annex-a-azure-hub-spoke/) mappings into one assignable, trackable unit - the Azure Policy compliance dashboard reports against the initiative as a whole, which is a much more useful audit artifact than a dozen unrelated assignment IDs.
+Grouping these into `zero-trust-baseline` is what turns the individual controls from this blog's [NIS2](/blog/nis2-article-21-azure-terraform/) and [ISO 27001 Annex A](/blog/iso27001-annex-a-azure-hub-spoke/) mappings into one assignable, trackable unit. The Azure Policy compliance dashboard reports against the initiative as a whole, which is a far more useful audit artifact than a dozen unrelated assignment IDs.
 
 ## Assigning the Initiative
 
@@ -86,6 +86,7 @@ resource "azurerm_subscription_policy_assignment" "zero_trust" {
   policy_definition_id = azurerm_policy_set_definition.zero_trust_initiative.id
   subscription_id      = data.azurerm_subscription.current.id
   display_name         = "Zero-Trust Baseline - All Resources"
+  location             = var.location # required when an identity is set
 
   identity {
     type = "SystemAssigned"
@@ -93,11 +94,13 @@ resource "azurerm_subscription_policy_assignment" "zero_trust" {
 }
 ```
 
-The `identity` block is easy to skip and quietly breaks any policy that needs to *do* something rather than just evaluate - `deployIfNotExists` and `modify` effects both require a Managed Identity with the right RBAC to actually take the remediation action. A `deny` effect doesn't need it, but the moment you add a policy that auto-remediates instead of just blocking, forgetting this block is the difference between a policy that silently never fires and one that works.
+The `identity` block matters as soon as a policy needs to *do* something rather than just evaluate. `deployIfNotExists` and `modify` effects both need a managed identity to carry out remediation, and Azure rejects an assignment of such a policy without one. A `deny` effect doesn't need it.
+
+The quieter trap is RBAC. When you assign a policy in the portal, Azure grants the identity the roles listed in the definition's `roleDefinitionIds`. Terraform doesn't. Without a matching `azurerm_role_assignment` for `identity[0].principal_id`, the assignment looks fine and every remediation task fails on authorization.
 
 ## The Trap: Your Own Policy Fighting Your Own Terraform
 
-This is the part the Hub & Spoke article's DINE section warned about from the receiving end - and it's just as real when the policy assigning the guardrail and the Terraform deploying the guarded resource are both yours. A `deployIfNotExists` policy that tags resources for compliance tracking will generate exactly the same drift-and-deny loop against your own pipeline that an externally-imposed enterprise policy does:
+The Hub & Spoke article's DINE section warned about this from the receiving end, and it's just as real when the policy and the Terraform deploying the guarded resource are both yours. A `modify` policy that tags resources for compliance tracking creates the same drift loop against your own pipeline as an externally imposed enterprise policy: Terraform removes the tags on every apply, and the policy puts them back.
 
 ```hcl
 resource "azurerm_storage_account" "app_storage" {
@@ -112,11 +115,11 @@ resource "azurerm_storage_account" "app_storage" {
 }
 ```
 
-The fix is identical to the enterprise scenario: a narrow, deliberate `ignore_changes` on exactly the tags your own policy's remediation task injects, nothing broader. Writing your own policies doesn't exempt you from the same failure mode you're protecting other people's resources against - if anything, it's easier to miss, because the instinct is to assume a policy you wrote yourself won't surprise you.
+The fix is identical to the enterprise scenario: a narrow, deliberate `ignore_changes` on exactly the tags your own policy injects, nothing broader. Writing your own policies doesn't exempt you from this failure mode. If anything, it's easier to miss, because you assume a policy you wrote yourself won't surprise you.
 
 ## Testing Policy Changes Before They Deny Production
 
-Azure Policy supports `"effect": "Audit"` as a first deployment mode for any new definition - evaluates and reports non-compliance without blocking anything. Treat this as mandatory for any new policy, not optional caution:
+Any definition can run with `"effect": "Audit"`, which evaluates and reports non-compliance without blocking anything. Treat that as mandatory for every new policy:
 
 ```hcl
 resource "azurerm_policy_definition" "deny_public_storage" {
@@ -139,14 +142,14 @@ resource "azurerm_policy_definition" "deny_public_storage" {
 }
 ```
 
-Parameterizing the effect means the same policy definition ships to production in `Audit` mode first - giving you a compliance report of what *would* have been denied - before flipping the assignment's parameter to `Deny` once you've confirmed nothing legitimate breaks. Skipping this step and deploying straight to `Deny` is the single most common way a well-intentioned policy takes down an unrelated team's deployment on a Tuesday afternoon.
+Parameterizing the effect means the same definition ships to production in `Audit` mode first, giving you a compliance report of what *would* have been denied. Once you've confirmed nothing legitimate breaks, flip the assignment's parameter to `Deny`. (An assignment's `enforce = false`, which maps to `DoNotEnforce`, is a second way to dry-run a policy without touching the definition.) Deploying straight to `Deny` is how a well-intentioned policy takes down an unrelated team's deployment on a Tuesday afternoon.
 
-## What This Covers - and What It Doesn't
+## What This Covers and What It Doesn't
 
 This covers the mechanics of authoring, grouping, and assigning custom policy as Terraform code. A complete governance program also needs:
 
-- **A documented exemption process** for the legitimate cases a blanket policy can't anticipate (`azurerm_policy_exemption` exists for exactly this, used sparingly and with an expiration date)
-- **Policy scope strategy** - subscription-level, management-group-level, or resource-group-level assignment, which depends on organizational structure this article doesn't cover
+- **A documented exemption process** for the legitimate cases a blanket policy can't anticipate (the `azurerm_*_policy_exemption` resources, such as `azurerm_resource_policy_exemption`, exist for exactly this; use them sparingly and with an `expires_on` date)
+- **A policy scope strategy:** subscription-level, management-group-level, or resource-group-level assignment, which depends on organizational structure this article doesn't cover
 - **The organizational review process** around what gets promoted from `Audit` to `Deny`, which is a governance decision, not a Terraform one
 
 ## The Result
@@ -158,6 +161,6 @@ Custom Azure Policy definitions, grouped into initiatives and assigned as Terraf
 - `Audit`-first parameterization catches false positives before they become production outages
 - The same `lifecycle { ignore_changes }` pattern from the receiving end of DINE policies applies equally when the policy is your own
 
-This is the natural next layer on top of the [Hub & Spoke module](https://github.com/dwoitzik/terraform-azurerm-hub-spoke) already covered on this blog - the network architecture makes the right configuration easy; the policy layer makes the wrong one denied.
+This is the natural next layer on top of the [Hub & Spoke module](https://github.com/dwoitzik/terraform-azurerm-hub-spoke) already covered on this blog. The network architecture makes the right configuration easy; the policy layer denies the wrong one.
 
-If the governance and culture side of "how do you actually get an organization to adopt guardrails like this without them being routed around" interests you as much as the code does, [The Phoenix Project*](/go/4f4RHQf) is the book I'd point at - it's fiction, but the dynamics it describes are not.
+If the governance and culture side of "how do you actually get an organization to adopt guardrails like this without them being routed around" interests you as much as the code does, [The Phoenix Project*](/go/4f4RHQf) is the book I'd point at. It's fiction, but the dynamics it describes are not.

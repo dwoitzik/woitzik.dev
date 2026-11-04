@@ -1,6 +1,6 @@
 ---
-title: "Six Proxmox Host Tunables I Only Found by Getting Burned Once Each"
-description: "CPU governor choice under AMD P-State, a vzdump throttle so backups don't compete with live workloads, an LVM autoextend threshold that could structurally never succeed, a backup health check that catches a near-empty archive reporting success, watchdog alert fatigue, and world-readable power counters. None of this was a single upfront plan."
+title: "Seven Proxmox Host Tunables I Only Found by Getting Burned"
+description: "AMD P-State governor, vzdump throttling, an LVM threshold that could never work, backup size checks, watchdog backoff, RAPL counters, and swappiness on one Proxmox host."
 date: "2027-03-01"
 tags: ["Proxmox", "Homelab", "Performance"]
 ---
@@ -8,15 +8,15 @@ tags: ["Proxmox", "Homelab", "Performance"]
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 import AffiliateLink from "@components/AffiliateLink.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-My whole homelab runs on one <AffiliateLink href="/go/4bv3yF1">Ryzen mini PC</AffiliateLink> and one DRAM-less consumer NVMe — every VM, LXC, and container I run, with no second host and no second disk to isolate a noisy job onto. [I've already written about the ZFS ARC deadlock a marginal PSU exposed on this exact box](/blog/zfs-arc-freeze-psu-io-deadlock/), and about [the two-tier memory-overcommit model](/blog/overcommit-guard-python-host-freeze/) that came out of it. Those weren't the only tuning decisions this hardware forced on me — just the two with the most dramatic incident stories attached. Here are the other six, applied incrementally as each gap was found rather than as a single upfront plan. That's not a design flaw I'm hiding; it's an honest account of how single-host homelab tuning actually accretes.
+My whole homelab runs on one <AffiliateLink href="/go/4bv3yF1">Ryzen mini PC</AffiliateLink> and one DRAM-less consumer NVMe: every VM, LXC, and container, with no second host and no second disk to move a noisy job onto. [I've already written about the ZFS ARC deadlock a marginal PSU exposed on this exact box](/blog/zfs-arc-freeze-psu-io-deadlock/), and about [the two-tier memory-overcommit model](/blog/overcommit-guard-python-host-freeze/) that came out of it. Those weren't the only tuning decisions this hardware forced on me, just the two with the most dramatic incidents attached. Here are seven more, applied one at a time as each gap was found rather than as an upfront plan.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## CPU Governor: `powersave`, Not a Compromise
 
-AMD's hardware P-State driver (`amd_pstate=active`) replaces the generic `cpufreq` subsystem and only offers `performance` or `powersave` as governors — `schedutil`, the usual "smart" default people reach for, isn't even available under active mode. Energy Performance Preference does the actual fine-grained power/performance balancing on top of whichever governor you pick, so `powersave` paired with `EPP=balance_power` is the *correct* choice here, not a downgrade from something better:
+In active mode (`amd_pstate=active`), AMD's P-State driver replaces `acpi-cpufreq` and hands frequency selection to the CPU firmware. It only offers the `performance` and `powersave` governors; `schedutil`, the usual default people reach for, isn't available. The Energy Performance Preference (EPP) hint does the fine-grained power/performance balancing on top of the governor, so `powersave` with `EPP=balance_power` is the right choice here, not a downgrade:
 
 ```bash
 echo powersave > /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
@@ -25,7 +25,7 @@ echo balance_power > /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_pre
 
 ## The `vzdump` Global Throttle
 
-Backup I/O on a single shared NVMe competes directly with every live workload during the backup window unless something tells it not to. `vzdump`'s own config supports a bandwidth cap and I/O priority class — running backups at the lowest best-effort I/O priority and a capped bandwidth means they yield to everything else on the disk instead of racing it at full speed:
+Backup I/O on a single shared NVMe competes directly with every live workload during the backup window unless something tells it not to. `vzdump`'s config supports a bandwidth cap (`bwlimit`, in KiB/s, so `100000` is roughly 100 MB/s) and an I/O priority (`ionice`, where `8` selects the idle class). Together they make backups yield to everything else on the disk instead of racing it at full speed:
 
 ```
 # /etc/vzdump.conf
@@ -33,13 +33,15 @@ bwlimit: 100000
 ionice: 8
 ```
 
-## An LVM Autoextend Threshold That Could Never Actually Succeed
+One caveat from the Proxmox docs: `ionice` only takes effect with the BFQ I/O scheduler, and for snapshot-mode VM backups it only affects the compressor. NVMe devices default to the `none` scheduler, so on this disk the bandwidth cap does the real work unless BFQ is enabled.
 
-My single physical volume has zero free space at the volume-group level — there is nowhere for LVM's thin-pool autoextend to extend *into*. The default 80% threshold only ever blocked new thin-LVs — meaning every `vzdump` backup — once utilization crossed it, for zero actual protection in return, since there was never any free space available to grow into in the first place. I raised the threshold to 92% rather than disabling the check outright, to keep a real margin before the genuinely unrecoverable failure mode: a thin pool that's actually full risks I/O errors across every guest on it, which is categorically worse than a single failed backup.
+## An LVM Autoextend Threshold That Could Never Succeed
+
+My single physical volume has zero free space at the volume-group level, so there is nowhere for LVM's thin-pool autoextend to extend *into*. Once pool usage crossed the 80% threshold, LVM refused to create new thin LVs, which includes the snapshots `vzdump` takes. That bought zero protection, because there was never free space to grow into. I raised the threshold to 92% rather than disabling the check outright, to keep a margin before the unrecoverable failure mode: a thin pool that's actually full risks I/O errors across every guest on it, which is far worse than a single failed backup.
 
 ## A Backup Health Check That Doesn't Trust `vzdump`'s Own Exit Code
 
-`vzdump` reporting success tells you the command ran without error. It doesn't tell you the archive it wrote is actually a complete backup rather than a near-empty stub — a real, previously-observed failure mode where a job exits `0` after writing almost nothing useful. I added a hook script, registered as `vzdump`'s job-end script, that checks each backup's real datastore manifest size and age per VM ID, independent of the exit status:
+`vzdump` reporting success tells you the command ran without error. It doesn't tell you the archive it wrote is a complete backup rather than a near-empty stub. I have seen a job exit `0` after writing almost nothing useful. I added a hook script, registered as `vzdump`'s job-end script, that checks each backup's datastore manifest size and age per VM ID, independent of the exit status:
 
 ```bash
 # job-end hook, simplified
@@ -51,27 +53,29 @@ fi
 
 ## Watchdog Alerts That Stop Repeating Themselves
 
-A flat rate-limited watchdog re-alerts on every check cycle for a single ongoing condition — which trains you to ignore it, the exact opposite of what a watchdog is for. I switched to escalating backoff: 15, 30, 60, 120, then 240 minutes between repeat alerts for the same still-ongoing condition, resetting back to 15 the moment the condition actually clears. A genuinely new problem starting at any point still alerts promptly. An already-known, still-unresolved one stops spamming without going silent.
+A flat rate-limited watchdog re-alerts on every check cycle for a single ongoing condition, which trains you to ignore it. I switched to escalating backoff: 15, 30, 60, 120, then 240 minutes between repeat alerts for the same condition, resetting to 15 the moment it clears. A new problem still alerts promptly; a known, unresolved one stops spamming without going silent.
 
-## World-Readable Power Counters, Because the Kernel Defaults to Root-Only
+## World-Readable Power Counters
 
-The kernel's power-monitoring interface (`/sys/class/powercap/intel-rapl:0/energy_uj` on the equivalent AMD RAPL path here) defaults to root-only access, which silently breaks any unprivileged metrics exporter trying to read real power-draw data — no error, the value just never populates. The energy counter value itself isn't sensitive; making it world-readable via a durable udev rule (survives reboots and device re-enumeration, unlike a one-off `chmod`) is the standard fix, not a security trade-off:
+The kernel's RAPL power-capping interface (`/sys/class/powercap/intel-rapl:0/energy_uj`; AMD CPUs use the same `intel-rapl` path) is root-only by default. That breaks any unprivileged metrics exporter trying to read power draw, and it fails quietly: no error, the value never populates. A udev rule makes the counters world-readable and survives reboots and device re-enumeration, unlike a one-off `chmod`:
 
 ```
 # udev rule
 SUBSYSTEM=="powercap", ACTION=="add", RUN+="/bin/chmod -R a+r /sys%p"
 ```
 
+This is a real security trade-off, and the root-only default exists for a reason. The kernel locked these counters down in 2020 after the PLATYPUS research (CVE-2020-8694) showed unprivileged energy readings can leak data through a power side channel. On a single-admin Proxmox host with no untrusted local users, and guests that can't see the host's sysfs, I accept that. On a shared machine I wouldn't; run the exporter as root or with a dedicated group instead.
+
 ## `vm.swappiness`: Reduced, Not Disabled
 
-This host showed sustained active swap I/O under real memory pressure — every swapped page is a write to the exact same NVMe every decision above is trying to reduce wear on. I reduced `vm.swappiness` to 5, not to zero. This host has genuine memory-pressure headroom problems under load — [the same pressure the overcommit guard exists to catch before it becomes an ARC deadlock](/blog/overcommit-guard-python-host-freeze/) — and an overly aggressive reduction trades "less swap I/O" for "more OOM-kill risk," a worse trade when memory pressure is already a known constraint rather than a hypothetical one.
+This host showed sustained swap I/O under memory pressure, and every swapped page is a write to the same NVMe every decision above is trying to spare. I reduced `vm.swappiness` to 5, not to zero. The host has real memory-pressure problems under load ([the same pressure the overcommit guard exists to catch before it becomes an ARC deadlock](/blog/overcommit-guard-python-host-freeze/)), and going further trades "less swap I/O" for "more OOM-kill risk." That is a bad trade when memory pressure is a known constraint rather than a hypothetical one.
 
 ## None of This Was One Plan
 
-Every one of these landed incrementally, incident by incident, over about a week — not designed upfront as a coherent tuning pass. The common thread is real (one host, one disk, no headroom to hide mistakes in), but the timing wasn't planned, and I'd rather say that plainly than present six unrelated fixes as if they were a single deliberate architecture from day one. The LVM and `vzdump` tuning specifically are mitigations for a hardware constraint — the actual fix would be a second disk or a second host, and I have neither.
+Every one of these landed incident by incident over about a week, not as a designed tuning pass. The common thread is real (one host, one disk, no headroom to hide mistakes in), but I'd rather say plainly that the timing wasn't planned than present seven separate fixes as one deliberate architecture. The LVM and `vzdump` tuning are mitigations for a hardware constraint. The actual fix would be a second disk or a second host, and I have neither.
 
 ---
 
-The Azure equivalent of "one disk, no headroom, tune everything around that constant" is right-sizing a single-VM deployment's Ultra Disk IOPS/throughput tier and Well-Architected reliability checks around a genuinely fixed budget, rather than assuming you can always just provision more — the tuning mindset is identical even though the knobs are different.
+The Azure equivalent of "one disk, no headroom, tune everything around that constant" is a single-VM deployment on a fixed budget: you tune disk IOPS and throughput tiers and backup windows around the limit instead of assuming you can always provision more. The knobs differ; the mindset is the same.
 
 <NewsletterCTA />

@@ -7,29 +7,27 @@ tags: ["Azure", "Terraform", "AI"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
 Your Terraform pipeline is green. The deployment completes without errors. You grab a coffee.
 
-Ten minutes later, you test your new Enterprise RAG application. It immediately throws a `403 Forbidden`. You log into the Azure Portal, check the OpenAI Networking tab, and there it is: your Shared Private Link from AI Search is sitting in a **Pending** state. Nobody told Terraform to approve it. Nobody told you it even needed approving.
+Ten minutes later you test the new RAG application and it throws `403 Forbidden`. In the Azure Portal, under the OpenAI account's Networking tab, the Shared Private Link from AI Search sits in **Pending**. Nobody told Terraform to approve it, and nobody told you it needed approving.
 
-This is the CI/CD killer of Azure AI infrastructure - and it affects every team trying to deploy a private RAG stack in a governed environment.
+This breaks CI/CD for every team deploying a private RAG stack in a governed Azure tenant. Below: how to approve the pending connection from Terraform, replace static API keys with Identity Chaining, and wire up Private DNS so the stack passes a Zero-Trust audit.
 
-This article walks through how to break the Pending deadlock programmatically, strip out static API keys with Identity Chaining, and wire up Private DNS so the whole stack survives a Zero-Trust audit.
-
-**[Get the AzAPI Auto-Approve workaround free on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-openai-rag)**
+**[Get the free Private Endpoint module on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-openai-rag)**
 
 ## The Two Failure Modes of Enterprise AI Deployments
 
-Deploying OpenAI and AI Search in a sandbox takes an afternoon. Securing them in an enterprise tenant with `public_network_access_enabled = false` and an active compliance framework is a completely different game. Two things will reliably break a standard Terraform deployment:
+Deploying OpenAI and AI Search in a sandbox takes an afternoon. Locking them down in an enterprise tenant with `public_network_access_enabled = false` and an active compliance framework is a different job. Two things reliably break a standard Terraform deployment.
 
 **1. The Pending Deadlock**
 
-AI Search must call OpenAI to vectorize data. The `azurerm` provider can successfully *request* this Shared Private Link connection - but it cannot *approve* its own request. The target resource (OpenAI) must explicitly accept the inbound connection. Because the standard provider has no method to approve inbound Cognitive Services connections, the pipeline deadlocks. Someone has to manually click "Approve" in the Portal. ClickOps in a CI/CD pipeline is unacceptable.
+AI Search has to call OpenAI to vectorize data. The `azurerm` provider can *request* the Shared Private Link connection, but it cannot *approve* it. The target resource (OpenAI) has to accept the inbound connection explicitly, and `azurerm` has no resource for approving inbound Cognitive Services connections. The pipeline stalls until someone clicks "Approve" in the Portal, which defeats the point of CI/CD.
 
 **2. The Public PaaS Trap**
 
-The moment you set `public_network_access_enabled = false` and `local_auth_enabled = false`, your AI services disappear from the internet. If your VNet injection, Private DNS, and Managed Identities are not perfectly aligned in Terraform, your application silently breaks - and debugging a `403` against a private endpoint with no public access is genuinely painful.
+Once you set `public_network_access_enabled = false` and `local_auth_enabled = false`, the AI services disappear from the internet. If Private Endpoints, Private DNS and Managed Identities don't line up exactly in Terraform, the application breaks without a useful error, and debugging a `403` against a private endpoint with no public access is painful.
 
 ## Target Architecture
 
@@ -43,7 +41,7 @@ The moment you set `public_network_access_enabled = false` and `local_auth_enabl
 │  │                     │ Shared Link │                    │  │
 │  │ [System Identity]   │  Approved   │ [Local Auth: OFF]  │  │
 │  └───────┬─────────────┘             └──────────┬─────────┘  │
-│          │    RBAC: Cognitive Services User      │           │
+│          │  RBAC: Cognitive Services OpenAI User │           │
 │          └───────────────────────────────────────┘           │
 │          ▼                                       ▼           │
 │  [Private Endpoint]                    [Private Endpoint]    │
@@ -54,19 +52,27 @@ The moment you set `public_network_access_enabled = false` and `local_auth_enabl
 
 Three engineering decisions make this work:
 
-- **AzAPI State Machine** - dynamically reads and approves the Pending connection without manual Portal access
-- **Identity Chaining** - AI Search authenticates to OpenAI via Managed Identity, zero static keys
-- **Private DNS** - both services resolve to private IPs inside the VNet, invisible to the internet
+- **AzAPI state machine:** finds the Shared Private Link's connection at runtime and approves it, no Portal access
+- **Identity Chaining:** AI Search authenticates to OpenAI via Managed Identity, no static keys
+- **Private DNS:** both services resolve to private IPs inside the VNet
 
 ## Step 1: The AzAPI Auto-Approve State Machine
 
-To fix the Pending Deadlock, we bypass the `azurerm` provider and talk directly to the Azure Resource Manager REST API using the `azapi` provider.
+To break the Pending deadlock, we bypass `azurerm` and talk to the Azure Resource Manager REST API directly with the `azapi` provider. The snippets below target azapi 2.x (`version = "~> 2.0"`), where data source output is an object and `body` takes plain HCL. On azapi 1.x you would wrap `output` in `jsondecode()` and `body` in `jsonencode()`.
 
-The challenge: Azure dynamically generates a random GUID for the incoming connection on the OpenAI side. We cannot hardcode this ID - we have to read it at runtime. This requires a two-step state machine.
+Azure generates a random GUID for the incoming connection on the OpenAI side. We can't hardcode that ID, so we read it at runtime in two steps.
 
-**First**, we read all current Private Endpoint Connections on the OpenAI account:
+**First**, request the Shared Private Link with a distinctive `request_message`, then read all Private Endpoint Connections on the OpenAI account:
 
 ```hcl
+resource "azurerm_search_shared_private_link_service" "openai_link" {
+  name               = "spl-openai"
+  search_service_id  = azurerm_search_service.search.id
+  subresource_name   = "openai_account"
+  target_resource_id = azurerm_cognitive_account.openai.id
+  request_message    = "terraform-spl-openai"
+}
+
 data "azapi_resource_list" "pe_connections" {
   type                   = "Microsoft.CognitiveServices/accounts/privateEndpointConnections@2023-05-01"
   parent_id              = azurerm_cognitive_account.openai.id
@@ -78,44 +84,49 @@ data "azapi_resource_list" "pe_connections" {
 }
 ```
 
-The `depends_on` is critical here. Without it, Terraform might query the connection list before the Shared Private Link has even been requested - returning an empty list and making the approval resource fail silently.
+The `depends_on` matters. Without it, Terraform can query the connection list before the Shared Private Link has been requested and get an empty list.
 
-**Second**, we decode the response, filter for the Pending connection, and approve it:
+**Second**, pick out our connection and approve it:
 
 ```hcl
+locals {
+  spl_connection_ids = [
+    for conn in data.azapi_resource_list.pe_connections.output.value : conn.id
+    if conn.properties.privateLinkServiceConnectionState.description ==
+       azurerm_search_shared_private_link_service.openai_link.request_message
+  ]
+}
+
 resource "azapi_update_resource" "approve_shared_link" {
-  type = "Microsoft.CognitiveServices/accounts/privateEndpointConnections@2023-05-01"
+  type        = "Microsoft.CognitiveServices/accounts/privateEndpointConnections@2023-05-01"
+  resource_id = one(local.spl_connection_ids)
 
-  resource_id = try(
-    [for conn in jsondecode(data.azapi_resource_list.pe_connections.output).value :
-      conn.id
-      if conn.properties.privateLinkServiceConnectionState.status == "Pending"
-    ][0],
-    ""
-  )
-
-  body = jsonencode({
+  body = {
     properties = {
       privateLinkServiceConnectionState = {
         status      = "Approved"
-        description = "Approved via Terraform AzAPI Pipeline"
+        description = azurerm_search_shared_private_link_service.openai_link.request_message
       }
     }
-  })
+  }
 }
 ```
 
-The `try()` wrapper deserves special attention. On a `terraform destroy` run, the Shared Private Link is deleted before this resource is evaluated. The connection list will be empty, and the `for` expression will return an empty array. Without `try()`, indexing `[0]` on an empty array throws a hard error and your destroy run crashes - leaving orphaned resources in Azure. With `try()`, the expression gracefully returns an empty string and Terraform skips the resource cleanly.
+Two details make this hold up beyond the first apply.
 
-After `terraform apply`, the link transitions from Pending to Approved in under 30 seconds. No Portal access required.
+The filter matches on the request message, not on `status == "Pending"`. After the first apply the connection is Approved, so a Pending filter would return an empty list on every later plan. For the same reason, the approval keeps the request message as its `description`, so the filter still finds the connection next time.
+
+`one()` returns the single matching ID and fails loudly if there is none. An earlier version of this snippet wrapped the lookup in `try(..., "")` to fall back to an empty string. That doesn't work: azapi rejects an empty `resource_id` as an invalid resource ID, so the run fails anyway, just with a less useful message. If no connection matches, you want the apply to stop, not an approval step that silently does nothing. Destroy needs no special handling: Terraform destroys the approval resource before the Shared Private Link it depends on, and destroying an `azapi_update_resource` only removes it from state.
+
+After `terraform apply`, the link moves from Pending to Approved in under 30 seconds, without anyone opening the Portal.
 
 <ProductCTA variant="inline" slug="azure-rag-enterprise" />
 
 ## Step 2: Identity Chaining - Killing Static API Keys
 
-Auto-approving the link allows AI Search to *reach* OpenAI. But if you rely on static `admin_keys` to authenticate that traffic, you will fail any modern compliance audit. Keys leak. Keys get committed to Git. Keys expire at 3am on a Friday.
+Approving the link lets AI Search *reach* OpenAI. If static `admin_keys` authenticate that traffic, you will fail a compliance audit. Keys leak, keys get committed to Git, and keys get rotated by someone else at 3am on a Friday.
 
-The enterprise standard is Identity Chaining: AI Search authenticates to OpenAI using its own cryptographic Entra ID identity, not a shared secret.
+The alternative is Identity Chaining: AI Search authenticates to OpenAI with its own Entra ID identity instead of a shared secret.
 
 First, give AI Search a System Assigned Managed Identity and explicitly disable local authentication:
 
@@ -135,7 +146,7 @@ resource "azurerm_search_service" "search" {
 }
 ```
 
-Then grant that identity exactly the permissions it needs on OpenAI - nothing more:
+Then grant that identity exactly the permissions it needs on OpenAI and nothing more:
 
 ```hcl
 resource "azurerm_role_assignment" "search_to_openai" {
@@ -145,13 +156,13 @@ resource "azurerm_role_assignment" "search_to_openai" {
 }
 ```
 
-`Cognitive Services OpenAI User` is the least-privileged role for this use case - it allows AI Search to submit inference requests but cannot modify the OpenAI account configuration. Least-privilege RBAC is a hard requirement under ISO 27001 Annex A.8 and [NIS2 Article 21](/blog/nis2-article-21-azure-terraform/).
+`Cognitive Services OpenAI User` is the least-privileged role for this case: AI Search can call the inference and embeddings APIs but cannot change the OpenAI account configuration. ISO 27001 Annex A.8 and [NIS2 Article 21](/blog/nis2-article-21-azure-terraform/) both expect least-privilege access control of this kind.
 
-When the AI Search instance is deleted, its Entra ID identity and all associated role assignments are automatically destroyed. No credential rotation. No secret management. No audit findings.
+When the AI Search instance is deleted, its system-assigned identity goes with it, and the role assignment no longer grants anything. There is no credential to rotate and no secret to store.
 
 ## Step 3: Private DNS - The Last Trap
 
-The final failure mode is DNS. When Private Endpoints are injected into a subnet, internal traffic relies on DNS overrides. If `your-instance.openai.azure.com` still resolves to a public IP - because you forgot to link the Private DNS Zone to your VNet - the Azure Firewall drops the traffic and you get another opaque `403`.
+The last failure mode is DNS. Private Endpoints only work if clients resolve the service name to the endpoint's private IP. If `your-instance.openai.azure.com` still resolves to the public IP because the Private DNS Zone isn't linked to your VNet, the request goes to the public endpoint, which rejects it (public access is disabled), and you get another opaque `403`.
 
 Both services need their own Private DNS Zone linked to the VNet:
 
@@ -183,20 +194,18 @@ resource "azurerm_private_dns_zone_virtual_network_link" "search_vnet_link" {
 }
 ```
 
-`registration_enabled = false` is intentional - automatic DNS registration conflicts with centralized Private DNS Zone management in [Hub & Spoke](/blog/azure-terraform-hub-spoke-zero-trust/) environments. If you are running this inside an existing Hub & Spoke topology, the DNS zones should live in the Hub and be linked cross-subscription, not deployed per-workload.
+`registration_enabled = false` is intentional. Auto-registration is for VM records and has no place in centrally managed Private DNS Zones in [Hub & Spoke](/blog/azure-terraform-hub-spoke-zero-trust/) environments. Inside an existing Hub & Spoke topology, the DNS zones belong in the Hub and get linked across subscriptions, not deployed per workload.
 
 ## The Result
 
-Getting a Zero-Trust RAG stack to actually work in a governed Azure environment means navigating a Pending deadlock that the standard Terraform provider cannot solve, stripping out API keys that violate compliance frameworks, and wiring up DNS that silently breaks when you forget a single VNet link.
-
-With the AzAPI state machine, Identity Chaining, and proper Private DNS, you end up with an AI infrastructure that:
+With the AzAPI approval step, Identity Chaining and Private DNS in place, the stack:
 
 - Deploys end-to-end without any manual Portal approval
-- Uses zero static API keys - authentication is entirely identity-based
-- Is completely invisible to the public internet
+- Uses no static API keys; authentication is identity-based
+- Has no public network exposure
 - Satisfies ISO 27001 Annex A.8 and NIS2 Article 21 network and identity controls
 
-The AzAPI trick above is worth knowing if you're stuck with a Shared Private Link approval loop - it's a real, general-purpose pattern. But the shipped module went a step further and dropped the workaround entirely: instead of a Shared Private Link needing programmatic approval, it puts both services behind proper Private Endpoints and has AI Search authenticate to OpenAI via Managed Identity + RBAC. No approval step to automate because there's nothing pending to approve. Full VNet injection, Private DNS, and Identity Chaining, all in a single free, MIT-licensed module.
+The AzAPI approval pattern is worth knowing if you're stuck on a Shared Private Link that won't leave Pending; the same lookup-and-approve approach works for other private endpoint connections that need approval on the target side. The shipped module goes further and drops the workaround: instead of a Shared Private Link that needs programmatic approval, it puts both services behind Private Endpoints and has AI Search authenticate to OpenAI via Managed Identity and RBAC. With nothing pending, there's no approval step to automate. Private Endpoints, Private DNS and Identity Chaining ship in one free, MIT-licensed module (azurerm only, no azapi).
 
 If the DNS/private-networking side of this is the unfamiliar part, [Netzwerke: Verstehen, Einrichten, Administrieren\*](/go/4f3kTar) covers the underlying concepts well.
 

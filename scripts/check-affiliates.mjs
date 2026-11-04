@@ -6,7 +6,7 @@
 // disclosure line, that affiliate links are "marked with *". That promise is
 // enforced by nothing: /go/ is just a path, so a plain `[Synology DS225+]
 // (/go/4hmdcNX)` renders as an unmarked link on a page whose disclosure claims
-// otherwise. That is exactly what happened - the NAS guide, the highest
+// otherwise. That is exactly what happened: the NAS guide, the highest
 // earning page, shipped with zero marked links.
 //
 // Three failure modes are checked here:
@@ -26,17 +26,16 @@ const MAP_FILE = "api/go/[key].ts";
 
 const DISCLOSURE_EN =
   "<em>Disclosure: This post contains Amazon affiliate links (marked with " +
-  "&#42;). If you buy through them, I earn a small commission at no extra " +
-  "cost to you. I only link gear I actually own and use daily.</em>";
+  "&#42;). As an Amazon Associate I earn from qualifying purchases. Buying " +
+  "through them costs you nothing extra.</em>";
 
 // German articles get the German notice, not the English one. A German reader
 // is entitled to the disclosure in the language the article is written in, and
 // the German text is not a translation of the English one verbatim.
 const DISCLOSURE_DE =
-  "<em>Hinweis: Dieser Beitrag enthält Amazon-Affiliate-Links (mit &#42; " +
-  "markiert). Wenn du darüber kaufst, verdiene ich eine kleine Provision - " +
-  "für dich kostet es nichts extra. Ich verlinke nur Hardware, die ich selbst " +
-  "benutze.</em>";
+  "<em>Werbung: Dieser Beitrag enthält Amazon-Affiliate-Links (mit &#42; " +
+  "markiert). Als Amazon-Partner verdiene ich an qualifizierten Verkäufen. " +
+  "Für dich kostet es nichts extra.</em>";
 
 // AffiliateLink.astro appends &#42; itself, so a link wrapped in that
 // component is marked by construction and needs no literal asterisk.
@@ -130,7 +129,7 @@ function scan(dir, file, report) {
         (language === "de" ? "German" : "English") +
         " disclosure line (expected: *" +
         (language === "de"
-          ? "Hinweis: Dieser Beitrag enthält Amazon-Affiliate-Links"
+          ? "Werbung: Dieser Beitrag enthält Amazon-Affiliate-Links"
           : "Disclosure: This post contains Amazon affiliate links") +
         "...*)",
     );

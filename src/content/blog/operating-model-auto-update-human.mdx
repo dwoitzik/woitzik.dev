@@ -7,11 +7,13 @@ tags: ["Kubernetes", "Homelab", "GitOps", "Operations"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-A homelab that requires daily attention isn't a homelab — it's a job. The goal: a cluster that runs for weeks without intervention, alerts when something breaks, self-heals what it can, and waits for a human only when a human is actually needed.
+A homelab that needs daily attention is a second job. My goal is a cluster that runs for weeks without intervention, alerts when something breaks, self-heals what it can, and waits for a human only when a human is actually needed.
 
-This is the operating model that makes that work. Not aspirational — documented from what actually runs in production, including the deliberate gaps and the non-goals that keep the system honest.
+> **Update (November 2026):** Atlantis's webhook server no longer drives this flow. Since ADR-021, GitHub Actions workflows on a self-hosted runner pick up the same `atlantis plan` and `atlantis apply` PR comments, and the apply job waits for manual approval on a protected `terraform-apply` GitHub Environment. The review-then-apply gate described below is unchanged; only the executor moved.
+
+This is the operating model that makes that work. It's documented from what actually runs today, including the deliberate gaps and the non-goals that keep the system honest.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -21,13 +23,13 @@ Renovate runs every 2 hours via CronJob, tracking container images, Helm charts,
 
 ### Auto-Merge (Patch/Minor/Digest, 3-Day Soak)
 
-Stateless workloads that can be rolled back by ArgoCD's `selfHeal` if they break:
+Stateless workloads where a bad version costs a `git revert`, nothing more:
 
 - Dashboard widgets (Homepage, Uptime Kuma display)
 - Development tools (pre-commit hooks, linters)
 - Non-critical utilities (SearXNG, Mealie, MySpeed)
 
-Renovate opens a PR, CI runs, and after 3 days of green the PR auto-merges. If the new version breaks, ArgoCD's `syncPolicy.automated.selfHeal: true` reverts to the previous version on the next sync.
+Renovate holds each update until the release is at least 3 days old (`minimumReleaseAge`), then opens the PR, CI runs, and the PR auto-merges once it's green. If the new version breaks, rollback is reverting that commit. ArgoCD's `selfHeal` doesn't roll back a bad release on its own: it keeps the cluster matching git, and after the merge git says "new version".
 
 ### PR-Only, Always (Manual Review Required)
 
@@ -38,7 +40,7 @@ Stateful and critical services where a bad upgrade can cause data loss or auth o
 - **Storage:** [Garage S3](/blog/velero-garage-k3s-backup/), Velero
 - **Apps with data migrations:** Nextcloud, Paperless, Gitea, Immich
 
-Every update — patch, minor, or digest — gets a PR that requires manual review. The failure mode for these isn't "pod restarts" — it's "database schema mismatch" or "OIDC keys rotated."
+Every update (patch, minor, or digest) gets a PR that requires manual review. The failure mode for these is "database schema mismatch" or "OIDC keys rotated", not a pod restart.
 
 ### PR-Only, Always (Major Version Bumps)
 
@@ -46,7 +48,7 @@ Every major version bump, any package, regardless of tier. Major versions break 
 
 ### Terraform: Never Auto-Applied
 
-Every Terraform change goes through Atlantis: PR → plan → `atlantis apply` comment → apply. No exceptions. Terraform changes physical and VM state on a single-point-of-failure host — that always gets a human in the loop.
+Every Terraform change goes through Atlantis: PR → plan → `atlantis apply` comment → apply. No exceptions. Terraform changes physical and VM state on a single-point-of-failure host, so a human is always in the loop.
 
 ## What Alerts (and Where)
 
@@ -65,17 +67,17 @@ Everything with `severity: critical`:
 ### Warning Alerts (Selective)
 
 Only explicitly named warnings that matter at steady state:
-- `KubePodCrashLooping` — a pod is crash-looping
-- `KubeJobFailed` — a CronJob failed (covers Renovate itself)
-- `KubeNodeNotReady` — a node is unreachable
-- `VeleroBackupPartialFailure` — backup completed with warnings
+- `KubePodCrashLooping`: a pod is crash-looping
+- `KubeJobFailed`: a CronJob failed (covers Renovate itself)
+- `KubeNodeNotReady`: a node is unreachable
+- `VeleroBackupPartialFailure`: backup completed with warnings
 
 ### Deliberately NOT Alerted
 
 Routine warnings that would make Discord noisy without being actionable:
-- `KubeMemoryQuotaOvercommit` — LXC soft ceilings, not real pressure
-- `KubeCPUThrottling` — normal behavior for bursty workloads
-- `KubePodNotReady` during rolling updates — temporary, self-resolving
+- `KubeMemoryQuotaOvercommit`: LXC soft ceilings, not real pressure
+- `CPUThrottlingHigh`: normal behavior for bursty workloads
+- `KubePodNotReady` during rolling updates: temporary, self-resolving
 
 The principle: **an alert nobody acts on trains people to ignore Discord.** Every alert must have a corresponding action in the runbook. If there's no action, there's no alert.
 
@@ -83,17 +85,17 @@ The principle: **an alert nobody acts on trains people to ignore Discord.** Ever
 
 ### ArgoCD: Automatic Sync + Self-Heal
 
-All 41 live Applications have `syncPolicy.automated.selfHeal: true`. A merged manifest change deploys itself. Manual `kubectl` drift on anything ArgoCD tracks gets reverted automatically within minutes.
+All 41 live Applications have `syncPolicy.automated.selfHeal: true`. A merged manifest change deploys itself, and manual `kubectl` drift on anything ArgoCD tracks gets reverted within minutes.
 
-This is the primary self-healing mechanism. If someone manually patches a Deployment (during debugging, for example), ArgoCD reverts it on the next sync cycle. The cluster always converges to the git state.
+This is the primary self-healing mechanism. If I patch a Deployment by hand while debugging, ArgoCD reverts it on the next sync cycle. The cluster always converges to the git state.
 
 ### Docker Containers: restart: unless-stopped
 
-Media stack, Minecraft, AdGuard, Unbound — all run with `restart: unless-stopped` in Docker Compose. Crashes and host reboots self-recover the process. The data recovery is handled by NFS/ZFS, not Docker.
+The media stack, Minecraft, AdGuard, and Unbound all run with `restart: unless-stopped` in Docker Compose, so the process comes back after a crash or host reboot. Data recovery is NFS/ZFS's job, not Docker's.
 
 ### Kyverno: Audit-Only (Deliberately)
 
-Kyverno runs in Audit mode — it reports policy violations in PolicyReports but does not block or auto-remediate. This is deliberate:
+Kyverno runs in Audit mode: it reports policy violations in PolicyReports but does not block or auto-remediate. That's deliberate:
 
 - A bad policy in Enforce mode silently blocks legitimate deploys
 - On a single-operator homelab, there's nobody to notice the block quickly
@@ -103,13 +105,9 @@ The policies exist (`require-resource-limits`, `disallow-latest-tag`, `disallow-
 
 ## What Stays Manual (On Purpose)
 
-### Terraform Apply
+### Terraform Apply and Stateful Service Bumps
 
-Always through Atlantis. A human comments `atlantis apply`. Never auto-applied, regardless of what changed. This is the one rule with no exceptions.
-
-### Stateful Service Bumps
-
-Authelia, Vault, CNPG, Garage — reviewed before merge. The failure mode is data loss or auth outage, not "reroll the pod."
+Both covered above. Terraform applies only when a human comments `atlantis apply`, regardless of what changed; it's the one rule with no exceptions. Authelia, Vault, CNPG, and Garage bumps get reviewed before merge.
 
 ### Snapshots Before State-Affecting Changes
 
@@ -117,11 +115,11 @@ Proxmox VM/CT snapshot or Velero PV snapshot, taken manually before applying any
 
 ### Velero Restore Testing
 
-Running, tested successfully at least once per namespace. But not yet exercised across every service. A backup that's only partly restore-tested is closer to hope than guarantee.
+Running, and tested successfully at least once per namespace, but not yet exercised for every service. A backup that's only partly restore-tested is closer to hope than guarantee.
 
 ### Full Cluster Rebuild
 
-Documented in `DISASTER-RECOVERY.md`. Not automated. The target is fast, well-documented recovery — not zero-touch failover, because true HA isn't achievable on one physical host.
+Documented in `DISASTER-RECOVERY.md`, not automated. The target is fast, well-documented recovery instead of zero-touch failover, because true HA isn't achievable on one physical host.
 
 ## The Non-Goals
 
@@ -133,14 +131,14 @@ These are explicitly **not** targets:
 
 ## The Contract
 
-This document is the contract between the infrastructure and the operator. Everything not listed here is assumed to be working. If it's not working and it's not in this document, it's a gap — not an expected manual task.
+This document is the contract between the infrastructure and the operator. Everything not listed here is assumed to be working. If it's not working and it's not in this document, it's a gap, not an expected manual task.
 
-The operating model is a living document. As the cluster evolves (Cilium CNI, R2 offsite backup, Kyverno enforcement), the categories shift. But the principle stays: **automate what's safe, alert what's important, and leave everything else to a human with context.**
+As the cluster evolves (Cilium CNI, R2 offsite backup, Kyverno enforcement), the categories shift. The principle stays: **automate what's safe, alert what's important, and leave everything else to a human with context.**
 
 ---
 
-This operating model maps directly to enterprise SRE practices: SLO-based alerting replaces threshold alerting, runbooks define the human response for each alert type, and change management gates (like Atlantis's `apply` requirement) prevent unreviewed infrastructure changes. The difference is that enterprise environments have teams; a homelab has one person who needs to sleep through the night without Discord notifications.
+This maps directly to enterprise SRE practice: SLO-based alerting replaces threshold alerting, runbooks define the human response for each alert type, and change management gates (like Atlantis's `apply` requirement) prevent unreviewed infrastructure changes. The difference is that enterprise environments have teams; a homelab has one person who needs to sleep through the night without Discord notifications.
 
-[The Phoenix Project\*](/go/4f4RHQf) is the book that most shaped this document - it's fiction, but the underlying argument (know exactly what's automated, what's gated, and why) is the same one this operating model tries to make explicit instead of leaving implicit.
+[The Phoenix Project\*](/go/4f4RHQf) is the book that most shaped this document. It's fiction, but the underlying argument (know exactly what's automated, what's gated, and why) is the same one this operating model tries to make explicit instead of leaving implicit.
 
 <NewsletterCTA />

@@ -1,28 +1,28 @@
 ---
 title: "Gitea Actions on k3s: Self-Hosted CI Without GitHub"
-description: "Gitea 1.22+ includes a built-in CI runner compatible with GitHub Actions YAML. Running Gitea Actions on k3s gives you full control over CI pipelines, runner resources, and artifact storage."
+description: "Gitea Actions runs GitHub Actions-style YAML on your own hardware. Running Gitea and act_runner on k3s puts CI pipelines and runner resources under your control."
 date: "2026-11-12"
 tags: ["Kubernetes", "Gitea", "CI/CD", "Homelab"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-GitHub Actions is free for public repos. For private repos, you get 2,000 minutes/month on the free tier. A homelab infrastructure repo that runs Terraform plan, Ansible lint, and container builds on every PR burns through 2,000 minutes in about a week. Gitea Actions runs the same YAML workflows on your own hardware — the [BMAX Mini PC*](/go/4bv3yF1) with 64GB RAM has more than enough for a Gitea instance and a handful of action runners. It's a similar self-hosted-CI motive to [running Terraform plan output through GitHub Actions for Slack alerts](/blog/github-actions-terraform-plan-slack/) instead of trusting a dashboard nobody checks.
+GitHub Actions is free for public repos. For private repos, you get 2,000 minutes/month on the free tier. A homelab infrastructure repo that runs Terraform plan, Ansible lint, and container builds on every PR burns through 2,000 minutes in about a week. Gitea Actions runs the same YAML workflows on your own hardware, and the [BMAX Mini PC*](/go/4bv3yF1) with 64GB RAM has more than enough for a Gitea instance and a handful of runners.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Gitea Actions: The GitHub Actions Clone
 
-Gitea 1.22 introduced Actions, a CI system that reads `.gitea/workflows/*.yml` files — the same YAML format as GitHub Actions. The key differences:
+Gitea added Actions in 1.19 as an experimental feature and has enabled it by default since 1.21. It's a CI system that reads workflow files in the same YAML format as GitHub Actions. The key differences:
 
-- Workflows live in `.gitea/workflows/` instead of `.github/workflows/`
+- Workflows go in `.gitea/workflows/`; Gitea also reads `.github/workflows/` when that's all a repo has
 - The runner is a separate binary (`act_runner`) that polls Gitea for jobs
-- Artifacts and logs are stored in Gitea's database, not S3
-- Secrets are managed in the Gitea UI
+- Logs and artifacts go to Gitea's own storage (local disk by default, configurable to MinIO/S3)
+- Secrets and variables are managed in the Gitea UI
 
-The YAML syntax is identical. Most GitHub Actions workflows work in Gitea with minimal changes.
+The YAML syntax is the same, and actions like `actions/checkout@v4` are pulled from github.com by default. Most GitHub Actions workflows work in Gitea with minimal changes.
 
 ## Deploying Gitea on k3s
 
@@ -108,21 +108,23 @@ spec:
               value: "ubuntu-latest:docker://node:20-bookworm"
 ```
 
-The runner registration token is generated in the Gitea UI under Site Administration → Runners → Create New Runner.
+The runner registration token is generated in the Gitea UI under Site Administration → Actions → Runners → Create new Runner.
+
+Two caveats with this manifest. With `docker://` labels, `act_runner` starts each job in a container, so it needs a Docker daemon; on k3s that means a Docker-in-Docker sidecar or the `act_runner` dind image, which runs privileged. And `act_runner` stores its registration in a `.runner` file, so give each replica persistent storage (a StatefulSet fits better than a Deployment here), or every restarted pod registers as a new runner.
 
 ## Workflow Migration
 
-A GitHub Actions workflow migrates to Gitea by moving the file:
+A GitHub Actions workflow migrates to Gitea by moving the file, or by leaving it where it is if the repo has no `.gitea/workflows/` directory:
 
 ```
 .github/workflows/ci.yml  →  .gitea/workflows/ci.yml
 ```
 
-The YAML content stays the same. The only change: if the workflow references `github.event_name` or `github.repository`, those context variables are `gitea.event_name` and `gitea.repository` in Gitea. Most workflows don't reference these directly.
+The YAML content stays the same. Gitea provides the `github` context for compatibility, so `github.event_name`, `github.repository` and `github.sha` keep working; `gitea.*` is available as an alias.
 
 ## Docker-in-Docker
 
-Many CI workflows need Docker (building images, running containers). The Gitea runner supports Docker-in-Docker via the `--privileged` flag or by mounting the Docker socket:
+Many CI workflows need Docker (building images, running containers). The Gitea runner supports this either by running job containers privileged or by mounting the Docker socket into them:
 
 ```yaml
 # .gitea/workflows/docker-build.yml
@@ -141,7 +143,7 @@ jobs:
           docker push myapp:${{ github.sha }}
 ```
 
-The runner label `ubuntu-latest:docker://node:20-bookworm` tells the runner to execute jobs inside a Docker container. For Docker-in-Docker, change the runner label to include `--privileged`:
+The runner label `ubuntu-latest:docker://node:20-bookworm` tells the runner to execute jobs inside a `node:20-bookworm` container, which has no Docker CLI. For image builds, point the label at an image that ships one, such as catthehacker's act image, and enable `container.privileged: true` (or a socket mount via `container.options`) in the runner's `config.yaml`. Privileged mode is not a label setting:
 
 ```yaml
 GITEA_RUNNER_LABELS: "ubuntu-latest:docker://ghcr.io/catthehacker/ubuntu:act-latest"
@@ -149,7 +151,7 @@ GITEA_RUNNER_LABELS: "ubuntu-latest:docker://ghcr.io/catthehacker/ubuntu:act-lat
 
 ## Resource Limits
 
-On a homelab [BMAX Mini PC*](/go/4bv3yF1), the Gitea runner shouldn't consume all resources. Set resource limits on the runner Deployment:
+On a homelab [BMAX Mini PC*](/go/4bv3yF1), the Gitea runner shouldn't eat all the resources. Set resource limits on the runner Deployment:
 
 ```yaml
 resources:
@@ -161,10 +163,10 @@ resources:
     memory: "2Gi"
 ```
 
-Two runners with 2GB each = 4GB. On a 64GB machine, that's negligible. The runners share the CPU with k3s workloads, so `cpu: "2"` is a request, not a reservation.
+Two runners capped at 2 GiB each is 4 GiB at most, negligible on a 64GB machine. The runners share CPU with the other k3s workloads: the scheduler reserves only the 500m request, and `cpu: "2"` is a throttling ceiling, not a reservation. Note that with Docker-in-Docker the job containers run inside the dind sidecar, so set limits on that container too.
 
 ## The Trade-off
 
-Gitea Actions is not as mature as GitHub Actions. Missing features: matrix builds, reusable workflows, and the marketplace of pre-built actions. For a homelab infrastructure repo that runs Terraform, Ansible, and container builds, these missing features don't matter — Terraform changes still go through [Atlantis](/blog/mikrotik-terraform-gitops-firewall-management/) for the actual apply, so Gitea Actions only needs to handle lint and plan. The YAML syntax is the same, the runner runs on your hardware, and there's no minute limit.
+Gitea Actions is not as mature as GitHub Actions. Matrix builds and actions from the GitHub marketplace work, but some workflow syntax is ignored or only partly supported: `jobs.<job_id>.environment`, problem matchers, error annotations, complex `runs-on` expressions, and GitHub-only `permissions` scopes such as `id-token`. For a homelab infrastructure repo that runs Terraform, Ansible, and container builds, those gaps don't matter. Terraform changes still go through [Atlantis](/blog/mikrotik-terraform-gitops-firewall-management/) for the actual apply, so Gitea Actions only needs to handle lint and plan. The YAML syntax is the same, the runner runs on your hardware, and there's no minute limit.
 
 <NewsletterCTA />

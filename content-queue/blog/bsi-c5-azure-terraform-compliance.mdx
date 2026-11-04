@@ -1,42 +1,42 @@
 ---
 title: "BSI C5 Compliance in Azure: Mapping the Criteria Catalogue to Terraform"
-description: "Germany's Cloud Computing Compliance Criteria Catalogue (C5), mapped to concrete Azure Terraform resources - network segmentation, identity management, cryptography, and logging, without the audit-consultant markup."
+description: "BSI C5:2020 mapped to concrete Azure Terraform resources: network segmentation, identity and access, cryptography, and logging, from the engineer's side."
 date: "2026-12-10"
 tags: ["Azure", "Terraform", "Compliance", "Security"]
 ---
 
 import AffiliateLink from "@components/AffiliateLink.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-BSI C5 (Cloud Computing Compliance Criteria Catalogue) is the standard German public sector and regulated industries actually ask cloud vendors and their own Azure deployments to meet - more specific than ISO 27001, more Germany-focused than NIS2, and almost never covered from an engineer's side rather than an auditor's.
+BSI C5 (Cloud Computing Compliance Criteria Catalogue) is the standard the German public sector and regulated industries ask cloud providers to meet, and increasingly expect of the cloud services their suppliers build on Azure. It is more specific than ISO 27001, more Germany-focused than NIS2, and rarely covered from the engineer's side instead of the auditor's.
 
-Azure itself holds a C5 attestation for its underlying platform. That covers Microsoft's side of the shared-responsibility model - the physical datacenters, the hypervisor, the platform controls. It says nothing about how you configured the resources running inside your subscription. This article maps the criteria groups that land on your side of that line to the same Terraform-managed Azure architecture already covered on this blog.
+Azure holds a C5 attestation for its platform. That covers Microsoft's side of the shared-responsibility model: the physical datacenters, the hypervisor, the platform controls. It says nothing about how you configured the resources inside your subscription. This article maps the C5 areas that land on your side of that line to the Terraform-managed Azure architecture already covered on this blog. It uses the C5:2020 area codes and criteria IDs. BSI has since published C5:2026 as the successor, so check which version your auditor attests against.
 
-> **Disclaimer:** C5 attestation is a formal audit process performed by a qualified auditor (Wirtschaftsprüfer) against the full catalogue - this article is not that audit, and covers a subset of technical criteria groups most relevant to network and identity architecture. It's a starting point for engineering the underlying controls, not a substitute for the actual attestation process.
+> **Disclaimer:** C5 attestation is a formal audit performed by a qualified auditor (typically a Wirtschaftsprüfer) against the full catalogue. This article is not that audit. It covers a subset of technical criteria most relevant to network and identity architecture, as a starting point for engineering the controls, not a substitute for attestation.
 
-## The Criteria Groups That Map to Infrastructure Code
+## The Criteria Areas That Map to Infrastructure Code
 
-C5 organizes its controls into groups covering everything from personnel security to procurement. Four groups map directly onto Terraform-managed Azure architecture:
+C5:2020 organizes its criteria into 17 areas, from personnel (HR) to procurement and development (DEV). Four areas map directly onto Terraform-managed Azure architecture:
 
-**KOS - Communication Security**
-Network segmentation, boundary protection, and encryption of data in transit between components. This is the group a Hub & Spoke topology exists to satisfy.
+**COS: Communication Security** (KOS in the German edition)
+Technical safeguards, cross-network access, segregation of traffic, and documentation of the network topology (COS-01 to COS-08). This is the area a Hub & Spoke topology exists to satisfy.
 
-**IDM - Identity and Access Management**
-Authentication, authorization, and the principle that access rights match documented roles - not ad-hoc Portal permissions granted during an incident and never revoked.
+**IDM: Identity and Access Management**
+Granting, reviewing, and withdrawing access rights, privileged access, and authentication mechanisms (IDM-01 to IDM-09). The principle is that access rights match documented roles, not ad-hoc portal permissions granted during an incident and never revoked.
 
-**CRY - Cryptography and Key Management**
-Encryption at rest and in transit, and how keys are generated, stored, and rotated - Key Vault's entire reason for existing in a compliance-driven architecture.
+**CRY: Cryptography and Key Management**
+Transport encryption (CRY-02), encryption of sensitive data at rest (CRY-03), and secure key management (CRY-04). This is Key Vault's reason for existing in a compliance-driven architecture.
 
-**OPS - Operations, including Logging and Monitoring**
-Continuous logging of security-relevant events, one of the more concretely testable groups in the whole catalogue - an auditor can ask "show me the last 90 days" and either the logs exist or they don't.
+**OPS: Operations**
+Among much else, logging and monitoring (OPS-10 to OPS-17). It is one of the most concretely testable parts of the catalogue: an auditor can ask "show me the last 90 days" and either the logs exist or they don't.
 
-## Mapping C5 Groups to Azure Architecture
+## Mapping C5 Areas to Azure Architecture
 
 ```
-C5 Criteria Group          →    Azure Control
+C5 Criteria Area           →    Azure Control
 ──────────────────────────────────────────────────────────
-KOS (Network Security)     →    Hub & Spoke VNet topology
+COS (Network Security)     →    Hub & Spoke VNet topology
                                  NSG Default-Deny, Azure Firewall
 IDM (Access Management)    →    Managed Identities, scoped RBAC
                                  Entra ID Conditional Access
@@ -48,9 +48,9 @@ OPS (Logging & Monitoring) →    Diagnostic Settings → Log Analytics
 
 **[Get the base Hub & Spoke module free on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-hub-spoke)**
 
-## KOS: Network Segmentation and Boundary Protection
+## COS: Network Segmentation and Boundary Protection
 
-C5's KOS group asks, in substance, the same question NIS2 and KRITIS do: is the network segmented by function and criticality, and is there a documented, enforced boundary between zones? The Hub & Spoke topology with default-deny NSGs answers this directly:
+C5's COS area asks, in substance, the same question NIS2 and KRITIS do: is the network segmented by function and criticality, and is there a documented, enforced boundary between zones? The Hub & Spoke topology with default-deny NSGs answers this directly. Azure's built-in `DenyAllInBound` rule already blocks unsolicited inbound traffic; an explicit rule in code makes the boundary visible in the Terraform an auditor reads:
 
 ```hcl
 resource "azurerm_network_security_group" "c5_boundary" {
@@ -72,7 +72,7 @@ resource "azurerm_network_security_group" "c5_boundary" {
 }
 ```
 
-The KOS criteria are also specific about encryption of data in transit between network zones - which is where forcing TLS on every internal PaaS connection matters, not just on the public-facing edge:
+C5 also requires transport encryption (CRY-02), and that applies to internal PaaS connections as much as to the public-facing edge. Enforce a minimum TLS version on every service:
 
 ```hcl
 resource "azurerm_storage_account" "c5_storage" {
@@ -84,7 +84,7 @@ resource "azurerm_storage_account" "c5_storage" {
 
 ## IDM: Access Rights That Match Documented Roles
 
-C5's identity criteria are less about *having* RBAC and more about *provable, minimal* RBAC - every principal's access should be traceable to a documented reason, not accumulated permissions nobody remembers granting. Managed Identity plus scoped role assignments gives you that traceability for free, because the assignment itself is the documentation:
+C5's identity criteria are less about *having* RBAC than about *provable, minimal* RBAC. Every principal's access should be traceable to a documented reason (IDM-02) and reviewed regularly (IDM-05), not accumulated permissions nobody remembers granting. Managed Identity plus scoped role assignments in Terraform gives you that traceability almost for free, because the assignment is its own record:
 
 ```hcl
 resource "azurerm_role_assignment" "function_kv_reader" {
@@ -96,11 +96,11 @@ resource "azurerm_role_assignment" "function_kv_reader" {
 }
 ```
 
-The `description` field is easy to skip and is exactly what turns a role assignment into an auditable artifact instead of a bare permission grant. For an auditor asking "why does this identity have this access," a Terraform diff plus a linked architecture decision record answers the question in a way that "someone needed it at the time" does not.
+The `description` field is easy to skip, and it is what turns a role assignment into an auditable artifact instead of a bare permission grant. When an auditor asks "why does this identity have this access," a Terraform diff plus a linked architecture decision record answers the question; "someone needed it at the time" does not.
 
 ## CRY: Keys That Live in Key Vault, Not in App Settings
 
-C5's cryptography criteria expect keys and secrets to be centrally managed with documented rotation - the exact failure mode this eliminates is a connection string sitting in an App Service configuration blade, rotated never, known to everyone who's ever had contributor access:
+C5's cryptography criteria (CRY-01, CRY-04) expect keys and secrets to be centrally managed with a documented lifecycle. The failure mode this eliminates is a connection string in an App Service configuration blade, never rotated, known to everyone who ever had Contributor access:
 
 ```hcl
 resource "azurerm_key_vault" "kv" {
@@ -129,11 +129,11 @@ resource "azurerm_key_vault_key" "cmk" {
 }
 ```
 
-`rotation_policy` with an explicit `expire_after` turns key rotation from a manual calendar reminder into infrastructure that enforces itself - which is closer to what "documented key management" actually means to a C5 auditor than a runbook nobody has followed since it was written.
+`rotation_policy` with an explicit `expire_after` turns key rotation from a calendar reminder into infrastructure that enforces itself. That is closer to what "documented key management" means to a C5 auditor than a runbook nobody has followed since it was written.
 
 ## OPS: Logging as a Testable Control
 
-Of everything in C5, OPS is the group where the gap between "we have a monitoring strategy" and "show me the logs" is most visible - and the easiest to get wrong by only wiring up Diagnostic Settings for the resources that seemed important during initial deployment:
+The logging criteria (OPS-10 to OPS-17) are where the gap between "we have a monitoring strategy" and "show me the logs" is most visible. The easy mistake is wiring up Diagnostic Settings only for the resources that seemed important during the initial deployment:
 
 ```hcl
 resource "azurerm_monitor_diagnostic_setting" "kv_diagnostics" {
@@ -147,26 +147,28 @@ resource "azurerm_monitor_diagnostic_setting" "kv_diagnostics" {
 }
 ```
 
-The pattern worth adopting: apply Diagnostic Settings via `for_each` over every resource that supports them in a module, not as a one-off per resource added when someone remembers. A C5 audit sampling logging coverage across the estate will find the resource you forgot faster than it finds the ones you configured correctly.
+Apply Diagnostic Settings via `for_each` over every resource in a module that supports them, not as a one-off whenever someone remembers. Azure Policy with a DeployIfNotExists assignment catches the resources created outside your modules. An auditor sampling logging coverage across the estate will find the resource you forgot faster than the ones you configured correctly.
 
-## What This Covers - and What It Doesn't
+## What This Covers, and What It Doesn't
 
-This covers a subset of C5's technical criteria groups relevant to network and identity architecture. Full C5 attestation also requires:
+This covers a subset of C5's technical criteria relevant to network and identity architecture. Full C5 attestation also requires:
 
-- **Organizational criteria (OIS, SP)** - information security policy, organizational structure, and governance processes
-- **Personnel security (PS)** - background checks, confidentiality agreements, security awareness training
-- **Business continuity management (BCM)** - documented and tested, not just infrastructure-implied
-- **The formal attestation process itself**, performed by a qualified independent auditor against the complete catalogue
+- **Organization and policies (OIS, SP):** information security organization, policies, and governance processes
+- **Personnel (HR):** background checks, confidentiality agreements, security awareness training
+- **Physical security (PS):** largely inherited from Microsoft's attestation when you run on Azure
+- **Business continuity management (BCM):** documented and tested, not just implied by the infrastructure
+- **Incident management, suppliers, and compliance (SIM, SSO, COM)**, among the remaining areas
+- **The formal attestation itself**, performed by a qualified independent auditor against the complete catalogue
 
 ## The Result
 
-A Hub & Spoke deployment engineered against C5's KOS, IDM, CRY, and OPS groups gives you:
+A Hub & Spoke deployment engineered against C5's COS, IDM, CRY, and OPS areas gives you:
 
 - Documented, enforced network segmentation with encryption in transit
 - Traceable, minimal access rights tied to Managed Identity rather than accumulated permissions
 - Centrally managed cryptographic keys with automatic rotation policies
-- Comprehensive Diagnostic Settings coverage as a testable logging control
+- Diagnostic Settings coverage across the estate as a testable logging control
 
-The same [Hub & Spoke module](https://github.com/dwoitzik/terraform-azurerm-hub-spoke) behind the [NIS2](/blog/nis2-article-21-azure-terraform/) and [KRITIS](/blog/kritis-bsig-azure-terraform/) mappings on this blog satisfies most of C5's technical groups without modification - the frameworks converge on the same handful of controls because they're all describing the same underlying engineering problem.
+The same [Hub & Spoke module](https://github.com/dwoitzik/terraform-azurerm-hub-spoke) behind the [NIS2](/blog/nis2-article-21-azure-terraform/) and [KRITIS](/blog/kritis-bsig-azure-terraform/) mappings on this blog covers most of these technical criteria without modification. The frameworks converge on the same handful of controls because they describe the same engineering problem.
 
-For the German-market audience this catalogue is aimed at, [Netzwerke: Verstehen, Einrichten, Administrieren*](/go/4f3kTar) remains the reference I point people at for the networking fundamentals behind the KOS criteria specifically.
+For the German-market audience this catalogue is aimed at, [Netzwerke: Verstehen, Einrichten, Administrieren*](/go/4f3kTar) remains the reference I point people to for the networking fundamentals behind the COS criteria.

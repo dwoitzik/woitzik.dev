@@ -1,6 +1,6 @@
 ---
-title: "Enterprise Homelab: K3s, Authelia & Longhorn on Proxmox with Terraform"
-description: "How to build a production-grade Kubernetes homelab with K3s, Authelia SSO, Longhorn storage, and ArgoCD - and the five painful mistakes that will cost you hours if you don't know about them."
+title: "Enterprise Homelab: k3s, Authelia & Longhorn on Proxmox with Terraform"
+description: "Building a Kubernetes homelab with k3s, Authelia SSO, Longhorn and ArgoCD on Proxmox, plus the five mistakes that cost me hours along the way."
 date: "2026-05-16"
 updated: "2026-09-09"
 tags: ["Kubernetes", "Homelab", "Security"]
@@ -8,23 +8,21 @@ tags: ["Kubernetes", "Homelab", "Security"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
 **Update (2026-09-09):** this cluster has since moved persistent storage off Longhorn onto NFS.
 All three k3s nodes here run as VMs on a single physical host, so Longhorn's replica-distribution
-guarantee was never real — every "replica" landed on the same underlying NVMe. When a node dropped
+guarantee was never real: every "replica" landed on the same underlying NVMe. When a node dropped
 out briefly, Longhorn's RWO failover logic tried to attach the volume on a second node while the
-first was still recovering, producing a Multi-Attach error that needed a manual detach to clear —
-overhead a single-host cluster doesn't need to carry. NFS doesn't have an attachment state to
-conflict, so that failure mode is gone. Mistake 2 below (Longhorn + iSCSI) and the Longhorn
-Application manifest are left as-is - the troubleshooting is accurate for anyone running Longhorn
-on genuinely distributed nodes, just not what this specific cluster runs anymore.
+first was still recovering. The result was a Multi-Attach error that needed a manual detach to clear,
+overhead a single-host cluster doesn't need to carry. NFS has no attachment state to conflict, so
+that failure mode is gone. Mistake 2 below (Longhorn + iSCSI) and the Longhorn Application manifest
+stay as they were. The troubleshooting is accurate for anyone running Longhorn on physically
+separate nodes; it's just not what this cluster runs anymore.
 
-Most Kubernetes homelab guides stop at "kubectl get pods" and call it a day. This one doesn't.
+Most Kubernetes homelab guides stop at `kubectl get pods`. This one covers the full stack: three k3s nodes provisioned via Terraform on Proxmox VE, running on a [BMAX Mini PC\*](/go/4bv3yF1) with 64GB RAM, GitOps-managed with ArgoCD, persistent storage via Longhorn, and Authelia as the SSO gateway in front of every service.
 
-This article documents a full production-grade homelab stack: three K3s nodes provisioned via Terraform on Proxmox, running on a [BMAX Mini PC\*](/go/4bv3yF1) with 64GB RAM, GitOps-managed with ArgoCD, persistent storage via Longhorn, and Authelia as a proper SSO gateway in front of every service. The kind of setup you'd actually trust to run real workloads.
-
-It also documents every painful mistake along the way - because that's the part nobody writes about.
+It also covers the mistakes I made along the way, because that's the part most guides leave out.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -51,7 +49,7 @@ Everything is managed as code. The VMs are Terraform resources. The cluster appl
 
 ## Provisioning the Nodes with Terraform
 
-Each K3s node is a full VM clone from a template (VM ID 9000) on Proxmox, provisioned via the `proxmox_virtual_environment_vm` provider:
+Each k3s node is a full VM clone from a template (VM ID 9000) on Proxmox, provisioned via the `proxmox_virtual_environment_vm` provider:
 
 ```hcl
 resource "proxmox_virtual_environment_vm" "vm_srv_k3s_11_master" {
@@ -93,22 +91,22 @@ resource "proxmox_virtual_environment_vm" "vm_srv_k3s_11_master" {
 }
 ```
 
-`cpu.type = "host"` passes through the host CPU flags directly - important for Longhorn's checksumming and for any workload that benefits from AVX instructions. Don't use the default `kvm64` if you're running real workloads.
+`cpu.type = "host"` passes the host CPU flags through to the guest, so workloads can use AES-NI, AVX and other extensions that the generic `kvm64` model hides. Don't leave it on `kvm64` for real workloads.
 
-Three identical worker definitions follow the same pattern with IPs `.12` and `.13`.
+The two worker definitions follow the same pattern with IPs `.12` and `.13`.
 
 ## Mistake 1: Docker Hub Rate Limits
 
-The first thing that breaks on a fresh K3s cluster: Docker Hub rate limits.
+The first thing that breaks on a fresh k3s cluster is Docker Hub's rate limit.
 
-Pods start appearing with `ErrImagePull` or `ImagePullBackOff`. Not because the images don't exist - because Docker Hub has silently throttled anonymous pulls. In a homelab where you're constantly tearing down and rebuilding, you hit the limit fast.
+Pods start showing `ErrImagePull` or `ImagePullBackOff`. The images exist; Docker Hub has throttled anonymous pulls. In a homelab where you tear down and rebuild constantly, you hit the limit fast.
 
-The fix: switch image sources entirely for the affected images.
+The fix is to pull the affected images from a different registry:
 
-- **Bitnami images** (Postgres, Redis) → `public.ecr.aws/bitnami/...` (Amazon's public registry, no rate limits)
-- **Authelia** → `ghcr.io/authelia/authelia:latest` (GitHub Container Registry, generous limits)
+- Bitnami images (Postgres, Redis) → `public.ecr.aws/bitnami/...` (Amazon ECR Public, with much higher anonymous limits)
+- Authelia → `ghcr.io/authelia/authelia:latest` (GitHub Container Registry)
 
-This should be in every K3s getting-started guide. It isn't.
+Every k3s getting-started guide should mention this. Few do.
 
 ## Mistake 2: Longhorn & iSCSI on WSL
 
@@ -116,7 +114,7 @@ Longhorn requires the iSCSI protocol on the host to mount virtual block devices 
 
 Symptom: pods stuck in `ContainerCreating` forever. Longhorn volumes stay `Detached` or report `volume is not ready for workloads`.
 
-Fix - run this on every node (including WSL host if applicable):
+Fix: run this on every node (including the WSL host if applicable):
 
 ```bash
 sudo apt-get install -y open-iscsi
@@ -124,7 +122,7 @@ sudo systemctl enable iscsid
 sudo systemctl start iscsid
 ```
 
-Without this, Longhorn physically cannot attach its virtual disks to the nodes. The error messages are cryptic enough that most people spend hours debugging the wrong thing.
+Without it, Longhorn cannot attach its virtual disks to the nodes, and the error messages are vague enough that you can spend hours debugging the wrong thing.
 
 The ArgoCD Application for Longhorn itself is straightforward once iSCSI is working:
 
@@ -183,15 +181,15 @@ source:
             secretName: wildcard-woitzik-dev-tls
 ```
 
-The Traefik dashboard is disabled - it exposes too much information to be left on in a production-adjacent setup. Access it via `kubectl port-forward` if you need it.
+The Traefik dashboard is disabled because it exposes too much to leave on in a production-adjacent setup. Use `kubectl port-forward` when you need it.
 
 <NewsletterCTA />
 
 ## Mistake 3: Authelia's Five Failure Modes
 
-Authelia is the most opinionated component in this stack. It fails hard and fast on configuration errors, which is actually good - but the error messages aren't always obvious.
+Authelia is the most opinionated component in this stack. It fails fast on configuration errors, which is good, but the error messages aren't always obvious.
 
-Here's the full working Deployment:
+The working Deployment:
 
 ```yaml
 apiVersion: apps/v1
@@ -226,6 +224,12 @@ spec:
           value: /config/secrets/storage-password
         - name: AUTHELIA_SESSION_REDIS_PASSWORD_FILE
           value: /config/secrets/redis-password
+        - name: AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE
+          value: /config/secrets/jwt-secret
+        - name: AUTHELIA_SESSION_SECRET_FILE
+          value: /config/secrets/session-secret
+        - name: AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE
+          value: /config/secrets/storage-key
       volumes:
       - name: config
         configMap:
@@ -237,11 +241,11 @@ spec:
 
 **Failure Mode 1: `enableServiceLinks: false`**
 
-Kubernetes automatically injects environment variables for every Service in the namespace - including `AUTHELIA_PORT`, `AUTHELIA_PORT_9091_TCP`, and others. These collide directly with Authelia's own configuration keys and cause a fatal startup error. The fix: `enableServiceLinks: false` disables this injection entirely.
+Kubernetes injects environment variables for every Service in the namespace. A Service named `authelia` produces `AUTHELIA_PORT`, `AUTHELIA_PORT_9091_TCP` and similar. Authelia reads every `AUTHELIA_`-prefixed variable as configuration, so these collide with its own keys and cause a fatal startup error. `enableServiceLinks: false` turns the injection off.
 
 **Failure Mode 2: The Read-Only Filesystem**
 
-The `notifier` in Authelia's configuration needs a writable path to write notification files (used for password reset emails in filesystem mode). The `/config` directory is mounted from a ConfigMap - which is read-only by design in Kubernetes.
+The filesystem `notifier` needs a writable path for its notification file (where password reset and verification messages land instead of being emailed). `/config` is mounted from a ConfigMap, and ConfigMap volumes are read-only in Kubernetes.
 
 Wrong:
 ```yaml
@@ -259,7 +263,7 @@ notifier:
 
 **Failure Mode 3: Backend DNS Names**
 
-Authelia connects to Postgres and Redis using Kubernetes internal DNS. The full service DNS format in a multi-namespace cluster is:
+Authelia connects to Postgres and Redis via Kubernetes internal DNS. Across namespaces, use the full service name:
 
 ```yaml
 session:
@@ -274,13 +278,13 @@ storage:
     username: 'authelia'
 ```
 
-Short names like `redis-authelia` only work within the same namespace. Since Authelia lives in `apps` and the databases in `database`, the fully qualified name is required.
+Short names like `redis-authelia` only resolve within the same namespace. Authelia lives in `apps` and the databases in `database`, so it needs at least `redis-authelia.database`; the fully qualified name avoids any ambiguity.
 
 **Failure Mode 4: YAML Corruption via Terminal Paste**
 
-Large YAML blocks pasted via `cat <<EOF` into a terminal buffer get silently truncated or corrupted. Authelia then crashes with a fatal parse error mid-configuration. The symptom looks like a config bug but is actually a paste artifact.
+Large YAML blocks pasted into a terminal via `cat <<EOF` can get truncated or mangled without any warning. Authelia then crashes with a fatal parse error. It looks like a config bug, but it's a paste artifact.
 
-Fix: always use `nano` or write files via `kubectl create configmap --from-file=...`. Never trust terminal paste for multi-hundred-line configs.
+Fix: write the file in an editor (`nano` is fine) or build the ConfigMap with `kubectl create configmap --from-file=...`. Don't trust terminal paste for configs that run to hundreds of lines.
 
 **Failure Mode 5: The `server.address` Key**
 
@@ -291,7 +295,11 @@ server:
   address: 'tcp://0.0.0.0:9091/'
 ```
 
-Older guides use `server.host` and `server.port` separately. These keys are deprecated and cause a fatal error on startup in recent versions. If you're copying config from a guide older than 6 months, double-check the key names against the current Authelia documentation.
+Older guides set `server.host` and `server.port` separately. Those keys are deprecated since Authelia 4.38. Current 4.x releases still map them automatically and log a warning, but they are scheduled for removal, and a major version bump disables the automatic migration. If you copy config from an older guide, check every key name against the current Authelia documentation.
+
+The same release moved `session.domain` and the top-level `default_redirection_url` into a `session.cookies` list, one entry per cookie domain, each with its own `authelia_url`. The config below uses the new layout. `default_redirection_url` must not be the same URL as `authelia_url`.
+
+Secrets are values, not paths. Writing `jwt_secret: '/config/secrets/jwt-secret'` does not read the file. Authelia takes the string literally, so the path itself becomes the secret. Secrets mounted as files go in through the matching `_FILE` environment variables (`AUTHELIA_SESSION_SECRET_FILE`, `AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE`, `AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE`), as in the Deployment above. The alternative is the `template` config filter (`X_AUTHELIA_CONFIG_FILTERS=template`) with `{{ secret "/config/secrets/jwt-secret" }}` inside the YAML, which is what my repo uses today.
 
 <NewsletterCTA />
 
@@ -304,31 +312,26 @@ server:
 log:
   level: 'debug'
 
-identity_validation:
-  reset_password:
-    jwt_secret: '/config/secrets/jwt-secret'
-
-default_redirection_url: 'https://auth.yourdomain.com'
-
 authentication_backend:
   file:
     path: '/config/users_database.yml'
 
 session:
   name: 'authelia_session'
-  domain: 'yourdomain.com'
-  secret: '/config/secrets/session-secret'
   same_site: 'lax'
   expiration: '1h'
   inactivity: '5m'
   remember_me: '1M'
+  cookies:
+    - domain: 'yourdomain.com'
+      authelia_url: 'https://auth.yourdomain.com'
+      default_redirection_url: 'https://www.yourdomain.com'
   redis:
     host: 'redis-authelia.database.svc.cluster.local'
     port: 6379
     database_index: 0
 
 storage:
-  encryption_key: '/config/secrets/storage-key'
   postgres:
     address: 'tcp://postgres-authelia.database.svc.cluster.local:5432'
     database: 'authelia'
@@ -370,18 +373,16 @@ spec:
 
 ## The Result
 
-After navigating Docker Hub rate limits, iSCSI daemons, Kubernetes service link injection, read-only ConfigMap filesystems, and deprecated configuration keys - the stack runs cleanly:
+Once Docker Hub rate limits, iSCSI, service link injection, read-only ConfigMaps and deprecated config keys were sorted out, the stack ran cleanly:
 
 - Every service behind Authelia SSO with Redis-backed sessions
-- Persistent storage via Longhorn distributed across three nodes
-- GitOps-managed via ArgoCD - every change is a Git commit
+- Persistent storage via Longhorn across three nodes (since replaced by NFS, see the update at the top)
+- GitOps-managed via ArgoCD: every change is a Git commit
 - Wildcard TLS via cert-manager and Traefik
-- Zero manual `kubectl apply` in steady state
+- No manual `kubectl apply` in steady state
 
-For remote access to this stack, I later added [Headscale as a self-hosted Tailscale control plane](/blog/headscale-oidc-k3s-authelia/) — it uses the same Authelia instance for OIDC authentication, so VPN access and service SSO share one identity layer.
+For remote access I later added [Headscale as a self-hosted Tailscale control plane](/blog/headscale-oidc-k3s-authelia/). It uses the same Authelia instance for OIDC, so VPN access and service SSO share one identity layer.
 
-The entire infrastructure - from bare metal to running pods - is reproducible from a `terraform apply` and a Git repository.
-
-If this level of network isolation and identity management sounds familiar from your corporate Azure environment, the same principles apply there - just with different primitives.
+The whole infrastructure, from bare metal to running pods, is reproducible from a `terraform apply` and a Git repository. If you work with network isolation and identity in a corporate Azure tenant, the same principles apply there with different primitives.
 
 <NewsletterCTA />

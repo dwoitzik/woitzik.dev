@@ -1,125 +1,107 @@
 ---
 title: "Tailscale on k3s: Exit Nodes, Subnet Routes, and ACLs"
-description: "Tailscale replaces WireGuard VPN with mesh networking and NAT traversal. Running an exit node on the MikroTik RB5009 gives every device in the homelab VPN access without installing clients."
+description: "A Tailscale pod in k3s acts as subnet router and exit node for a Headscale tailnet: scoped routes, tag-gated auto-approval, and an IPv6 exit-node trap."
 date: "2026-11-19"
 tags: ["Networking", "VPN", "Tailscale", "Homelab"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-[WireGuard on MikroTik](/blog/mikrotik-wireguard-vpn-terraform/) works. The Terraform-managed firewall rules handle the UDP port forwarding, the peer configurations are in the RouterOS config, and the VPN tunnel comes up in under a second. The problem: every device needs a WireGuard client configured with the correct peer, allowed IPs, and DNS. Tailscale builds on WireGuard but adds NAT traversal, key exchange, and an ACL system — and it can run as an exit node on the [RB5009*](/go/4w08b21) so every device on the network gets VPN access automatically. It's a different trade-off than [self-hosting Headscale](/blog/headscale-oidc-k3s-authelia/): Tailscale's coordination server is third-party, Headscale's is yours.
+[WireGuard on MikroTik](/blog/mikrotik-wireguard-vpn-terraform/) worked, but every device needed a hand-written peer config with the right allowed IPs and DNS. Tailscale builds on WireGuard and adds NAT traversal, key distribution, and ACLs. My tailnet runs against a [self-hosted Headscale control server](/blog/headscale-oidc-k3s-authelia/), and one ordinary Tailscale client running as a pod in k3s gives my phone and laptop two things: a route into the server VLAN and an exit node for mobile-data traffic. The [RB5009*](/go/4w08b21) doesn't run Tailscale at all; it stays the firewall that enforces VLAN segmentation behind that route.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## The Exit Node Pattern
+## Subnet Routes vs Exit Nodes
 
-A Tailscale exit node routes all internet traffic through a specific machine. When a device connects to the exit node, its traffic exits from that machine's IP address. On the RB5009, this means:
+Both are features of a normal Tailscale node, and they solve different problems:
 
-1. The RB5009 runs Tailscale as an exit node
-2. Every device on the VLANs routes traffic through the RB5009
-3. The RB5009's public IP (behind the [FritzBox*](/go/4f5WDEI) CGN) is the exit point
-4. No Tailscale client needed on individual devices
+**Subnet routes** let tailnet devices reach a LAN range through one node, without installing Tailscale on anything in that range. The servers on `10.0.20.0/24` never see a Tailscale client; they see traffic arriving from the subnet router. Internet traffic on the remote device keeps using its normal connection.
 
-The catch: the FritzBox does CGN (Carrier-Grade NAT). Tailscale's NAT traversal handles this — it uses STUN to discover the external IP and sets up a direct connection if possible. If CGN blocks direct connections, Tailscale falls back to a relay (DERP server).
+**Exit nodes** route *all* of a device's internet traffic through the chosen node, so the device's public IP becomes the homelab's. The remote device still needs a Tailscale client and has to select the exit node; nothing on the home LAN changes.
 
-## Installing Tailscale on MikroTik
+For most homelabs, a subnet route is enough. I also run the exit node because I want mobile-data traffic to leave through my own WAN uplink.
 
-MikroTik RouterOS 7.13+ includes a Tailscale package. Install it:
+## The Router Pod
 
-```routeros
-/package/install
-/name: tailscale
+The node is a single-replica Deployment of the official `tailscale/tailscale` image, configured entirely through `containerboot` environment variables:
+
+```yaml
+- name: TS_ROUTES
+  value: "10.0.20.0/24"
+- name: TS_HOSTNAME
+  value: "homelab-router"
+- name: TS_EXTRA_ARGS
+  value: "--login-server=https://headscale.woitzik.dev --advertise-tags=tag:subnet-router --advertise-exit-node"
 ```
 
-Enable and configure:
+The route used to be `10.0.0.0/16`, which advertised every VLAN (management, DMZ, IoT, admin) to any approved tailnet device and bypassed the MikroTik's zero-trust segmentation for VPN clients. The real use case is internal services behind the Traefik VIP on the server VLAN, so the route is now scoped to that one `/24`.
 
-```routeros
-/tailscale/enable
-/tailscale/set auth-key="tskey-auth-xxxxx"
-/tailscale/set advertise-exit-node=yes
-/tailscale/set advertise-routes=10.0.0.0/8
-```
+Two details cost me time. The pod has to run `privileged`, not just with `NET_ADMIN`/`NET_RAW`: containerd mounts `/proc/sys/net/ipv4/conf/*/src_valid_mark` read-only for unprivileged pods, `tailscaled` can't set it, and forwarded traffic fails the reverse-path filter and is silently dropped. The visible symptom is a "subnet routing enabled but IP forwarding is disabled" health warning. And the node state lives on a small PVC, so a pod restart doesn't register a new node.
 
-The `advertise-routes=10.0.0.0/8` advertises the entire homelab network (VLANs 10, 20, 30, 40, 100) to the Tailscale network. The `advertise-exit-node=yes` makes the RB5009 an exit node.
+## ACLs and Auto-Approval
 
-## ACL Configuration
-
-Tailscale ACLs control who can access what. The ACL file (in the Tailscale admin console):
+Headscale reads the same HuJSON policy format as Tailscale. Mine is a single-operator tailnet, so the ACL itself is short. The interesting part is who may become a router:
 
 ```json
 {
-  "acls": [
-    {
-      // Allow all devices to use the RB5009 as exit node
-      "action": "accept",
-      "src": ["group:homelab"],
-      "dst": ["autogroup:internet:*"]
-    },
-    {
-      // Allow access to all homelab subnets
-      "action": "accept",
-      "src": ["group:homelab"],
-      "dst": ["10.0.0.0/8:*"]
-    },
-    {
-      // Allow access to k8s services
-      "action": "accept",
-      "src": ["group:homelab"],
-      "dst": ["k3s-node-1:22,443,6443,80,3000,9090"]
-    }
-  ],
   "groups": {
-    "group:homelab": ["david@woitzik.dev"]
+    "group:admin": ["dw@", "david@"]
   },
   "tagOwners": {
-    "tag:k3s": ["group:homelab"],
-    "tag:raspberry-pi": ["group:homelab"]
+    "tag:subnet-router": ["group:admin"]
+  },
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["group:admin"],
+      "dst": ["*:*"]
+    }
+  ],
+  "autoApprovers": {
+    "routes": {
+      "10.0.20.0/24": ["tag:subnet-router"]
+    },
+    "exitNode": ["tag:subnet-router"]
   }
 }
 ```
 
-The first rule allows exit node usage. The second allows subnet access. The third allows SSH and HTTP access to specific k3s services.
+Only `group:admin` can tag a node `tag:subnet-router`, and only a node with that tag gets its routes auto-approved. Any other node can still advertise routes, but they sit unapproved until someone approves them by hand with `headscale nodes approve-routes`, so a rogue or misconfigured node can't route itself into the LAN or become an exit node. The two users in the group are the same person: logging in through OIDC created a second Headscale user (`david`) next to the manually created `dw`, and default-deny silently blocked that device until it was added.
 
-## Subnet Routes vs Exit Nodes
+If you add more users later, this is where least privilege starts: replace `*:*` with explicit destinations such as `10.0.20.0/24:443` and `autogroup:internet:*` for exit-node use.
 
-There are two modes:
+## NAT Traversal
 
-**Subnet routes**: Route traffic to a specific subnet (e.g., `10.0.20.0/24` for the server VLAN). Devices connected to Tailscale can reach servers on that subnet, but internet traffic goes through the device's normal gateway.
+The cluster sits behind two layers of NAT: the RB5009, and upstream of it a [FritzBox*](/go/4f5WDEI) (a 6591 Cable) on the WAN side. Tailscale handles this without port forwarding. Clients use STUN to discover their public endpoints and try a direct WireGuard path; when no direct path is possible, traffic falls back to a DERP relay. I don't run my own DERP server; Headscale hands clients Tailscale's public DERP map. Relayed traffic still works, just with higher latency, and `tailscale status` shows which path a peer is using.
 
-**Exit nodes**: Route ALL traffic through the exit node. This includes internet traffic, which means the device's public IP changes to the exit node's IP.
+## The IPv6 Exit-Node Trap
 
-For a homelab, subnet routes are usually sufficient. Exit nodes are useful when you want to route all traffic through the homelab's internet connection (for filtering, logging, or accessing geo-restricted content).
+`--advertise-exit-node` always advertises both `0.0.0.0/0` and `::/0`. There is no IPv4-only exit node: advertising `0.0.0.0/0` on its own is rejected with "0.0.0.0/0 advertised without its IPv6 counterpart, please also advertise ::/0". My k3s pod network is IPv4-only. The pod has IPv6 forwarding enabled but no global IPv6 address and no IPv6 uplink, so it advertises IPv6 exit capability it cannot deliver.
 
-## The Failover Problem
+The symptom on my phone was slow push notifications and app data while using the exit node. Narrowing the route approval in Headscale didn't help, and didn't even hold, because `autoApprovers.exitNode` re-approved whatever the tagged node advertised on the next policy reconcile. The approval command reported success, and `headscale nodes list-routes` showed `::/0` approved again seconds later. The real fix is dual-stack egress for the router pod, which I haven't built yet. If your cluster network is IPv4-only, expect the same behavior.
 
-Tailscale exit nodes don't failover automatically. If the RB5009 goes down, the exit node is unreachable. The device's traffic falls back to its normal gateway.
+## Two Routers, Manual Exit Choice
 
-For automatic failover, advertise two exit nodes:
+The router pod isn't the only node. `rpi-srv-02`, one of the two Raspberry Pi 4B DNS boxes, runs Tailscale natively and advertises the same three prefixes: `10.0.20.0/24`, `0.0.0.0/0`, and `::/0`. Both nodes are approved for all three in Headscale.
 
-```routeros
-# On the RB5009
-/tailscale/set advertise-exit-node=yes
+For the LAN route, that overlap is Headscale's high-availability mode: when two nodes advertise the same prefix, one is primary, and if it goes offline the other serves the route. Exit nodes work differently from the client's side. The phone uses the exit node I selected in the app. If that node goes down, its internet traffic stops until I pick the other one or turn the exit node off.
 
-# On a [Raspberry Pi 5*](/go/4wETNfv)
-/tailscale set advertise-exit-node=yes
-```
+The Pi is the weaker of the two, so I tried revoking its exit-node approval and keeping it as a LAN-route-only fallback. Because of the IPv6 trap above, that left the router pod as the only exit candidate for a `::/0` it can't serve, and IPv6-first traffic on the phone hung outright instead of just being slow. I rolled it back the same day. Dropping `--advertise-exit-node` from the router pod instead doesn't help either: the Pi advertises the same bundled `0.0.0.0/0` plus `::/0` pair on its own, so that wouldn't close the IPv6 gap, and all exit traffic would land on the weaker board. If I were replacing that Pi today, it would be a [Raspberry Pi 5*](/go/4wETNfv).
 
-Tailscale clients automatically switch to the available exit node. The switch takes 5-10 seconds.
+## Monitoring
 
-## Monitoring Tailscale
-
-Tailscale exposes metrics via `tailscale status --json`:
+`tailscale status --json` inside the router pod shows every peer, whether it's online, and its traffic counters:
 
 ```bash
-tailscale status --json | jq '.Peer[] | {Name: .HostName, Online: .Online, RX: .TxBytes, TX: .RxBytes}'
+tailscale status --json | jq '.Peer[] | {Name: .HostName, Online: .Online, RX: .RxBytes, TX: .TxBytes}'
 ```
 
-The Tailscale admin console shows a real-time map of connections, latency, and bandwidth. For Prometheus integration, use the `tailscale_exporter` community project.
+On the control-plane side, `headscale nodes list-routes` is the ground truth for which routes are advertised, approved, and actually serving. After any routing change, check it instead of trusting the command's exit status.
 
 ## The Trade-off
 
-Tailscale is a third-party service. Your network topology, device IPs, and connection metadata are visible to Tailscale's coordination server. For a homelab, this is usually acceptable — the benefit of NAT traversal and zero-config mesh networking outweighs the privacy cost. If you need full control, WireGuard on MikroTik (managed via Terraform) is the alternative.
+With Tailscale's hosted control plane, your device list, IPs, and connection metadata live on their servers. Running Headscale moves that state onto your own hardware, at the cost of operating one more service; the data plane is WireGuard either way. If you don't want a coordination server at all, plain WireGuard on MikroTik, managed with Terraform, is still the alternative.
 
 <NewsletterCTA />

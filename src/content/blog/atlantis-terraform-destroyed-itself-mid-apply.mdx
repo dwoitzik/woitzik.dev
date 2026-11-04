@@ -1,56 +1,59 @@
 ---
 title: "My Terraform Runner Destroyed Itself Mid-Apply"
-description: "Atlantis was running inside k3s, managing the same Proxmox VMs it ran on. When bpg/proxmox issued a qmshutdown for a non-live-update attribute, it killed the Atlantis pod that was executing the apply. Here's the structural hazard and the fix."
+description: "Atlantis was running inside k3s, managing the same Proxmox VMs it ran on. When bpg/proxmox issued a qmshutdown for a non-live-update attribute, it killed the Atlantis pod that was executing the apply. The structural hazard and the fix."
 date: "2026-08-02"
 tags: ["Terraform", "GitOps", "Homelab", "Debugging"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
 On 2026-07-04, Atlantis applied a Terraform change that shut down the VM it was running on. The Terraform runner destroyed its own runtime environment mid-apply.
 
-This is the story of a circular dependency that doesn't show up in `terraform plan`, why `bpg/proxmox` can't always update attributes in-place, and how moving Atlantis from a k3s Deployment to a dedicated LXC container eliminated the hazard entirely.
+The cause was a circular dependency that doesn't show up in `terraform plan`, combined with attributes `bpg/proxmox` can't update on a running VM. Moving Atlantis from a k3s Deployment to a dedicated LXC container removed the hazard.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Setup
 
-Atlantis was deployed as a k3s Deployment in the `apps` namespace, running on one of three k3s VMs managed by the same Proxmox Terraform stack. The Proxmox Terraform configuration (`terraform/stacks/proxmox/`) defines all three k3s VMs, their CPU, memory, disk, and boot settings.
+Atlantis was deployed as a k3s Deployment in the `apps` namespace, scheduled via `nodeAffinity` onto `vm-srv-k3s-11` or `vm-srv-k3s-12`. Both VMs are managed by the same Proxmox Terraform stack Atlantis applies. The Proxmox Terraform configuration (`terraform/stacks/proxmox/`) defines all three k3s VMs, their CPU, memory, disk, and boot settings.
 
 The circular dependency: Atlantis runs on k3s VMs → Terraform manages k3s VMs → Atlantis applies Terraform changes to k3s VMs.
 
-In practice, this was safe for most changes. `memory`, `disk.size`, `cpu.cores` — these can all be updated in-place by `bpg/proxmox` without stopping the VM. But certain attributes require a full VM shutdown-and-restart cycle. Specifically: `cpu.units` (scheduling priority) and `serial_device` configuration.
+In practice, most changes were safe. Growing `disk.size` works on a running VM, and memory and CPU changes can be hot-applied when hotplug is enabled for them. Other attributes need a full VM shutdown-and-restart cycle. The two that bit me: `cpu.units` (scheduling priority) and `serial_device` configuration.
 
 ## The Kill Shot
 
 The Terraform diff for a `cpu.units` change looks like this:
 
 ```hcl
-resource "proxmox_virtual_machine" "vm_srv_k3s_11" {
+# terraform/stacks/proxmox/vm.tf
+resource "proxmox_virtual_environment_vm" "vm_srv_k3s_11_master" {
   # ...
   cpu {
-    units = 2048  # 2x scheduling priority over LXCs
+    cores = 6
+    type  = "host"
+    units = 2048 # default 1024: 2x scheduling priority over the LXCs
   }
 }
 ```
 
 When `bpg/proxmox` detects a change to `cpu.units`, it can't hot-apply it. The provider issues a `qmshutdown` via the Proxmox API, waits for the VM to stop, applies the change, then starts the VM again.
 
-On 2026-07-04, a PR changed `cpu.units` on one of the k3s VMs. Atlantis picked up the PR, ran `terraform plan`, showed the diff (in-place update), and ran `terraform apply`. The `bpg/proxmox` provider sent `qmshutdown` to the Proxmox API for the VM running the Atlantis pod.
+On 2026-07-04, a PR changed `cpu.units` on one of the k3s VMs. Atlantis picked up the PR, ran `terraform plan`, showed the diff (in-place update), and ran `terraform apply`. The `bpg/proxmox` provider sent `qmshutdown` to the Proxmox API for VM 211 (`vm-srv-k3s-11`), the node running the Atlantis pod. The Proxmox task log shows `qmshutdown 211 terraform@pve` at the exact second the apply broke off.
 
-The VM shut down. The Atlantis pod was killed. The Terraform apply was interrupted mid-execution. Kubernetes rescheduled the pod on a different node, but the apply state was lost.
+The VM shut down and took the Atlantis pod with it. Atlantis reported `Plugin did not respond` and `Error: execution halted`. Because the Terraform process died before it could start the VM again, `vm-srv-k3s-11` stayed powered off until I started it by hand.
 
-The same thing happened again on a `serial_device` attribute change — another attribute that requires a VM shutdown. Two occurrences, same root cause: the Terraform runner was managing the infrastructure it depended on for its own execution.
+The same thing happened again on a `serial_device` change, another attribute that requires a VM shutdown. Two occurrences, same root cause: the Terraform runner was managing the infrastructure it ran on.
 
 ## Why `terraform plan` Doesn't Catch This
 
-The circular dependency isn't expressed in the Terraform configuration. Atlantis's Pod spec doesn't reference the Proxmox VMs, and the Proxmox VMs don't reference Atlantis. Terraform sees two independent resource graphs. The dependency is physical, not declarative — Atlantis runs *on* the VMs, but Terraform doesn't know that.
+The circular dependency isn't expressed in the Terraform configuration. Atlantis's Pod spec doesn't reference the Proxmox VMs, and the Proxmox VMs don't reference Atlantis. Terraform sees two independent resource graphs. The dependency is physical, not declarative. Atlantis runs *on* the VMs, and Terraform has no way of knowing that.
 
 `terraform plan` shows "will update in-place" for `cpu.units`. It doesn't know that "update in-place" means "shut down the VM first." That behavior is a provider implementation detail, not something Terraform's planning phase understands.
 
-The `lifecycle.ignore_changes` block can prevent specific attributes from being planned, but that's a workaround, not a fix. You'd be ignoring a real change to avoid a structural hazard.
+A `lifecycle { ignore_changes }` block can keep specific attributes out of the plan, but that's a workaround. You'd be ignoring a real change to dodge a structural hazard.
 
 ## The Fix: Move Atlantis Off k3s
 
@@ -58,35 +61,58 @@ The fix was ADR-012: move Atlantis from a k3s Deployment to a dedicated LXC cont
 
 ```hcl
 # terraform/stacks/proxmox/lxc.tf
-resource "proxmox_virtual_machine" "ct_srv_atlantis_01" {
-  # Dedicated LXC — NOT managed by the same Terraform stack
-  # Atlantis manages OTHER stacks, but its own container is outside the scope
-  vm_id   = 204
-  name    = "ct-srv-atlantis-01"
-  node_name = "pve"
+resource "proxmox_virtual_environment_container" "ct_srv_atlantis_01" {
+  vm_id        = 204
+  node_name    = local.target_node
+  tags         = ["gitops", "atlantis", "server"]
+  started      = true
+  unprivileged = true
+
+  initialization {
+    hostname = "ct-srv-atlantis-01"
+    ip_config {
+      ipv4 {
+        address = "10.0.20.250/24"
+        gateway = "10.0.20.1"
+      }
+    }
+  }
   # ...
 }
 ```
 
-The key difference: the Atlantis LXC is still defined in the Proxmox Terraform stack, but it's *never* managed by Atlantis itself. The `atlantis.yaml` repo config whitelists only specific repos and directories:
+The LXC still lives in the Proxmox stack, and Atlantis still applies that stack. Two config files define that. The repo-level `atlantis.yaml` lists the projects:
 
 ```yaml
-repos:
-  - name: github.com/dwoitzik/homelab-infrastructure
-    allowed_overrides: [apply_requirements, delete_source_branch_on_merge]
-    apply_requirements: [approved, mergeable]
-    projects:
-      - dir: terraform/stacks/network
-        workspace: default
-      - dir: terraform/stacks/cloudflare
-        workspace: default
-      - dir: terraform/stacks/garage
-        workspace: default
+# atlantis.yaml (repo root)
+version: 3
+projects:
+  - name: network
+    dir: terraform/stacks/network
+    workspace: default
+    autoplan:
+      enabled: true
+      when_modified: ["*.tf", "*.tfvars"]
+  - name: proxmox
+    dir: terraform/stacks/proxmox
+    workspace: default
+    autoplan:
+      enabled: true
+      when_modified: ["*.tf", "*.tfvars"]
+  # cloudflare and garage follow the same pattern
 ```
 
-Notice: `terraform/stacks/proxmox/` is **not** listed. Atlantis can plan and apply network, cloudflare, and garage changes — but never Proxmox changes. Proxmox changes go through a separate review process, or I apply them manually after careful review.
+The server-side `repos.yaml`, deployed by Ansible, allowlists the repo and pins the workflow:
 
-This breaks the circular dependency structurally: Atlantis manages everything *except* the infrastructure it runs on.
+```yaml
+# ansible/roles/atlantis/templates/repos.yaml.j2
+repos:
+  - id: github.com/dwoitzik/homelab-infrastructure
+    allowed_overrides: [workflow]
+    allow_custom_workflows: false
+```
+
+What changed is where Atlantis runs. A plan that restarts any of the three k3s VMs no longer touches the runner. The only resource whose restart can still kill an apply is `ct_srv_atlantis_01` itself, and that one is easy to spot in a plan by name. The circular dependency went from "any change to two of three VMs" to "changes to one named container".
 
 ## The Ansible Layer
 
@@ -96,30 +122,34 @@ The Atlantis LXC runs via Ansible, not k3s:
 # ansible/roles/atlantis/tasks/main.yml
 - name: Deploy Atlantis via Docker Compose
   community.docker.docker_compose_v2:
-    project_src: /opt/atlantis
+    project_src: "{{ atlantis_base_dir }}"
     state: present
 ```
 
 The custom Dockerfile includes the Proxmox self-signed CA cert (`pve-root-ca.crt`) so Atlantis can talk to the Proxmox API over HTTPS:
 
 ```dockerfile
-FROM ghcr.io/runatlantis/atlantis:v0.30.0
+ARG BASE_IMAGE=ghcr.io/runatlantis/atlantis:v0.46.0
+FROM ${BASE_IMAGE}
+
+USER root
 COPY pve-root-ca.crt /usr/local/share/ca-certificates/pve-root-ca.crt
 RUN update-ca-certificates
+USER atlantis
 ```
 
 The Proxmox API token, Cloudflare API token, and MikroTik credentials are all stored in Ansible Vault and injected via Docker Compose environment variables.
 
 ## The Pattern
 
-Any Terraform runner that manages the infrastructure it runs on has this hazard. In a cloud environment, it's less obvious because `terraform apply` against an Azure VM doesn't restart the VM — Azure handles in-place updates at the platform level. But the same structural dependency exists: an Atlantis instance running on an Azure VM that manages that VM's NSG, disk, or network interface.
+Any Terraform runner that manages the infrastructure it runs on has this hazard. In the cloud it's less obvious, but it's there. Resizing an Azure VM restarts it, and an Atlantis instance on an Azure VM that manages that VM's NSG, route table, or network interface can cut off its own connectivity mid-apply.
 
-The clean fix is always the same: the runner manages everything *except* itself. If that's not possible, `lifecycle { ignore_changes }` on attributes that trigger restarts is the minimum viable mitigation.
+The clean fix is the same everywhere: the runner must not run on what it restarts. Keep its own host out of the blast radius, or at least down to one resource you can recognize in every plan. If that's not possible, `lifecycle { ignore_changes }` on attributes that trigger restarts is the minimum viable mitigation.
 
 ---
 
 The same pattern applies to CI/CD runners in enterprise environments. A self-hosted GitHub Actions runner managing its own host's infrastructure via Terraform has the identical circular dependency. The fix is the same: separate the runner's infrastructure from the infrastructure it manages, even if they share the same cloud account.
 
-If you want the deeper case for why "the system that deploys everything must never depend on itself" isn't a Terraform-specific quirk but a systemic pattern that shows up everywhere in ops, [The Phoenix Project\*](/go/4f4RHQf) is the book that names it.
+For the broader ops view of hidden dependencies and the constraints they create, [The Phoenix Project\*](/go/4f4RHQf) is still the most readable place to start.
 
 <ProductCTA variant="end" slug="azure-firewall-enterprise" />

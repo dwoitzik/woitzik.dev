@@ -1,6 +1,6 @@
 ---
 title: "Architecting an Enterprise-Grade Homelab: My Ansible Master Playbook"
-description: "Take a tour of a fully automated, segmented, and highly available homelab architecture orchestrated entirely via Ansible and GitOps."
+description: "How my Ansible master playbook splits a homelab into tiers: HA DNS on Raspberry Pis, app and management nodes, an isolated DMZ, and dedicated AI hosts."
 date: "2026-05-06"
 updated: "2026-09-09"
 tags: ["Homelab", "Ansible"]
@@ -8,27 +8,26 @@ tags: ["Homelab", "Ansible"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
 **Update (2026-09-09):** the Atlantis/Cloudflared exposure described in section 3 below is no
 longer how this runs. Atlantis's public webhook has since been removed entirely and replaced
 with a self-hosted GitHub Actions runner that polls outbound instead of accepting inbound PR
 webhooks, and the public tunnel allowlist has narrowed to exactly two hostnames, neither of them
-Atlantis — see the [Cloudflare Tunnel post](/blog/cloudflare-tunnel-zero-inbound-ports/) for the
+Atlantis. See the [Cloudflare Tunnel post](/blog/cloudflare-tunnel-zero-inbound-ports/) for the
 full timeline. The role-based Ansible structure and the rest of the tiering below (HA DNS core,
 DMZ isolation, CrowdSec) are still accurate.
 
-Many homelabs start as a single Docker host or a messy Proxmox node where services are spun up manually. But as your infrastructure grows to include reverse proxies, DNS blocklists, network storage, and AI models, manual management becomes a nightmare. My stack runs on a [BMAX Mini PC\*](/go/4bv3yF1) (64GB RAM, Ryzen 7) for compute and [Raspberry Pi 4Bs\*](/go/4wNS0oI) for edge DNS, physical hardware, not cloud VMs.
+Many homelabs start as a single Docker host or a messy Proxmox node where services are spun up by hand. Once the stack grows to reverse proxies, DNS blocklists, network storage, and AI models, manual management stops scaling. Mine runs on physical hardware: a [BMAX Mini PC\*](/go/4bv3yF1) (64GB RAM, Ryzen 7) for compute and [Raspberry Pi 4Bs\*](/go/4wNS0oI) for edge DNS.
 
-To maintain sanity, I treat my home network exactly like an enterprise production environment - the full setup is tracked on the [Homelab Infrastructure project page](/projects/homelab/). Everything is defined in code, strictly segmented by function, and deployed automatically. 
-
-In this post, I will break down my Ansible Master Playbook to show you how to architect a resilient, multi-tier homelab.
+I run it like a production environment: everything is defined in code, segmented by function, and deployed automatically. The full setup is tracked on the [Homelab Infrastructure project page](/projects/homelab/). Below is the Ansible master playbook that ties the tiers together.
 
 **[View the complete Ansible architecture on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Master Playbook: A Tiered Approach
 
-Instead of running a massive, monolithic script, my `site.yml` acts as an orchestrator. It applies specific roles to specific host groups, ensuring that every node only gets exactly the software it needs.
+Instead of one monolithic script, my `site.yml` is an orchestrator. It applies specific roles to specific host groups, so every node gets only the software it needs.
+
 ```yaml
 ---
 - name: Provision Base OS and Docker infrastructure
@@ -42,10 +41,11 @@ Instead of running a massive, monolithic script, my `site.yml` acts as an orches
 ```
 
 ### 1. The Foundation (Base OS)
-Every node in the network (whether an LXC container, a VM, or a physical Raspberry Pi) runs through this baseline. It installs core utilities, hardens the OS, installs Docker, and deploys the Prometheus/Telegraf monitoring agents. `Watchtower` is included to ensure baseline containers are automatically kept up to date.
+Every node (LXC container, VM, or physical Raspberry Pi) runs through this baseline. It installs core utilities, hardens the OS, installs Docker, and deploys the Prometheus/Telegraf monitoring agents. `Watchtower` keeps the baseline containers updated automatically.
 
 ### 2. The High-Availability Core (Hardware Isolation)
-This is arguably the most critical design decision in the lab:
+This is the most important design decision in the lab:
+
 ```yaml
 - name: Provision HA Core Services
   hosts: rpi_nodes
@@ -58,13 +58,13 @@ This is arguably the most critical design decision in the lab:
     - nginx_proxy_manager
 ```
 
-**The Problem:** If you run your primary DNS on a Proxmox VM, your entire network loses internet resolution whenever you reboot the hypervisor for kernel updates.
-**The Solution:** I offloaded core networking services to physical Raspberry Pis. 
+If your primary DNS runs on a Proxmox VM, the whole network loses name resolution every time you reboot the hypervisor for kernel updates. So I moved core networking services to physical Raspberry Pis.
 
-By using `keepalived`, these Pi nodes share a Virtual IP (VIP). If Pi-1 dies, Pi-2 instantly takes over the IP. They run [Unbound (recursive DNS) and AdGuard Home (filtering) on keepalived HA](/blog/unbound-adguard-keepalived-homelab/), plus the internal Nginx Proxy Manager. I can completely tear down my main server rack, and the house WiFi and DNS won't even blink.
+With `keepalived`, the Pi nodes share a Virtual IP (VIP). If Pi-1 dies, Pi-2 takes over the IP within seconds. They run [Unbound (recursive DNS) and AdGuard Home (filtering) on keepalived HA](/blog/unbound-adguard-keepalived-homelab/), plus the internal Nginx Proxy Manager. I can shut down the main server entirely and the house WiFi and DNS keep working.
 
 ### 3. Application & Management Tiers
-The heavy lifting happens on the main Proxmox cluster. I separate management tools from standard applications.
+The heavy lifting happens on the main Proxmox cluster, with management tools separated from standard applications.
+
 ```yaml
 - name: Provision Management Services
   hosts: mgmt_nodes
@@ -86,12 +86,14 @@ The heavy lifting happens on the main Proxmox cluster. I separate management too
     - open_webui
 ```
 
-Notice the inclusion of **Atlantis** and **Cloudflared**. 
-*   **Atlantis** gives me a true GitOps workflow. I can open a Pull Request on GitHub to change my infrastructure, and Atlantis will run `terraform plan` and `terraform apply` directly from the PR comments.
-*   **Cloudflared** provides secure, Zero-Trust ingress without opening ports on my firewall.
+Two roles here shape the workflow:
+
+*   **Atlantis** gives me a GitOps workflow for Terraform. I open a pull request on GitHub, Atlantis runs `terraform plan` automatically and posts the result, and an `atlantis apply` comment applies it.
+*   **Cloudflared** provides Zero Trust ingress without opening ports on my firewall.
 
 ### 4. The DMZ & External Exposure
-Services that face the hostile public internet are strictly isolated in a DMZ VLAN (which we secured via [MikroTik\*](/go/4w08b21) [firewall rules in a previous post](/blog/mikrotik-zero-trust-firewall-terraform/)).
+Services that face the public internet are isolated in a DMZ VLAN, locked down with [MikroTik\*](/go/4w08b21) [firewall rules covered in a previous post](/blog/mikrotik-zero-trust-firewall-terraform/).
+
 ```yaml
 - name: Provision DMZ External Proxy
   hosts: dmz_proxies
@@ -107,10 +109,11 @@ Services that face the hostile public internet are strictly isolated in a DMZ VL
     - minecraft
 ```
 
-To protect the external proxy, I deploy `crowdsec_bouncer`. CrowdSec acts as a collaborative, modern fail2ban. If an IP address is known for attacking other CrowdSec users globally, my proxy drops their connection before they even see the login screen.
+The external proxy is protected by `crowdsec_bouncer`. CrowdSec works like a collaborative fail2ban: if an IP is known for attacking other CrowdSec users, my proxy drops the connection before it reaches a login screen.
 
 ### 5. Dedicated Hardware (AI & LLMs)
-Finally, resource-intensive workloads like [Local LLMs get their own dedicated provisioning](/blog/deploying-gemma-proxmox-iac/), often requiring specific GPU drivers or hardware passthrough configurations.
+Resource-heavy workloads like [local LLMs get their own provisioning](/blog/deploying-gemma-proxmox-iac/), since they often need specific GPU drivers or hardware passthrough.
+
 ```yaml
 - name: Provision AI & LLM Services
   hosts: ai_nodes
@@ -119,10 +122,8 @@ Finally, resource-intensive workloads like [Local LLMs get their own dedicated p
     - ollama
 ```
 
-## Why this matters for your career
+## Why Build It This Way
 
-Building a setup like this at home is the best possible playground for modern DevOps. If you can confidently explain how you orchestrated a split-DNS, high-availability, Zero-Trust environment using Ansible and Terraform, you have the skills required to manage enterprise cloud environments.
-
-The same role-based Ansible patterns that manage this homelab apply directly to enterprise environments - just at larger scale.
+A setup like this is a good DevOps training ground. If you can explain how you built a split-DNS, highly available, Zero Trust environment with Ansible and Terraform, you can talk credibly about enterprise environments, because the same role-based Ansible patterns apply there at larger scale.
 
 <NewsletterCTA />

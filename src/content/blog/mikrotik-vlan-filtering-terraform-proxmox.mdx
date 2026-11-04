@@ -1,25 +1,26 @@
 ---
 title: "Automating MikroTik Bridge VLAN Filtering & Proxmox Trunks with Terraform"
-description: "Master MikroTik's notoriously complex Bridge VLAN Filtering. Learn how to automate dynamic VLAN matrices, Proxmox trunk ports, and edge devices using Terraform."
+description: "MikroTik Bridge VLAN Filtering without the lockouts: automate the VLAN matrix, Proxmox trunk ports, and edge access ports with Terraform."
 date: "2026-05-04"
 tags: ["MikroTik", "Terraform", "Networking"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-If you have ever tried to configure VLANs on a MikroTik router, you know the pain. I run the [RB5009\*](/go/4w08b21) specifically for its hardware-offloaded VLAN switching, cheaper models like the hEX do VLAN filtering in software, which introduces latency under sustained trunk traffic. Transitioning from the legacy switch-chip VLAN methods to the modern **Bridge VLAN Filtering** often results in completely locking yourself out of the router.
+If you have ever configured VLANs on a MikroTik router, you know the pain. I run the [RB5009\*](/go/4w08b21) because its switch chip offloads bridge VLAN filtering to hardware. On RouterOS 6, cheaper models like the hEX did bridge VLAN filtering on the CPU; RouterOS 7 added hardware offload for the hEX's MT7621 chip as well, so check the switch chip of your model before you assume either way. Moving from the legacy switch-chip VLAN configuration to **Bridge VLAN Filtering** is also the classic way to lock yourself out of the router.
 
-When you add a virtualization host like Proxmox into the mix-which requires a trunk port passing multiple tagged VLANs-the complexity multiplies. Label your cables early, a [Brother Labelmaker\*](/go/4wcr4PG) saved me hours tracing connections during a VLAN migration. Doing this via the WinBox GUI is a recipe for configuration drift and late-night network outages.
+Add a virtualization host like Proxmox VE, which needs a trunk port carrying several tagged VLANs, and the complexity multiplies. Label your cables early: a [Brother Labelmaker\*](/go/4wcr4PG) saved me hours of tracing connections during a VLAN migration. Doing all of this in WinBox is a recipe for configuration drift and late-night outages.
 
-In this deep dive, I will show you how to tame MikroTik VLANs using Infrastructure as Code (Terraform). We will build a dynamic, scalable L2 network architecture that includes a Proxmox trunk port, dedicated management access, and hardware-offloaded access ports for edge nodes like the [Raspberry Pis\*](/go/4wNS0oI) ([hardening guide](/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables/)).
+This post manages MikroTik VLANs with Terraform. The result is an L2 layout driven by one map: a Proxmox trunk port, a dedicated admin access port, and hardware-offloaded access ports for edge nodes like the [Raspberry Pis\*](/go/4wNS0oI) ([hardening guide](/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables/)).
 
 **[View the complete MikroTik IaC source code on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Architecture & Locals
 
-Before writing any resources, we need to define our network's topology. Hardcoding VLAN IDs across dozens of resources is a bad practice. Instead, we use Terraform `locals` to create a central source of truth. Picking those IDs is worth doing in the [VLAN ID planner](https://woitzik.dev/tools/vlan-planner/) first, since it will tell you which IDs in your intended range are still free before you commit them to a variable map.
+Before writing any resources, define the topology. Hardcoding VLAN IDs across dozens of resources invites mistakes, so Terraform `locals` act as the single source of truth. Pick the IDs in the [VLAN ID planner](https://woitzik.dev/tools/vlan-planner/) first; it tells you which IDs in your intended range are still free before you commit them to a variable map.
+
 ```hcl
 locals {
   homelab_vlans = {
@@ -38,11 +39,12 @@ locals {
 }
 ```
 
-This simple map dictates our entire Layer 2 strategy. If we ever need to add a "Guest" VLAN, we simply add it to the `homelab_vlans` map, and Terraform will automatically generate the interfaces, IP addresses, DHCP servers, and bridge matrix entries.
+This map drives the entire Layer 2 setup. To add a "Guest" VLAN, add it to `homelab_vlans`, and Terraform generates the VLAN interface, gateway IP, DHCP server, and bridge VLAN entry for it.
 
 ## 1. The Core Bridge & Ports
 
-In modern RouterOS (v6.41+), the best practice is to use a **single bridge** for all ports and manage segmentation purely through VLAN filtering. This ensures maximum hardware offloading (if supported by your MikroTik switch chip).
+Since RouterOS v6.41, the recommended layout is a **single bridge** for all ports, with segmentation done purely through VLAN filtering. That keeps hardware offloading available wherever your switch chip supports it.
+
 ```hcl
 resource "routeros_interface_bridge" "core_bridge" {
   name           = "bridge1"
@@ -53,10 +55,10 @@ resource "routeros_interface_bridge" "core_bridge" {
 
 ### Assigning the Physical Ports
 
-Next, we attach our physical ethernet ports to the bridge. This is where we define whether a port is an Access Port (untagged) or a Trunk Port (tagged).
+Next, attach the physical Ethernet ports to the bridge. This is where each port becomes an access port (untagged) or a trunk port (tagged).
 
 **The Proxmox Trunk:**
-Our Proxmox server (`ether5`) needs to receive tagged traffic so the virtual machines can reside in different VLANs. We leave it on the default `pvid = 1` - this port carries VLANs by explicit tag, so the pvid only matters for the rare untagged frame, and nothing on this trunk is meant to communicate over untagged VLAN 1 in the first place.
+The Proxmox server (`ether5`) receives tagged traffic so its VMs can sit in different VLANs. It stays on the default `pvid = 1`. This port carries VLANs by explicit tag, so the PVID only matters for the rare untagged frame, and nothing on this trunk is meant to talk over untagged VLAN 1 anyway.
 
 ```hcl
 resource "routeros_interface_bridge_port" "proxmox_port" {
@@ -69,7 +71,8 @@ resource "routeros_interface_bridge_port" "proxmox_port" {
 ```
 
 **The Edge Access Ports:**
-For devices that don't understand VLAN tags (like a standard PC or Raspberry Pi), we assign a specific `pvid`. The bridge will automatically strip the VLAN tag when sending traffic to these ports and add it when receiving.
+Devices that don't handle VLAN tags (a standard PC, a Raspberry Pi) get a specific `pvid`. The bridge strips the VLAN tag on egress to these ports and adds it on ingress.
+
 ```hcl
 resource "routeros_interface_bridge_port" "rpi_ports" {
   for_each  = local.rpi_port_mapping
@@ -91,9 +94,8 @@ resource "routeros_interface_bridge_port" "mgmt_port" {
 
 ## 2. Creating the VLAN Interfaces
 
-A bridge connects physical ports, but the router itself needs an IP address in each VLAN to act as the default gateway. We create virtual VLAN interfaces attached to the `bridge1` interface.
+A bridge connects physical ports, but the router itself needs an IP address in each VLAN to act as the default gateway. That takes one VLAN interface per VLAN on top of `bridge1`, generated with `for_each` from the locals block:
 
-Using Terraform's `for_each` loop, we dynamically generate these based on our locals block:
 ```hcl
 resource "routeros_interface_vlan" "vlans" {
   for_each  = local.homelab_vlans
@@ -112,13 +114,13 @@ resource "routeros_ip_address" "vlan_ips" {
 
 ## 3. The Magic: Dynamic Bridge VLAN Matrix
 
-This is the hardest part of MikroTik configuration, and where Terraform truly shines. We must explicitly tell the bridge which ports are allowed to carry which VLANs. 
+This is the hardest part of MikroTik configuration, and where Terraform helps most. The bridge has to be told explicitly which ports may carry which VLANs.
 
-If we forget to add `bridge1` to the `tagged` list, the router's CPU won't be able to process the traffic, and DHCP/Routing will fail entirely.
+If `bridge1` itself is missing from the `tagged` list, traffic never reaches the router's CPU, and DHCP and routing for that VLAN fail entirely.
 
-### The Management Override
+### The Admin VLAN Override
 
-First, we explicitly define the Management VLAN (`vlan100`). We tag the CPU (`core_bridge`) and the Proxmox trunk.
+First, define the Admin VLAN (`vlan100`) explicitly, tagged on the CPU (`core_bridge`) and the Proxmox trunk.
 
 ```hcl
 resource "routeros_interface_bridge_vlan" "vlan100_mgmt" {
@@ -134,7 +136,7 @@ resource "routeros_interface_bridge_vlan" "vlan100_mgmt" {
 
 ### The Dynamic Matrix Loop
 
-For the rest of the VLANs, we use an advanced Terraform loop. This block dynamically calculates the `untagged` ports by reading the `local.rpi_port_mapping` and checking if the required VLAN matches the port's assigned PVID.
+The remaining VLANs come from one loop. It computes the `untagged` ports by reading `local.rpi_port_mapping` and selecting every port whose PVID matches the VLAN.
 
 ```hcl
 resource "routeros_interface_bridge_vlan" "vlan_matrix" {
@@ -157,14 +159,14 @@ resource "routeros_interface_bridge_vlan" "vlan_matrix" {
 
 ### Why This Scales
 
-Look at the `untagged` logic. If you decide to move a Raspberry Pi from the Server VLAN (20) to the DMZ VLAN (30), you don't have to touch the bridge configuration, the matrix, or the interface settings. 
+Look at the `untagged` logic. To move a Raspberry Pi from the Server VLAN (20) to the DMZ VLAN (30), you don't touch the bridge configuration, the matrix, or the interface settings.
 
-You simply change the `20` to `30` in the `local.rpi_port_mapping` at the top of the file. Terraform will calculate the diff, modify the port's PVID, and seamlessly update the Bridge VLAN table. This is true Infrastructure as Code.
+You change `20` to `30` in `local.rpi_port_mapping` at the top of the file. Terraform computes the diff, changes the port's PVID, and updates the bridge VLAN table in the same apply.
 
-## Conclusion
+## Next: L3 Firewall Rules
 
-By treating network infrastructure as code, we transform a fragile, click-heavy configuration into a robust, auditable state. Proxmox gets its tagged trunks, hardware edge devices get their native access ports, and the router maintains secure L2 isolation. With the VLAN layer in place, the next step is building [L3 firewall rules on top](/blog/mikrotik-zero-trust-firewall-terraform/) — default-deny forward chains, micro-segmented allow rules, and NAT for public-facing services.
+As code, a fragile, click-heavy configuration becomes a reviewable, auditable state. Proxmox gets its tagged trunk, edge devices get their access ports, and the router keeps L2 isolation between VLANs. With the VLAN layer in place, the next step is [L3 firewall rules on top](/blog/mikrotik-zero-trust-firewall-terraform/): default-deny forward chains, micro-segmented allow rules, and NAT for public-facing services.
 
-Define the desired state, let the provider compute the diff — that declarative loop is exactly what makes enterprise Azure resource deployments auditable, and it's the same loop running here in your edge router.
+Define the desired state, let the provider compute the diff. That declarative loop is what makes enterprise Azure deployments auditable, and the same loop runs here on your edge router.
 
 <NewsletterCTA />

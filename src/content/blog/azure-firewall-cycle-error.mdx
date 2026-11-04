@@ -7,9 +7,9 @@ tags: ["Azure", "Terraform", "Networking"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-You are building the ultimate Azure Hub & Spoke network. VNet peerings: done. Subnets: defined. An Azure Firewall sitting in the Hub, ready to inspect every packet leaving your environment.
+You are building an Azure Hub & Spoke network. VNet peerings: done. Subnets: defined. An Azure Firewall sitting in the Hub, ready to inspect every packet leaving your environment.
 
 You add a Route Table to force all internet-bound traffic (`0.0.0.0/0`) from the Spokes into the Firewall. You run `terraform plan`.
 
@@ -18,9 +18,7 @@ Error: Cycle: azurerm_subnet_route_table_association.spoke_binding,
 azurerm_route_table.spoke_udr, azurerm_firewall.fw ...
 ```
 
-Terraform has deadlocked. The infrastructure cannot be built.
-
-This is the Terraform Circular Dependency. This article explains exactly why it happens, how to break the loop cleanly, and why solving the cycle error is only the first half of the battle - before Azure's silent PaaS Trap destroys your workloads.
+Terraform can't order the resources, so nothing gets built. Below is why the cycle happens, how to break it, and why fixing it is only half the job: a bare `0.0.0.0/0` route then silently breaks Windows activation and Microsoft Entra ID traffic.
 
 **[Get the basic Cycle-Error fix free on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-firewall-forced-tunneling)**
 
@@ -34,41 +32,39 @@ When you configure Forced Tunneling, you tell a Spoke Subnet to send traffic to 
 2. **The Firewall** needs `AzureFirewallSubnet` to exist first so it can attach to it
 3. **The Subnet Association** tries to bind the Route Table to Spoke Subnets simultaneously
 
-Without careful structuring, Terraform cannot determine whether the Firewall must exist before the Route Table, or the Subnet before the Firewall. The dependency graph becomes circular - and Terraform gives up.
+Those edges alone are fine. The cycle appears when something adds an edge pointing back, typically an explicit `depends_on` from the Firewall (or one of its prerequisites) to the spoke route table association. Terraform then can't decide whether the Firewall must exist before the Route Table or the Subnet before the Firewall, and it stops.
 
-**The fix is not a workaround - it is correct resource ordering.**
-
-By directly referencing `azurerm_firewall.fw.ip_configuration[0].private_ip_address` in the Route Table resource, Terraform can unambiguously resolve the graph:
+The fix is correct resource ordering. By referencing `azurerm_firewall.fw.ip_configuration[0].private_ip_address` in the Route Table resource, Terraform can unambiguously resolve the graph:
 
 ```
 Firewall → (has IP) → Route Table → (references IP) → Subnet Association
 ```
 
-Terraform now knows the exact order. No cycle. This is the entire difference between a deployment that works and one that deadlocks.
+Terraform derives the order from that reference, and no extra `depends_on` is needed.
 
 ## The PaaS Trap: Why 0.0.0.0/0 Breaks Your Environment
 
-Many engineers fix the cycle error, force all `0.0.0.0/0` traffic to the firewall, and celebrate.
+Many engineers fix the cycle error, force all `0.0.0.0/0` traffic to the firewall, and move on.
 
-Three days later, every Windows Server in their Spoke VNets loses its license activation. Shortly after, Managed Identities fail to authenticate.
+Then new Windows Server VMs in the spokes fail to activate, and existing ones fail their next KMS renewal. Workloads that talk to Microsoft Entra ID or Azure PaaS endpoints start timing out.
 
-By blindly routing all outbound traffic to a freshly deployed Azure Firewall, you have severed the Spoke's connection to Azure's internal PaaS control plane.
+Routing all outbound traffic to a freshly deployed Azure Firewall with no rules for these destinations cuts the spokes off from the Azure platform services they depend on.
 
 ### The Windows KMS Failure
 
-Azure Windows VMs do not activate via the public internet - they communicate with Azure's internal Key Management Service. If you force `0.0.0.0/0` to a Network Virtual Appliance without the right SNAT rules, the KMS server drops the packets because they appear to come from the Firewall's IP rather than the VM's internal IP. Activation fails silently.
+Azure Windows VMs activate against Azure's own KMS servers on TCP 1688, and Microsoft documents that the activation request must come from an Azure public IP address. With forced tunneling, the request either egresses from somewhere KMS doesn't accept (an on-premises edge, an NVA without the right outbound path) or is dropped by a firewall that has no rule for it. Activation fails without an obvious error.
 
-### The Azure AD Blackout
+### The Entra ID Blackout
 
-VMs using Managed Identities need to reach Azure Active Directory. If this traffic is suddenly forced through an unconfigured firewall, authentication drops. Every resource that relies on Managed Identity - Key Vault access, Storage authentication, anything using `DefaultAzureCredential` - stops working.
+Anything that authenticates against Microsoft Entra ID (formerly Azure AD) over the network needs to reach its endpoints: service principals using client secrets or certificates, Entra ID sign-in for VMs, agents that fetch tokens from `login.microsoftonline.com`. Forced through a firewall with no rule for that traffic, authentication fails. Managed identity token requests go to the Instance Metadata Service at `169.254.169.254`, which UDRs don't affect, but the Key Vault or Storage calls made with those tokens still go out through the firewall and fail just the same if it doesn't allow them.
 
 <ProductCTA variant="inline" slug="azure-firewall-enterprise" />
 
 ## Step 1: Injecting the PaaS Survival Routes
 
-The Route Table must include explicit bypass routes *before* it is attached to any subnet. We route general internet traffic to the Firewall, but send KMS and Azure AD traffic directly to the Azure backbone.
+The Route Table needs explicit bypass routes *before* it is attached to any subnet. General internet traffic goes to the Firewall; KMS and Entra ID traffic goes straight to the Azure backbone.
 
-One important clarification: `next_hop_type = "Internet"` for Azure-owned IP ranges does **not** mean the public internet. For Azure's own service IPs, this instructs the platform to use its internal backbone - the traffic never leaves Microsoft's network.
+`next_hop_type = "Internet"` for Azure-owned IP ranges does **not** mean the public internet. Traffic to Azure service public IPs with that next hop stays on Microsoft's backbone network.
 
 ```hcl
 resource "azurerm_route_table" "spoke_udr" {
@@ -86,14 +82,20 @@ resource "azurerm_route_table" "spoke_udr" {
   }
 
   # 2. KMS Bypass - required for Windows VM activation
-  # 23.102.135.246/32 is Azure's global KMS endpoint, officially documented by Microsoft
+  # azkms.core.windows.net / kms.core.windows.net (Azure Global), per Microsoft docs
   route {
-    name           = "bypass-azure-kms"
-    address_prefix = "23.102.135.246/32"
+    name           = "bypass-azure-kms-1"
+    address_prefix = "20.118.99.224/32"
     next_hop_type  = "Internet"
   }
 
-  # 3. Azure AD Bypass - prevents Managed Identity auth lockouts
+  route {
+    name           = "bypass-azure-kms-2"
+    address_prefix = "40.83.235.53/32"
+    next_hop_type  = "Internet"
+  }
+
+  # 3. Entra ID (Azure AD) Bypass - keeps token endpoints reachable
   route {
     name           = "bypass-azure-ad"
     address_prefix = "AzureActiveDirectory"
@@ -102,11 +104,11 @@ resource "azurerm_route_table" "spoke_udr" {
 }
 ```
 
-The KMS IP `23.102.135.246/32` is not arbitrary - it is the officially documented Microsoft endpoint for Azure KMS. Hardcoding it in a UDR is the explicitly recommended approach when using Forced Tunneling.
+The two KMS addresses come from Microsoft's [KMS activation with forced tunneling](https://learn.microsoft.com/en-us/troubleshoot/azure/virtual-machines/windows/custom-routes-enable-kms-activation) article, which recommends exactly these `/32` routes with next hop Internet. Many older guides still list `23.102.135.246`. Microsoft retired that address in March 2023, and `kms.core.windows.net` now resolves to `20.118.99.224`, so remove the old route if you have it. Sovereign clouds use different addresses.
 
 ## Step 2: Dynamic Subnet Binding at Scale
 
-The module binds the Route Table to its own self-contained spoke subnet by default. If you're peering in additional external Spokes rather than using the built-in one, don't duplicate the association resource for each - bind dynamically with `for_each` over a variable map instead:
+The module binds the Route Table to its own self-contained spoke subnet by default. If you peer in additional external spokes instead of using the built-in one, don't duplicate the association resource for each. Bind them with `for_each` over a variable map:
 
 ```hcl
 resource "azurerm_subnet_route_table_association" "spoke_routing" {
@@ -116,11 +118,11 @@ resource "azurerm_subnet_route_table_association" "spoke_routing" {
 }
 ```
 
-Pass your Spoke subnet IDs as a map variable and every subnet is automatically bound in a single resource block. Add a new Spoke to the map, run `terraform apply` - done. No copy-pasting, no drift.
+Pass your Spoke subnet IDs as a map variable and every subnet is automatically bound in a single resource block. Add a new spoke to the map and run `terraform apply`. No copy-pasting, no drift.
 
 ## Step 3: Firewall Policies That Actually Scale
 
-Hardcoding IP addresses in Firewall Network Rules is the fastest way to create a maintenance nightmare. Azure IP Groups solve this - populate them from Terraform variables and reference the group ID in every rule:
+Hardcoded IP addresses in Firewall network rules turn into a maintenance burden fast. Azure IP Groups fix this: populate them from Terraform variables and reference the group ID in every rule:
 
 ```hcl
 resource "azurerm_ip_group" "spokes" {
@@ -135,16 +137,16 @@ When a new Spoke CIDR is added to `var.spoke_subnet_cidr`, every firewall rule t
 
 ## The Result
 
-Getting Azure Firewall routing right in Terraform requires navigating both a graph dependency problem and a set of undocumented Azure networking behaviors that only surface days after deployment.
+Getting Azure Firewall routing right in Terraform means solving a graph dependency problem and handling Azure platform dependencies that are documented but easy to miss, and that often surface only days after deployment.
 
 With correct resource ordering, explicit PaaS bypass routes, dynamic subnet binding, and IP Group-based policies, you end up with infrastructure that:
 
-- Deploys without cycle errors - every time
-- Keeps Windows VMs activated indefinitely
-- Keeps Managed Identities authenticating correctly
+- Deploys without cycle errors
+- Keeps Windows VMs activating against Azure KMS
+- Keeps Entra ID authentication working
 - Scales to new Spokes by changing a variable, not rewriting rules
 
-The repository at the top covers everything in this article - cycle error fix, KMS and AD bypasses, the baseline Route Table structure, dynamic IP Groups, and FQDN baseline policies - free and MIT licensed.
+The repository at the top covers everything in this article (cycle error fix, KMS and Entra ID bypasses, the baseline Route Table structure, dynamic IP Groups, and FQDN baseline policies), free and MIT licensed.
 
 If the routing/NAT concepts here are the unfamiliar part rather than just the Terraform syntax, [Netzwerke: Verstehen, Einrichten, Administrieren\*](/go/4f3kTar) is the German-language reference I keep going back to.
 

@@ -1,17 +1,17 @@
 ---
 title: "Three Fixes Were Merged. None of Them Had Taken Effect."
-description: "A drift audit found that Traefik's allowCrossNamespace fix, Velero's maintenance frequency fix, and several other changes had been merged to git but never synced live. ArgoCD was healthy. The cluster was wrong. Here's how the gap opens, how to find it, and the specific Velero bug that would have been inert even if it had synced."
+description: "A drift audit found merged fixes for Traefik, Velero, and monitoring that never took effect while ArgoCD showed Synced. How the gap opens and how to check for it."
 date: "2026-10-11"
 tags: ["Kubernetes", "GitOps", "Homelab"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-GitOps makes a specific promise: the cluster matches git. When a change is merged, it deploys. When a resource is deleted from git, it's deleted from the cluster. Merge = deploy is the core guarantee the entire workflow rests on.
+GitOps makes a specific promise: the cluster matches git. When a change is merged, it deploys. When a resource is deleted from git, it's deleted from the cluster. Merge equals deploy is the guarantee the whole workflow rests on.
 
-It's not always true. This is a story about finding three cases where it wasn't - two discovered during a drift audit, one that would have been inert even if ArgoCD had synced it correctly.
+It doesn't always hold. A drift audit of my k3s cluster turned up three merged fixes that had never taken effect: one ArgoCD never tracked, one it reported as `Synced` while the cluster ran the old config, and one that synced correctly but could never have worked.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -19,9 +19,9 @@ It's not always true. This is a story about finding three cases where it wasn't 
 
 The cluster uses ArgoCD's app-of-apps pattern: a root Application watches a directory, creates child Applications for each manifest it finds, and those child Applications sync the actual workloads. The root Application uses a `directory.include` glob to decide which files to track.
 
-The problem: that glob is set once, at bootstrap time, and files added to the directory later are only tracked if they match the existing glob. A file that doesn't match is invisible to ArgoCD - it won't create an Application for it, won't sync it, and won't alert about it. From ArgoCD's perspective, the file doesn't exist.
+That glob is set once, at bootstrap time, and files added to the directory later are only tracked if they match it. A file that doesn't match is invisible to ArgoCD. It won't create an Application for it, won't sync it, and won't alert about it. As far as ArgoCD is concerned, the file doesn't exist.
 
-The monitoring stack had this problem. Two files - `application.yml` and `manifests-application.yml` - had been added to the `kubernetes/system/monitoring/` directory but were missing from the parent Application's `directory.include` glob:
+The monitoring stack had this problem. Two files, `application.yml` and `manifests-application.yml`, had been added to the `kubernetes/system/monitoring/` directory but were missing from the parent Application's `directory.include` glob:
 
 ```yaml
 # monitoring-bootstrap/application.yml (the root)
@@ -32,7 +32,7 @@ spec:
       # application.yml and manifests-application.yml: invisible
 ```
 
-A fix for a broken `configSecret` reference had been merged to `application.yml`. It was valid YAML, it would have worked - but ArgoCD never picked it up. The live cluster was still running the broken version from initial bootstrap, indefinitely.
+A fix for a broken `configSecret` reference had been merged to `application.yml`. It was valid YAML and would have worked, but ArgoCD never picked it up. The live cluster kept running the broken version from the initial bootstrap.
 
 ## Finding the Gap: What the Drift Audit Actually Checks
 
@@ -50,31 +50,31 @@ for dir in kubernetes/system/*/; do
 done
 ```
 
-The audit found approximately 14 directories with the same untracked-after-bootstrap gap - no current drift in most of them, but nothing preventing drift from accumulating silently if files were added there in the future.
+The audit found about 14 directories with the same untracked-after-bootstrap gap. Most had no current drift, but nothing would stop drift from accumulating silently as soon as someone added a file there.
 
-This is the same class of gap that a GitHub Actions Terraform-plan-to-Slack alert is designed to close on the Terraform side — a green pipeline or a `Synced` badge tells you the command ran, not that the running state matches intent.
+On the Terraform side, a scheduled plan that alerts to Slack on drift closes the same class of gap. A green pipeline or a `Synced` badge tells you the command ran, not that the running state matches intent.
 
 ## The First Live Finding: Traefik allowCrossNamespace
 
-Traefik's `allowCrossNamespace` fix had been merged to git on 2026-07-04. The change allowed IngressRoutes in one namespace to reference Services in another - without it, `argo.woitzik.dev`, `monitoring.woitzik.dev`, and `status.woitzik.dev` returned bare 404s.
+Traefik's `allowCrossNamespace` fix had been merged to git on 2026-07-04. The change allowed IngressRoutes in one namespace to reference Services in another. Without it, `argo.woitzik.dev`, `monitoring.woitzik.dev`, and `status.woitzik.dev` returned bare 404s.
 
 The fix was in git. ArgoCD showed the Traefik Application as `Synced`. But the endpoints were still 404ing.
 
-The cause: the Traefik Application's last successful sync was before the fix merged. ArgoCD's sync status reflects the last successful reconciliation, not a continuous comparison. If the sync was clean before the change and nothing triggered a re-sync after (no new commit to the watched path, no manual refresh), the Application can show `Synced` while being hours or days behind.
+The Traefik Application's last successful sync predated the fix. `Synced` only means the live objects matched the manifests ArgoCD last rendered from git; it says nothing about whether those rendered manifests contain your latest commit. ArgoCD caches rendered manifests, and if the new revision never made it into what the Application compared against, the badge stays green while the cluster runs the old config. A hard refresh throws that cache away and re-renders from the current HEAD.
 
 ```bash
-# Force ArgoCD to re-compare against current git HEAD
+# Force a sync of the Application (--force replaces resources)
 argocd app sync traefik --force
-# or via annotation:
+# or discard ArgoCD's cached manifests and re-compare against git:
 kubectl annotate application traefik -n argocd \
   argocd.argoproj.io/refresh=hard --overwrite
 ```
 
-After manual sync, all three endpoints came back to 302 within seconds of the rollout completing.
+After the manual sync, all three endpoints returned 302 within seconds of the rollout completing.
 
 ## The Second Finding: Velero's Fix That Couldn't Have Worked
 
-[Velero](/blog/velero-garage-k3s-backup/) had a merged fix for repository maintenance frequency - too-frequent Kopia maintenance jobs were running during backup windows and causing timeouts. The fix set a custom maintenance frequency via Helm values.
+[Velero](/blog/velero-garage-k3s-backup/) had a merged fix for repository maintenance frequency. Kopia maintenance jobs ran too often, overlapped with backup windows, and caused timeouts. The fix set a custom maintenance frequency via Helm values.
 
 The fix was synced correctly. It also did nothing, for two independent reasons:
 
@@ -86,7 +86,7 @@ The `extraArgs` key was placed at the top level of the Helm values instead of ne
 # What was merged (broken)
 velero:
   extraArgs:
-    - "--default-repo-maintain-frequency=168h"
+    - "--default-repo-maintenance-frequency=168h"
 
 # What Helm actually needs
 velero:
@@ -95,13 +95,13 @@ velero:
       - "--default-repo-maintain-frequency=168h"
 ```
 
-Helm silently drops unknown top-level keys. No error, no warning - the extra args simply weren't passed to the binary. Velero started with its defaults.
+Helm doesn't reject values the chart never reads (unless the chart ships a `values.schema.json` that forbids them). No error, no warning: the chart's templates only look for `configuration.extraArgs`, so the extra args were never passed to the binary and Velero started with its defaults.
 
 **Reason 2: Wrong flag name.**
 
-The flag `--default-repo-maintenance-frequency` doesn't exist in Velero. The real flag is `--default-repo-maintain-frequency` (no "ance"). Even if the values structure had been correct, the binary would have printed an unknown flag error and ignored it.
+The flag `--default-repo-maintenance-frequency` doesn't exist in Velero. The real flag is `--default-repo-maintain-frequency`. Had the values structure been correct, the wrong name would have reached the binary, and `velero server` would have exited with an unknown flag error instead of starting.
 
-Two independently-wrong things, each of which would have prevented the fix from taking effect on its own. Caught during the drift audit by checking the running Velero container's actual args:
+Two independent mistakes, either of which would have stopped the fix on its own. The drift audit caught them by checking the running Velero container's actual args:
 
 ```bash
 kubectl get pod -n velero -l app.kubernetes.io/name=velero -o jsonpath=\
@@ -129,7 +129,7 @@ All three failures share the same shape:
 | ArgoCD showed | `Synced/Healthy` | `Synced/Healthy` | No Application (invisible) |
 | Found by | Manual sync + endpoint check | Checking running container args | Directory vs. glob comparison |
 
-In each case, the developer closed the PR with the reasonable belief that the fix was live. In each case, it wasn't. The merge was the easy part; the verification that the change actually took effect in the running cluster is the part that was skipped.
+Each PR was closed in the reasonable belief that the fix was live, and each time it wasn't. The merge was the easy part. The skipped part was verifying that the change took effect in the running cluster.
 
 ## The Verification Step That Prevents It
 
@@ -149,12 +149,12 @@ argocd app get <bootstrap-app> --output json | \
   jq '.spec.source.directory.include'
 ```
 
-None of these are expensive. They're all one-liners. The cost of skipping them - in this case, Traefik returning 404 for three production subdomains, Velero running backup maintenance at the wrong frequency indefinitely, and monitoring fixes sitting inert - was substantially higher.
+All of these are one-liners. Skipping them cost a lot more: Traefik returning 404 for three production subdomains, Velero running repository maintenance at the wrong frequency indefinitely, and monitoring fixes sitting inert.
 
 ---
 
-The same GitOps verification gap exists in Azure DevOps pipelines and GitHub Actions that deploy Terraform or Helm. A pipeline that reports "succeeded" proves that the deployment command ran without error - it doesn't prove that the cluster's running state matches the manifest. Checking the running state directly, after deployment, is the only check that closes the gap.
+The same GitOps verification gap exists in Azure DevOps pipelines and GitHub Actions that deploy Terraform or Helm. A pipeline that reports "succeeded" proves the deployment command ran without error. It doesn't prove the cluster's running state matches the manifest. Checking the running state directly, after deployment, is the only check that closes the gap.
 
-[The Phoenix Project\*](/go/4f4RHQf) is still the sharpest account I know of exactly this gap between "the change was made" and "the change took effect" - fiction, but painfully accurate about how it actually happens.
+[The Phoenix Project\*](/go/4f4RHQf) is still the sharpest account I know of the gap between "the change was made" and "the change took effect". It's fiction, but painfully accurate about how it happens.
 
 <NewsletterCTA />

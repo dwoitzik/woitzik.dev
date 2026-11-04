@@ -1,19 +1,19 @@
 ---
 title: "Vault Auto-Unseal Without Cloud KMS: The Polling Sidecar Pattern"
-description: "HashiCorp Vault OSS doesn't support auto-unseal without a KMS. The workaround: a polling sidecar that reads unseal keys from a Kubernetes Secret and runs vault operator unseal every 5 seconds. The trade-offs, the security boundary, and the seal window."
+description: "Vault OSS can only auto-unseal through a KMS. Without one: a polling sidecar that unseals from a Kubernetes Secret every 5 seconds, and what that costs in security."
 date: "2026-08-23"
 tags: ["Kubernetes", "Security", "Vault", "Homelab"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-HashiCorp Vault Enterprise has auto-unseal: a sealed Vault automatically unseals using a cloud KMS (AWS KMS, Azure Key Vault, GCP Cloud KMS). Vault OSS doesn't. Every time a Vault pod restarts — node failure, OOMKill, Kubernetes rescheduling — someone has to manually unseal it with `vault operator unseal` using the unseal keys.
+HashiCorp Vault auto-unseal needs an external key provider. Vault OSS supports cloud KMS seals (AWS KMS, Azure Key Vault, GCP Cloud KMS) and the Transit seal backed by another Vault; HSM seals are Enterprise-only. With none of those available, Vault falls back to Shamir unseal keys, and every time a Vault pod restarts (node failure, OOMKill, Kubernetes rescheduling) someone has to unseal it by hand with `vault operator unseal`.
 
 On a homelab cluster where Vault backs ExternalSecrets for 25+ services, a sealed Vault means every ExternalSecret refresh fails. [Authelia](/blog/k3s-authelia-proxmox-homelab/) can't start (no hmac-secret), Open WebUI can't start (no WEBUI_SECRET_KEY), and half the cluster sits in init-container loops waiting for secrets that Vault can't provide.
 
-The fix: a polling sidecar that auto-unseals Vault OSS without a KMS. The trade-off is a collapsed security boundary — but for a homelab, it's the right trade-off.
+My fix is a polling sidecar that unseals Vault OSS without a KMS. It collapses a security boundary, and for a homelab that is the right trade-off.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -22,7 +22,7 @@ The fix: a polling sidecar that auto-unseals Vault OSS without a KMS. The trade-
 The `vault-unseal` Deployment runs as a separate pod in the `vault` namespace, polling every 5 seconds:
 
 ```yaml
-# kubernetes/system/vault/unseal.yml
+# kubernetes/system/vault/unseal.yml (trimmed)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,53 +34,64 @@ spec:
     matchLabels:
       app: vault-unseal
   template:
+    metadata:
+      labels:
+        app: vault-unseal
     spec:
       serviceAccountName: vault-unseal
       containers:
-        - name: vault-unseal
-          image: hashicorp/vault:1.21.4
+        - name: unseal
+          image: hashicorp/vault:2.2.0  # digest-pinned in the repo
           command:
-            - /bin/sh
+            - sh
             - -c
             - |
+              # Poll seal-status over HTTP with busybox wget, not the vault CLI
               while true; do
-                # Check if Vault is sealed
-                SEALED=$(vault status -format=json | jq -r .sealed)
+                SEALED=$(wget -q -O- -T 5 --tries=1 "$VAULT_ADDR/v1/sys/seal-status" 2>/dev/null \
+                  | grep -o '"sealed":[a-z]*' | cut -d: -f2)
                 if [ "$SEALED" = "true" ]; then
-                  # Read unseal keys from the Kubernetes Secret
-                  for i in 1 2 3; do
-                    KEY=$(kubectl get secret vault-unseal-keys \
-                      -n vault -o jsonpath="{.data.key$i}" | base64 -d)
-                    vault operator unseal "$KEY"
-                  done
-                  echo "Vault unsealed at $(date)"
+                  echo "$(date): Vault is sealed, unsealing..."
+                  wget -q -O- -T 5 --tries=1 --post-data="{\"key\":\"$UNSEAL_KEY_1\"}" "$VAULT_ADDR/v1/sys/unseal" >/dev/null 2>&1 || true
+                  wget -q -O- -T 5 --tries=1 --post-data="{\"key\":\"$UNSEAL_KEY_2\"}" "$VAULT_ADDR/v1/sys/unseal" >/dev/null 2>&1 || true
+                  echo "$(date): Unseal attempt done"
                 fi
                 sleep 5
               done
           env:
             - name: VAULT_ADDR
-              value: "http://vault.vault.svc.cluster.local:8200"
+              value: http://vault.vault.svc.cluster.local:8200
+            - name: UNSEAL_KEY_1
+              valueFrom:
+                secretKeyRef:
+                  name: vault-unseal-keys
+                  key: key1
+            - name: UNSEAL_KEY_2
+              valueFrom:
+                secretKeyRef:
+                  name: vault-unseal-keys
+                  key: key2
           resources:
             requests:
               cpu: 10m
               memory: 32Mi
             limits:
-              cpu: 50m
+              cpu: 200m
               memory: 64Mi
 ```
 
-The pod needs `kubectl` access to read the unseal keys from a Kubernetes Secret. The `vault-unseal` ServiceAccount has a Role that grants `get` on the `vault-unseal-keys` Secret only.
+The `hashicorp/vault` image has no `kubectl`, and the sidecar doesn't need it: the two unseal key shares come in as environment variables via `secretKeyRef` on the `vault-unseal-keys` Secret, so the kubelet resolves them at pod start and the ServiceAccount needs no RBAC on Secrets at all. The loop talks to Vault's HTTP API (`/v1/sys/seal-status`, `/v1/sys/unseal`) with the busybox `wget` that ships in the image. I moved off the `vault` CLI for the polling because the binary is around 500 MB, and under a 64Mi memory limit it can never stay in page cache, so every 5-second exec reread it from disk.
 
 ## The Security Trade-off
 
-In a KMS-based auto-unseal setup, the unseal keys are never stored anywhere accessible to the cluster. The KMS holds the master key, and Vault uses it to decrypt the master key that seals the storage. An attacker who compromises the cluster can't unseal Vault because the KMS key is outside the cluster boundary.
+In a KMS-based auto-unseal setup, no unseal key is stored anywhere the cluster can read. The KMS holds a key that Vault uses to decrypt its root key (formerly called the master key), which in turn protects the keyring that encrypts the storage. An attacker who copies Vault's storage can't unseal it without access to that KMS key, which lives outside the cluster boundary under its own IAM policy.
 
-In the polling sidecar pattern, the unseal keys are stored in a Kubernetes Secret (`vault-unseal-keys`). Anyone who can read that Secret — through `kubectl`, through a compromised pod with the right ServiceAccount, through an etcd backup — can unseal Vault.
+In the polling sidecar pattern, the unseal keys are stored in a Kubernetes Secret (`vault-unseal-keys`). Anyone who can read that Secret (through `kubectl`, through a compromised pod with the right ServiceAccount, or through a backup of the cluster datastore) can unseal Vault.
 
 This collapses the security boundary: Vault's unseal protection becomes "Kubernetes RBAC on one Secret" instead of "cloud KMS with its own IAM policy." For a homelab, this is acceptable because:
 
 1. The cluster is not exposed to untrusted users
-2. The threat model is "protect against accidental unseal, not nation-state attacker"
+2. The threat model is "protect against accidents", not "nation-state attacker"
 3. Manual unseal after every restart is operationally unsustainable
 
 For production, use KMS-based auto-unseal. For a homelab where the alternative is "Vault stays sealed until I notice," the sidecar is the pragmatic choice.
@@ -93,13 +104,13 @@ The initial implementation polled every 30 seconds. This created a window where 
 - Authelia's init container couldn't read hmac-secret
 - Any service that depends on Vault-backed secrets was stuck
 
-30 seconds of cluster-wide secret unavailability on every Vault restart. Tightening to 5 seconds reduced the seal window to an acceptable range — most Vault restarts complete unseal within 5 seconds, and the downstream impact is minimal.
+That meant up to 30 seconds of cluster-wide secret unavailability on every Vault restart. At 5 seconds, the sidecar catches a sealed Vault almost as soon as the pod is up, and the downstream impact is minimal.
 
-The cost: the sidecar makes one `vault status` call and potentially three `vault operator unseal` calls every 5 seconds. On Vault's API, this is negligible — it's health-check-level traffic.
+The cost: the sidecar makes one `seal-status` request every 5 seconds, plus two `unseal` requests only when Vault is actually sealed. On Vault's API this is negligible, the same order as health-check traffic.
 
 ## The ExternalSecret Dependency Chain
 
-The real reason Vault auto-unseal matters: every ExternalSecret in the cluster depends on Vault being unsealed.
+Auto-unseal matters because every ExternalSecret in the cluster depends on Vault being unsealed.
 
 ```
 Vault sealed
@@ -113,7 +124,7 @@ Vault sealed
 
 The chain reaction is invisible until you check pod logs and see `secret "authelia-secrets" not found` or `connection refused` to Postgres (because the password never synced from Vault).
 
-Before the sidecar, I'd come back to a sealed Vault after a node restart and spend 15 minutes manually unsealing with three key shares while half the cluster sat in CrashLoopBackOff. The sidecar turned a 15-minute manual operation into a 5-second automatic one.
+Before the sidecar, I'd come back to a sealed Vault after a node restart and spend 15 minutes manually unsealing with the key shares while half the cluster sat in CrashLoopBackOff. The sidecar turned a 15-minute manual operation into a 5-second automatic one.
 
 ## The Network Policy
 
@@ -124,41 +135,62 @@ Vault's ingress is locked down:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: vault-allow-intra-namespace
+  name: default-deny-ingress
+  namespace: vault
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
   namespace: vault
 spec:
   podSelector: {}
   policyTypes: ["Ingress"]
   ingress:
     - from:
-        - namespaceSelector: {}
-          podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vault
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-external-secrets
+  namespace: vault
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+  ingress:
     - from:
         - namespaceSelector:
-            matchLabels: {}
-          podSelector:
             matchLabels:
-              app.kubernetes.io/name: external-secrets
+              kubernetes.io/metadata.name: external-secrets
       ports:
         - port: 8200
+          protocol: TCP
 ```
 
-Default-deny ingress on the `vault` namespace. Only two sources can reach Vault's API port 8200: other pods in the `vault` namespace (the unseal sidecar), and External Secrets Operator pods. Everything else is blocked.
+An empty `namespaceSelector: {}` would match every namespace in the cluster, which is the opposite of what this needs. Selecting on the `kubernetes.io/metadata.name` label, which Kubernetes sets on every namespace automatically, pins each rule to exactly one namespace.
+
+Default-deny ingress on the `vault` namespace. Only two sources can reach Vault: other pods in the `vault` namespace (the unseal sidecar), and pods in the `external-secrets` namespace on port 8200. Everything else is blocked.
 
 This is the minimum viable network segmentation for Vault: it needs to be reachable by ESO for secret syncing and by the unseal sidecar for auto-unseal, but nothing else needs direct Vault API access.
 
 ## What I'd Change
 
-1. **Use Vault's built-in auto-unseal with a cloud KMS if available.** The sidecar is a workaround for Vault OSS limitations. If you're running Vault Enterprise or can tolerate the cost of a cloud KMS, use it. The sidecar exists because my homelab doesn't have a KMS. Vault's *configuration* (policies, auth roles) is a separate concern from unsealing — that's handled through a separate staged Terraform migration without touching unseal keys.
+1. **Use Vault's built-in auto-unseal if you have a key provider.** The sidecar is a workaround for having no KMS. If you can tolerate the cost and cloud dependency of AWS KMS, Azure Key Vault, or GCP Cloud KMS, or you already run a second Vault for the Transit seal, use that instead. Vault's *configuration* (policies, auth roles) is a separate concern from unsealing; I handle it through a staged Terraform migration that never touches the unseal keys.
 
-2. **Store unseal keys in a more secure backend.** The Kubernetes Secret is the weakest link. An improvement would be to store the keys in an HSM or a separate, more restricted secret backend. But at that point, you've basically built KMS-based auto-unseal from scratch.
+2. **Store unseal keys in a more secure backend.** The Kubernetes Secret is the weakest link. An improvement would be to store the keys in an HSM or a separate, more restricted secret backend. At that point, though, you've rebuilt KMS-based auto-unseal from scratch.
 
-3. **Add monitoring on the sidecar.** An alert when Vault transitions from sealed to unseal would provide visibility into restart frequency and sidecar health.
+3. **Add monitoring on the sidecar.** An alert whenever Vault goes from sealed to unsealed would show how often Vault restarts and whether the sidecar is healthy.
 
 ---
 
-Vault auto-unseal without KMS is the same problem as managing encryption keys in environments without HSMs: you're trading security boundary strength for operational practicality. Azure Key Vault Managed HSM provides FIPS 140-2 Level 3 key protection — but it costs money and adds complexity. For non-production environments, the polling sidecar gives you 90% of the operational benefit at 10% of the security cost. The key is knowing which trade-off you're making.
+Vault auto-unseal without KMS is the same problem as managing encryption keys in environments without HSMs: you're trading security boundary strength for operational practicality. Azure Key Vault Managed HSM gives you FIPS 140-3 Level 3 validated key protection, but it costs money and adds complexity. For non-production environments, the polling sidecar delivers most of the operational benefit for a security cost you can state in one sentence: whoever reads one Secret can unseal Vault. Know that you are making that trade.
 
-[Designing Data-Intensive Applications\*](/go/4aUtkCs) has the best treatment I know of this exact class of trade-off - security boundary strength versus operational practicality - if you want the deeper theory.
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) is the book I go back to for reasoning about trade-offs between guarantees and operational cost in systems like this, if you want the deeper theory.
 
 <NewsletterCTA />

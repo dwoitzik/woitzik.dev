@@ -1,169 +1,169 @@
 ---
 title: "Postgres 16→18: Why You Can't Just Swap the Image"
-description: "CloudNativePG doesn't support in-place major version upgrades. The migration required a fresh PVC, pg_dump/pg_restore, and a role discovery bug that nearly locked me out of the database. Here's the full procedure."
+description: "Moving two Postgres StatefulSets from 16 to 18 on k3s: a fresh PVC, pg_dump and psql, a new mount layout in the PG18 image, and a role pg_dump never exports."
 date: "2026-10-04"
 tags: ["Kubernetes", "PostgreSQL", "Homelab", "Migration"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-PostgreSQL major version upgrades are not swap-the-image operations. You can't change `postgres:16` to `postgres:18` in a Deployment and expect it to work. The data directory format changes, system catalogs are incompatible, and extensions need to be rebuilt.
+PostgreSQL major version upgrades are not swap-the-image operations. When Renovate opened a PR bumping `postgres:16.14-alpine` to `postgres:18.4-alpine` for my Nextcloud and Paperless databases, merging it as-is would have crash-looped both: the on-disk format of the data directory changes between major versions, and PG18 refuses to start against a PG16 data directory.
 
-When CNPG (CloudNativePG) upgraded from PG16 to PG18, the procedure required a fresh PVC, a full dump and restore, and a role discovery bug that nearly locked me out of the [Authelia](/blog/k3s-authelia-proxmox-homelab/) database.
+Both are plain `StatefulSet` Postgres instances (`postgres-nextcloud` and `postgres-paperless` in the `apps` namespace), not operator-managed. My [Authelia](/blog/k3s-authelia-proxmox-homelab/) database runs on a CloudNativePG cluster with no pinned image tag, so Renovate never touched it. The migration took a fresh PVC per app, a dump and restore, a mount-path change the PG18 image enforces, and one missing role that kept Nextcloud from logging in.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Why You Can't Swap the Image
 
-PostgreSQL stores data in a format specific to its major version. The `PG_VERSION` file in the data directory tells PostgreSQL which version created it:
+PostgreSQL stores data in a format specific to its major version. The `PG_VERSION` file in the data directory records which version created it:
 
 ```bash
 cat /var/lib/postgresql/data/PG_VERSION
 # → 16
 ```
 
-When PostgreSQL 18 starts and finds `PG_VERSION = 16`, it refuses to start:
+Point a PG18 server at that directory and it stops at startup:
 
 ```
-FATAL: data directory has wrong ownership
-HINT: The data directory was initialized by PostgreSQL 16. 
-      Upgrade by running pg_upgrade.
+FATAL:  database files are incompatible with server
+DETAIL:  The data directory was initialized by PostgreSQL version 16, which is not compatible with this version 18.4.
 ```
 
-`pg_upgrade` is the official tool for in-place major version upgrades. It copies data files from the old format to the new format, rewriting system catalogs and tuple headers. It works well on bare-metal PostgreSQL where you have direct filesystem access.
-
-On Kubernetes with CNPG, `pg_upgrade` is not the right approach because:
-1. CNPG manages the data directory through its operator — manual modifications are reverted
-2. The PVC is bound to the cluster definition — changing the PostgreSQL version in the CRD doesn't automatically upgrade the data
-3. CNPG's recommended migration path is dump-and-restore, not in-place upgrade
+`pg_upgrade` is the official tool for in-place major upgrades. It needs the old and the new binaries side by side, and the official `postgres:*-alpine` images ship exactly one major version. For a database on a 5 GiB volume the simpler path is a logical dump from PG16 and a restore into an empty PG18 instance.
 
 ## The Migration Procedure
 
-### Step 1: Dump from PG16
+I ran Nextcloud first, then Paperless. Same steps for both.
+
+### Step 1: Stop Writes and Dump
 
 ```bash
-# Exec into the CNPG pod
-kubectl exec -n database -it postgres-authelia-0 -- bash
+# Nextcloud: stop writes during the dump (Paperless: scale its Deployment to 0)
+kubectl exec -n apps deploy/nextcloud -- \
+  su -s /bin/sh www-data -c "php occ maintenance:mode --on"
 
-# Dump the database
-pg_dump -U postgres -Fc authelia > /tmp/authelia.dump
-
-# Copy the dump to a temporary location
-kubectl cp database/postgres-authelia-0:/tmp/authelia.dump ./authelia.dump
+# Plain SQL dump, streamed straight to the workstation
+kubectl exec -n apps postgres-nextcloud-0 -- \
+  pg_dump -U nextcloud nextcloud > nextcloud-pre18.sql
 ```
 
-The `-Fc` flag produces a custom-format dump that's compressed and can be restored with `pg_restore`. The dump includes all data, schemas, roles, and extensions.
+The dump contains schema and data of that one database. It does **not** contain roles: roles are cluster-wide objects, and only `pg_dumpall --globals-only` exports them. That detail comes back below.
 
-### Step 2: Create Fresh PG18 Cluster
+As a second recovery path I took a Velero on-demand backup (`nextcloud-pg-pre18`) before changing anything:
+
+```bash
+velero backup create nextcloud-pg-pre18 \
+  --include-namespaces apps \
+  --selector app=postgres-nextcloud
+```
+
+### Step 2: Fresh PVC, New Image
+
+The StatefulSet gets a new, empty PVC instead of the old one. The old PVC stays declared (unused) so ArgoCD's prune doesn't delete it, which keeps it as the rollback path:
 
 ```yaml
-# kubernetes/system/postgres/cluster.yml
-apiVersion: postgresql.cnpg.io/v1
-kind: Cluster
+apiVersion: v1
+kind: PersistentVolumeClaim
 metadata:
-  name: postgres-authelia
-  namespace: database
+  name: nextcloud-db-data-pg18
+  namespace: apps
 spec:
-  imageName: ghcr.io/cloudnative-pg/postgresql:16.4  # temporary — will be updated
-  instances: 1
-  storage:
-    size: 2Gi
-    storageClass: local-path
+  accessModes: [ReadWriteOnce]
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 5Gi
 ```
 
-Wait — the image is still PG16. That's intentional. CNPG creates the cluster with PG16 first, then upgrades the image to PG18 after the data is restored. This ensures the PVC and the operator agree on the initial state.
+In the StatefulSet, the image moves to `postgres:18.4-alpine` and the volume to `claimName: nextcloud-db-data-pg18`. PG18 never sees the PG16 files, not even by accident.
 
-### Step 3: Restore into PG18
+### Step 3: The PG18 Mount Layout
 
-After the cluster is running with PG16, update the image to PG18:
+The first PG18 pod still refused to start, on an empty volume. The PG16 manifest mounted the PVC at `/var/lib/postgresql/data` with `subPath: data`. Since 18, the official image expects a single mount at `/var/lib/postgresql` and puts the data in a version-specific subdirectory itself ([docker-library/postgres#1259](https://github.com/docker-library/postgres/pull/1259)). A mount at the old path triggers this from the entrypoint:
+
+```
+Error: in 18+, these Docker images are configured to store database data in a
+       format which is compatible with "pg_ctlcluster" (specifically, using
+       major-version-specific directory names).
+...
+       Counter to that, there appears to be PostgreSQL data in:
+         /var/lib/postgresql/data (unused mount/volume)
+```
+
+The fix is one mount, no `subPath`:
 
 ```yaml
-spec:
-  imageName: ghcr.io/cloudnative-pg/postgresql:18.4
+volumeMounts:
+  - name: data
+    mountPath: /var/lib/postgresql
 ```
 
-CNPG detects the image change, creates a new pod with PG18, and the old PG16 pod is terminated. The data directory is still PG16 format, so the new pod fails to start — which is expected.
+For Paperless I made both changes in one pass instead of hitting the mount error twice.
 
-Now restore the dump into the fresh PG18 data directory:
+### Step 4: Restore
+
+Once the PG18 pod is `Ready` with an empty `nextcloud` database (created from `POSTGRES_DB`), feed the dump back in:
 
 ```bash
-# Port-forward to the CNPG service
-kubectl port-forward -n database svc/postgres-authelia 5432:5432 &
-
-# Restore the dump
-pg_restore -U postgres -d authelia --clean --if-exists ./authelia.dump
+kubectl exec -i -n apps postgres-nextcloud-0 -- \
+  psql -U nextcloud -d nextcloud < nextcloud-pre18.sql
 ```
 
-`pg_restore` handles the format conversion — it reads PG16-format data and writes it in PG18 format. The `--clean --if-exists` flags drop existing objects before restoring, ensuring a clean state.
+No format conversion happens here. A logical dump is SQL, independent of the on-disk format, and the PG18 server writes it in its own format as it loads it.
 
-### Step 4: Update Authelia
+## The Missing Role
 
-Update the Authelia deployment to use the new Postgres 18 connection string (same host, same port, same database — the connection string doesn't change):
-
-```yaml
-# Verify Authelia connects to the new database
-kubectl logs -n apps -l app=authelia --tail=20
-# → "Successfully connected to PostgreSQL 18.4"
-```
-
-## The Role Discovery Bug
-
-During the restore, `pg_restore` reported:
+The restore printed 230 errors. All of them were `ALTER ... OWNER TO oc_dw` and `GRANT ... TO oc_dw` statements failing with:
 
 ```
-pg_restore: error: could not open input file "/tmp/authelia.dump": No such file or directory
+ERROR:  role "oc_dw" does not exist
 ```
 
-The dump file was at a different path than expected. The real problem: the restore was running from a pod that had a different filesystem layout than the dump pod.
+The data itself was fine: `CREATE TABLE` and `COPY` ran as the connecting `nextcloud` role. But Nextcloud couldn't authenticate afterwards. Its installer had created its own lower-privilege role, `oc_` plus the admin username, and `config.php`'s `dbuser`/`dbpassword` point at that role, not at `POSTGRES_USER`. The fresh PG18 instance only had the `nextcloud` role from the env var.
 
-After fixing the path, the restore completed but Authelia failed to start:
-
-```
-FATAL: role "oc_dw" does not exist
-```
-
-The `oc_dw` role was a leftover from the original CNPG cluster initialization — CNPG creates a default operator role that isn't visible in `pg_dump` output because it's a replication role, not a regular database role.
-
-The fix: create the missing role before restoring:
+The fix was to create `oc_dw` with the password from `config.php` and grant it full privileges on the database:
 
 ```sql
-CREATE ROLE oc_dw WITH REPLICATION LOGIN;
+CREATE ROLE oc_dw WITH LOGIN PASSWORD '<dbpassword from config.php>';
+GRANT ALL PRIVILEGES ON DATABASE nextcloud TO oc_dw;
+\c nextcloud
+GRANT ALL ON SCHEMA public TO oc_dw;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO oc_dw;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO oc_dw;
 ```
 
-The lesson: CNPG creates internal roles (`oc_dw`, `streaming_replica`) that aren't included in `pg_dump` output. After a dump-and-restore migration, these roles must be recreated manually.
+`LOGIN` is all it needs. It's an application role, so no `REPLICATION` or superuser attributes. Creating it **before** the restore is the cleaner order: then the `ALTER OWNER` statements succeed and ownership matches the old cluster. `occ config:system:get dbuser` tells you the role name up front. Paperless had no such mismatch (`PAPERLESS_DBUSER` and `POSTGRES_USER` are both `paperless`).
 
-## The Fresh PVC Requirement
+After that, `occ maintenance:mode --off`, then `occ status` and `occ user:list` on Nextcloud. On Paperless I checked row counts in `django_migrations` and `documents_document` and the celery logs of a fresh pod.
 
-The critical step that most tutorials skip: **you need a fresh PVC.** You can't restore a PG16 dump into a PG16 data directory and then expect PG18 to read it. The data directory must be empty — PG18 creates its own data directory format on first start, and `pg_restore` populates it.
+## Verify the Dump Before Anything Else
 
-In CNPG, this means:
-1. Delete the existing PVC (data loss — you need the dump)
-2. Let CNPG create a new PVC with the PG18 image
-3. Restore the dump into the fresh cluster
-
-The PVC deletion is the scary part. If the dump is corrupted or incomplete, the data is gone. The verification before deletion:
+The old PVC is the only copy until the restore is verified, so check the dump before switching. For a plain SQL dump that means looking at it:
 
 ```bash
-# Verify dump is complete
-pg_restore --list ./authelia.dump | wc -l
-# → Should show hundreds of objects (tables, sequences, functions)
+# A complete pg_dump ends with this line; a truncated one doesn't
+tail -n 3 nextcloud-pre18.sql
+# → -- PostgreSQL database dump complete
 
-# Verify dump integrity
-pg_restore --verbose --no-owner --no-privileges --dry-run ./authelia.dump
-# → Should complete without errors
+grep -c '^CREATE TABLE' nextcloud-pre18.sql
 ```
+
+For custom-format dumps (`pg_dump -Fc`), `pg_restore --list` reads only the table of contents. `pg_restore -f /dev/null dump.file` reads the whole archive and catches truncation. There is no `--dry-run` flag.
+
+## Rollback and Cleanup
+
+Rollback stayed trivial the whole time: point the StatefulSet back at the old PVC and revert the image tag. Nothing was deleted until both apps had run cleanly on PG18 for more than a day. Then the old PG16 PVCs came out of the manifests, and Velero's daily backup covers recovery from there.
 
 ## What I'd Change
 
-1. **Use CNPG's Backup/Restore instead of manual dump.** CNPG supports `pg_basebackup` and WAL archiving to S3. A CNPG backup includes the operator roles and can be restored directly without the `oc_dw` gotcha. The manual dump approach was chosen because the existing cluster wasn't configured for CNPG backups at the time of migration.
-
-2. **Test the migration on a non-production cluster first.** The `oc_dw` role discovery happened during the Authelia migration — the only SSO for every service. If the restore had failed, every service would be unreachable.
+1. **Export globals first.** `pg_dumpall --globals-only` next to the per-database dump would have carried `oc_dw` over and avoided both the 230 errors and the failed login.
+2. **Read the image changelog for majors.** The PG18 mount layout change is documented upstream. I found it from a crash-looping pod instead.
 
 ---
 
-PostgreSQL major version upgrades on Kubernetes are the same challenge as Azure Database for PostgreSQL Flexible Server upgrades: Azure handles the in-place upgrade automatically, but the same data directory format incompatibility exists. The difference is that Azure abstracts the dump-and-restore behind a API call, while Kubernetes requires you to do it manually. The underlying PostgreSQL constraint is identical: major versions are not backward-compatible at the storage layer.
+Azure Database for PostgreSQL Flexible Server has the same constraint. Its in-place major version upgrade runs `pg_upgrade` behind a single API call, and the alternative is a dump-and-restore migration to a new server. The managed service hides the mechanics, but the rule is identical: major versions are not compatible at the storage layer.
 
 [The Linux Command Line\*](/go/4gEAhv9) is worth having on the shelf for exactly this kind of migration - `pg_dump`, `pg_restore`, `kubectl cp`, and a dozen other shell tools chained together under time pressure go a lot smoother when the shell itself isn't also something you're learning in the moment.
 

@@ -1,147 +1,83 @@
 ---
-title: "Proxmox Backup Server: The 3-2-1 Rule on a Budget"
-description: "PBS runs as a VM on Proxmox, backing up LXC containers and VMs to a local HDD and offsite via Rclone to Cloudflare R2 (S3-compatible). The 3-2-1 backup strategy without paying for traditional cloud storage."
+title: "Proxmox Backup Server on a Budget: 3-2-1 Minus the Offsite Copy"
+description: "PBS runs host-native on my mini PC and backs up every VM and LXC to a 2TB USB HDD. The local side works. The PBS offsite leg does not exist yet."
 date: "2026-11-29"
 tags: ["Proxmox", "Backup", "PBS", "Homelab"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-The 3-2-1 rule: 3 copies of your data, on 2 different media, with 1 offsite. Proxmox Backup Server (PBS) handles the first two — it deduplicates, compresses, and verifies backups of Proxmox VMs and LXC containers. The offsite copy goes to Cloudflare R2, an S3-compatible object store with no egress fees. Unlike [Garage](/blog/velero-garage-k3s-backup/), the self-hosted S3 store running inside my k3s cluster, R2 lives entirely outside the cluster and the host — which matters, because [backing up to a bucket that lives on the thing you're backing up defeats the point](/blog/velero-backup-circularity-garage-r2-offsite/). The whole setup costs a [BMAX Mini PC*](/go/4bv3yF1), a [2TB Seagate External HDD*](/go/4vxwLpY), and R2's free tier (10GB, more than enough for PBS's deduplicated chunks).
+The 3-2-1 rule asks for 3 copies of your data, on 2 different media, with 1 offsite. Proxmox Backup Server (PBS) covers the "2 media" part cheaply: on my homelab it runs directly on the Proxmox VE host, a [BMAX Mini PC*](/go/4bv3yF1), and writes deduplicated snapshots of every VM and LXC to a [2TB Seagate External HDD*](/go/4vxwLpY). That part works and is checked after every run. The "1 offsite" part for PBS does not exist right now. My only active offsite copy is Velero's, and it covers a handful of Kubernetes namespaces, not the VM images. This post describes the setup as it actually runs, including the gap.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## PBS Installation
+## PBS on the Proxmox Host
 
-PBS runs as a dedicated VM on Proxmox:
+PBS used to live in its own LXC (`ct-mgmt-pbs-01`). That container is gone. PBS now runs host-native on `pve-mgmt-01`, installed from the `pbs-no-subscription` repository next to PVE. Ansible manages the install (`ansible/roles/pbs/`): it removes the enterprise repo files, adds the PBS repo as a deb822 source, and installs `proxmox-backup-server`.
 
+The datastore sits on the ZFS pool `archive`, a single-vdev pool on the USB HDD, mounted at `/mnt/pbs-storage`. In PVE it shows up as the storage `local-pbs`.
+
+Co-locating PBS with PVE saves the RAM and disk of a dedicated guest. The cost is that a dead host takes PBS with it. Restoring after host loss starts with reinstalling PVE and PBS and re-importing the `archive` pool from the HDD, which is the main reason the HDD is external and not inside the box.
+
+One hardware detail is load-bearing: the HDD must sit on a USB 3 port. On USB 3 it reads around 60 MB/s. When it ended up on a USB 2 port, throughput dropped to 3 to 13 MB/s, which turns a backup window into a backup night.
+
+## The Backup Job
+
+PBS doesn't pull backups. PVE pushes them through a regular vzdump job that targets the PBS storage. Mine lives in `/etc/pve/jobs.cfg`, and `pvescheduler` logs it like this when it starts:
+
+```text
+INFO: starting new backup job: vzdump
+  --mailnotification failure --node pve-mgmt-01 --quiet 1 --storage local-pbs
+  --compress zstd --exclude 9000 --all 1
+  --prune-backups 'keep-daily=7,keep-weekly=4' --mode snapshot
 ```
-VM ID: 900
-CPU: 2 cores
-RAM: 2GB
-Disk: 32GB (OS + database)
-Storage: passed through to local ZFS
+
+The schedule is `*-*-01/2 03:00`, so every other night at 03:00, not daily. Every guest is included except VM `9000`, the cloud-init template, which holds no unique state. Retention is 7 daily and 4 weekly snapshots. A full run takes roughly 76 minutes.
+
+That run is not free on a single-disk host. All VM and LXC disks live on one DRAM-less NVMe, and a snapshot-mode backup reads every guest disk while the guests keep writing. vzdump's global throttle in `/etc/vzdump.conf` (Ansible-managed, see ADR-023) keeps it from starving everything else:
+
+```text
+bwlimit: 51200
+ionice: 7
 ```
 
-The PBS ISO is downloaded from the Proxmox website and installed like any VM. After installation, PBS is accessible via `https://pbs.lab.woitzik.dev:8007`.
+`bwlimit` is in KiB/s, so 50 MiB/s. Even throttled, the job pushes host load well past what normal daytime work does. My host watchdog alerts on load, and it now raises its threshold only while a `vzdump` process is actually running (ADR-053), so the backup window stops paging me every night.
 
-## Backup Jobs
+## Checking That Backups Are Real
 
-PBS backup jobs are configured in the web UI or via the API:
+A green vzdump exit status is not proof of a usable backup. Two guests once produced 1-byte "successful" backups for two nights in a row before failing outright. Since then a vzdump hook script (the `script:` directive in `/etc/vzdump.conf`) runs at `job-end`. It reads what was actually committed to `local-pbs` via `pvesm list`, flags any guest whose newest backup is missing, too old, or smaller than 100 MiB, sends an ntfy alert, and writes a `pve_pbs_backup_healthy` metric for Prometheus.
+
+Restores also run from the PVE side, either in the web UI (select `local-pbs`, open Backups, pick the snapshot, Restore) or on the CLI:
 
 ```bash
-# Add a Proxmox target
-proxmox-backup-client add-target \
-  --name homelab \
-  --host pve.lab.woitzik.dev \
-  --fingerprint "XX:XX:XX:XX"
+# List available backups on the PBS storage
+pvesm list local-pbs --content backup
 
-# Create a backup job for all VMs and containers
-proxmox-backup-client backup \
-  --repository homelab \
-  --namespace / \
-  --all
+# Restore a container or a VM from a specific snapshot
+pct restore <vmid> local-pbs:backup/ct/<vmid>/<timestamp> --storage local-lvm
+qmrestore local-pbs:backup/vm/<vmid>/<timestamp> <vmid>
 ```
 
-The backup job runs daily at 3am via a Proxmox cron job:
+The hook proves a backup landed with a plausible size. It does not prove the guest boots or the data inside is intact. That takes a real restore to a scratch target, which is on my quarterly DR checklist but not automated yet.
 
-```
-0 3 * * * /usr/bin/proxmox-backup-client backup --repository homelab --namespace / --all
-```
+## Pruning Has a Blind Spot
 
-## The Local Disk
-
-The [Seagate 2TB External HDD*](/go/4vxwLpY) connects via USB 3.0 to the [BMAX Mini PC*](/go/4bv3yF1). PBS stores the primary backup repository on this disk:
-
-```
-/mnt/backup/pbs/
-├── ns/
-│   └── root/
-│       ├── ct-100/
-│       ├── ct-101/
-│       └── vm-200/
-└── chunks/
-    └── (deduplicated chunks)
-```
-
-PBS's deduplication means a full backup of 5 VMs and 8 containers uses only 15GB of disk space — not the 200GB+ that uncompressed copies would need. The deduplication ratio for a homelab is typically 10:1 to 20:1.
-
-## Offsite via Rclone
-
-The offsite copy uses Rclone to sync PBS data to Cloudflare R2:
+The `--prune-backups` option only reaches guests that still exist in the Proxmox config. Snapshots of deleted guests, and of guests added to the job's `exclude` list later, are never pruned. On my datastore that left 29 orphaned snapshots: 15 from the retired PBS LXC, 12 from the template VM excluded after the fact, and 2 from abandoned recovery clones. Their logical size adds up to roughly 300 GB, but because PBS deduplicates, they account for far less of the 212 GB the datastore actually references. Cleaning them up is hygiene, not a space win. The inventory comes from:
 
 ```bash
-# Install Rclone
-apt install rclone
-
-# Configure Rclone for R2
-cat > /etc/rclone.conf << 'EOF'
-[r2]
-type = s3
-provider = Cloudflare
-endpoint = https://<account-id>.r2.cloudflarestorage.com
-access_key_id = XXXXXXXX
-secret_access_key = XXXXXXXX
-EOF
-
-# Sync backup repository to R2
-rclone sync /mnt/backup/pbs r2:pbs-backup \
-  --bwlimit "07:00-23:00,5M" \
-  --bwlimit "23:00-07:00,off" \
-  --transfers 4
+pvesm list local-pbs --content backup | awk '{print $5}' | sort -n | uniq -c
 ```
 
-The `--bwlimit` limits upload speed during the day (5MB/s) and removes the limit at night. This prevents the backup from saturating the homelab's upload bandwidth during working hours.
+## The Missing Offsite Leg
 
-## Verification
+This is where my setup does not meet 3-2-1.
 
-PBS verifies backup integrity automatically:
+The original plan synced the PBS datastore to Google Drive with rclone (`gdrive:Backup-Homelab/PBS`). The config and script are still deployed by the `pbs` role, but the cron job is deliberately `state: absent`. Two reasons. First, the Drive account doesn't have the free space for the datastore. Second, even before the quota ran out, the sync almost never finished: a PBS datastore is tens of thousands of small chunk files, and Google Drive's API throttles that pattern hard. A manual test sync ran at about 1.6 KiB/s with an ETA of roughly 12 weeks for the first full copy. I wrote that one up separately in [Google Drive API throttling vs. PBS chunk storage](/blog/google-drive-api-throttling-backup-chunk-storage/).
 
-```bash
-# Check repository integrity
-proxmox-backup-client verify --repository homelab
+Cloudflare R2 is offsite and active, but it holds Velero backups only: the `apps`, `vault`, `database`, and `argocd` namespaces, with large volumes excluded, kept for 3 days. A guard pauses that schedule before usage hits R2's 10GB free tier. 212 GB of PBS data doesn't fit that budget. At R2's list price of $0.015/GB-month it would come to roughly $3 a month for storage, plus operation charges for the chunk uploads, so it is affordable but not free, and it is a decision I haven't made yet. Unlike [Garage](/blog/velero-garage-k3s-backup/), which runs inside the cluster it backs up, R2 sits outside the host entirely, and that independence is the whole point of [an offsite target](/blog/velero-backup-circularity-garage-r2-offsite/).
 
-# Check specific datastore
-proxmox-backup-client verify --repository homelab --namespace /datastore
-```
-
-The verification checks every chunk's SHA-256 hash. If a chunk is corrupted (disk bit-rot, incomplete write), PBS flags it and the next backup rewrites the corrupted chunk.
-
-Schedule weekly verification:
-
-```
-0 4 * * 0 /usr/bin/proxmox-backup-client verify --repository homelab
-```
-
-## Restore
-
-Restore a VM or container from PBS:
-
-```bash
-# List available backups
-proxmox-backup-client list --repository homelab
-
-# Restore a container
-proxmox-backup-client restore \
-  --repository homelab \
-  --archive-name ct-100 \
-  --target /var/lib/vz/template/cache/
-```
-
-In the Proxmox web UI, go to the VM/Container → Backup → Restore. Select the PBS backup and click Restore. The restore takes 2-5 minutes for a typical container.
-
-## The Cost Breakdown
-
-| Component | Cost |
-|---|---|
-| [BMAX Mini PC*](/go/4bv3yF1) (host) | ~€180 (one-time) |
-| [Seagate 2TB External HDD*](/go/4vxwLpY) | ~€60 (one-time) |
-| Cloudflare R2 (PBS chunks fit in the 10GB free tier) | ~€0/month |
-| **Total first year** | ~€240 |
-| **Total ongoing** | ~€0/year (until you outgrow the free tier) |
-
-Compare this to Backblaze B2: 2TB would cost ~€10/month, plus egress fees on restore. R2 has no egress fees at all, which matters the day you actually need to pull a multi-GB restore back down.
+So the honest count today: the live guests on the NVMe plus the PBS copy on the HDD give two copies on two media, both in the same room. Velero adds a third copy of the critical Kubernetes data in Garage and an offsite one in R2. The VM and LXC images have no offsite copy. The realistic options are a long unattended initial sync to a better-suited target, bundling chunks before upload, or paying for object storage sized to the datastore. Until one of those is in place, a fire or theft takes the PBS backups along with the host. The wider picture across all backup layers is in [my 3-2-1 setup with Velero, PBS, and offsite](/blog/321-backup-velero-pbs-offsite/).
 
 <NewsletterCTA />

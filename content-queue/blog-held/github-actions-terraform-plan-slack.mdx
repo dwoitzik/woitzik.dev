@@ -1,0 +1,164 @@
+---
+title: "GitHub Actions + Terraform Plan: Parsing the Output for Slack Alerts"
+description: "terraform plan exits 0 even when it will destroy resources. A GitHub Actions job that uses -detailed-exitcode and posts the plan summary to Slack makes changes visible."
+date: "2026-11-08"
+tags: ["Terraform", "GitHub Actions", "GitOps", "Atlantis"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
+
+By default, `terraform plan` exits with code 0 whether there are changes or not. In a GitOps workflow with [Atlantis](/blog/mikrotik-terraform-gitops-firewall-management/) on a [BMAX Mini PC*](/go/4bv3yF1), that means a plan can show 15 resources to destroy and CI still passes green. A GitHub Actions job that runs the plan with `-detailed-exitcode`, counts additions, changes and deletions, and posts a summary to Slack gives the team visibility without opening the Atlantis UI.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Problem
+
+Atlantis runs `terraform plan` on every PR and posts the output as a PR comment. Nobody reads PR comments consistently. A plan that shows:
+
+```
+Plan: 5 to add, 3 to change, 7 to destroy.
+```
+
+...sits uncommented for days. The PR gets approved, someone comments `atlantis apply`, and the PR merges. The 7 destroyed resources include a Cloudflare DNS record and a [MikroTik*](/go/4w08b21) firewall rule.
+
+## The GitHub Actions Workflow
+
+The workflow runs on every pull request that touches Terraform files, so the alert arrives before anyone applies:
+
+```yaml
+name: Terraform Plan Alert
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/stacks/network
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.x"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init -input=false
+        # needs read access to the state backend, e.g. via env/secrets
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -input=false -no-color -detailed-exitcode -out=tfplan 2>&1 | tee plan.txt
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          # 0 = no changes, 2 = changes present, 1 = error
+          [ "$code" -ne 1 ]
+
+      - name: Parse Plan Output
+        id: parse
+        run: |
+          CHANGES=$(grep -E "Plan:|No changes" plan.txt || echo "Plan output not found")
+          ADDS=$(echo "$CHANGES" | grep -oP '\d+(?= to add)' || echo "0")
+          CHANGES_COUNT=$(echo "$CHANGES" | grep -oP '\d+(?= to change)' || echo "0")
+          DESTROYS=$(echo "$CHANGES" | grep -oP '\d+(?= to destroy)' || echo "0")
+          echo "adds=$ADDS" >> "$GITHUB_OUTPUT"
+          echo "changes=$CHANGES_COUNT" >> "$GITHUB_OUTPUT"
+          echo "destroys=$DESTROYS" >> "$GITHUB_OUTPUT"
+          echo "summary=$CHANGES" >> "$GITHUB_OUTPUT"
+
+      - name: Slack Alert
+        if: steps.plan.outputs.exit_code == '2'
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          payload: |
+            {
+              "text": "Terraform Plan: ${{ steps.parse.outputs.summary }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Terraform Plan*\nRepo: ${{ github.repository }}\nPR: #${{ github.event.pull_request.number }}\nPlan: ${{ steps.parse.outputs.summary }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+```
+
+## How the Alert Decides
+
+`-detailed-exitcode` makes `terraform plan` exit 0 for no changes, 2 for pending changes and 1 for errors. GitHub Actions runs `bash` with `-e -o pipefail`, so the step turns that off with `set +e`, reads Terraform's own exit code from `PIPESTATUS[0]` (a plain `$?` after the pipe would be `tee`'s), and fails only on 1. `terraform_wrapper: false` keeps the setup action's wrapper script out of the way of exit codes and output.
+
+The Slack alert fires on exit code 2, so every plan with changes posts a message, including change-only plans. A plan with "No changes" is silent. A plan with "7 to destroy" lands in Slack with the summary, and the team sees it right away.
+
+`SLACK_WEBHOOK_URL` is stored as a GitHub secret and comes from Slack's Incoming Webhooks app. In v1 of `slackapi/slack-github-action`, `SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK` tells the action to send the payload to that webhook.
+
+## The Terraform Output Format
+
+Terraform plan output looks like this:
+
+```
+Terraform will perform the following actions:
+
+  # azurerm_resource_group.example will be updated in-place
+  ~ resource "azurerm_resource_group" "example" {
+      ~ tags = {
+          ~ environment = "staging" -> "production"
+        }
+    }
+
+  # azurerm_subnet.new will be created
+  + resource "azurerm_subnet" "new" {
+      + name                 = "new-subnet"
+      + resource_group_name  = "example-rg"
+    }
+
+  # azurerm_network_security_rule.old will be destroyed
+  - resource "azurerm_network_security_rule" "old" {
+      - name = "old-rule" -> null
+    }
+
+Plan: 1 to add, 1 to change, 1 to destroy.
+```
+
+The parsing script extracts the summary line. For plans with 100+ resources, the summary is all that belongs in a Slack message; the details stay in the PR.
+
+## Extending to PR Comments
+
+The same parsing output works for PR comments. Add a step that posts the summary as a PR comment:
+
+```yaml
+- name: Comment on PR
+  if: github.event_name == 'pull_request'
+  uses: actions/github-script@v7
+  with:
+    script: |
+      await github.rest.issues.createComment({
+        issue_number: context.issue.number,
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        body: `## Terraform Plan\n\n${process.env.PLAN_SUMMARY}`
+      })
+  env:
+    PLAN_SUMMARY: ${{ steps.parse.outputs.summary }}
+```
+
+The job needs `permissions: pull-requests: write` for this. Reviewers get the plan summary without scrolling through the full plan.
+
+## The Atlantis Alternative
+
+If you use Atlantis (like the homelab-infrastructure repo), the same parsing works on Atlantis plan output. Atlantis posts the plan as a PR comment in a fixed format, and a GitHub Action that watches for those comments and extracts the summary avoids running `terraform plan` twice against the same state.
+
+Either way, the plan needs real state access. `terraform init -backend=false` is fine for `validate` in CI, but a plan without the configured backend either refuses to run or, with no state at all, shows every resource as "to add", which makes the counts meaningless. Give the alert job read access to the state backend and read-only provider credentials. It's a lighter-weight version of the same verification-gap problem covered in [why a "merged" GitOps change isn't proof it's deployed](/blog/gitops-merged-not-applied-argocd-drift/): a green pipeline confirms the command ran, not that the outcome matches intent.
+
+<NewsletterCTA />

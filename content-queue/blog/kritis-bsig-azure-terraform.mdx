@@ -1,46 +1,48 @@
 ---
-title: "KRITIS Compliance in Azure: Mapping §8a BSIG to Terraform"
-description: "The BSI-Gesetz's technical requirements for German critical infrastructure operators, mapped to concrete Azure resources in Terraform - segmentation, attack detection, and the audit trail regulators actually ask for."
+title: "KRITIS Compliance in Azure: Mapping BSIG §§ 30–39 to Terraform"
+description: "The BSIG's technical duties for German KRITIS operators after the NIS2 reform, mapped to Azure Terraform: segmentation, attack detection, and audit trail."
 date: "2026-12-03"
 tags: ["Azure", "Terraform", "Compliance", "Security"]
 ---
 
 import AffiliateLink from "@components/AffiliateLink.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Most KRITIS write-ups are aimed at Betreiber (operators) and their compliance officers - long PDFs full of "angemessene technische und organisatorische Vorkehrungen" without a single line of code. If you are the engineer who actually has to build the infrastructure a KRITIS auditor will later sign off on, that's not useful.
+Most KRITIS write-ups are aimed at Betreiber (operators) and their compliance officers: long PDFs full of "geeignete, verhältnismäßige und wirksame technische und organisatorische Maßnahmen" without a single line of code. That doesn't help the engineer who has to build the infrastructure a KRITIS auditor will later sign off on.
 
-This article maps the concrete technical obligations of §8a BSIG (the core operative section of the BSI-Gesetz covering critical infrastructure operators) to Azure resources - managed with Terraform, in the same Hub & Spoke architecture already covered on this blog.
+This article maps the technical obligations the BSI-Gesetz puts on operators of critical facilities to Azure resources, managed with Terraform, in the same Hub & Spoke architecture already covered on this blog.
 
-> **Disclaimer:** This is not legal advice, and KRITIS status itself is a threshold question (Betreiber kritischer Anlagen, determined by the BSI-KritisV thresholds for your sector) that a lawyer or compliance officer has to answer, not an infrastructure article. What follows covers the technical network and detection controls §8a actually names - not the organizational program (Ansprechstelle, Nachweispflicht documentation, sector-specific B3S standards) around them.
+If you learned KRITIS as "§8a BSIG": that section no longer exists. The NIS2 implementation act (NIS2UmsuCG) rewrote the BSIG in December 2025. The duties that used to sit in §8a are now spread across §30 (risk management for all NIS2 entities), §31 (additional requirements for Betreiber kritischer Anlagen, including attack detection), §32 (incident reporting) and §39 (proof of compliance). The section numbers below refer to the current BSIG.
 
-## What §8a BSIG Actually Requires
+> **Disclaimer:** This is not legal advice. KRITIS status itself is a threshold question (Betreiber kritischer Anlagen, determined by the sector thresholds, still taken from the BSI-KritisV until the new ordinance under the KRITIS-Dachgesetz replaces it) that a lawyer or compliance officer has to answer, not an infrastructure article. What follows covers the technical network and detection controls the BSIG names, not the organizational program around them (registration, proof documentation, sector-specific B3S standards).
 
-Strip away the legal language and §8a BSIG asks for four concrete things from a KRITIS operator's IT systems:
+## What the BSIG Requires from KRITIS Operators
 
-**1. State-of-the-art technical and organizational measures ("Stand der Technik")**
-Not "best effort" - the current, accepted industry standard for the specific risk. This is a moving target by design; what counted as state-of-the-art in 2022 does not in 2026.
+Strip away the legal language and the BSIG asks four concrete things of a KRITIS operator's IT systems:
 
-**2. Systems to detect attacks ("Systeme zur Angriffserkennung", SzA)**
-Mandatory since May 2023 for all KRITIS operators, not just a recommendation. This means continuous, automated log collection and correlation capable of detecting anomalies - not a firewall that happens to produce logs nobody reads.
+**1. Risk management measures at the state of the art (§30, §31 Abs. 1)**
+Every NIS2 entity must take "appropriate, proportionate and effective" technical and organizational measures, and they should follow the "Stand der Technik" (§30 Abs. 1–2). Operators of critical facilities must go further wherever the effort is not out of proportion to the consequences of an outage (§31 Abs. 1). "Stand der Technik" is a moving target by design: what counted as state of the art in 2022 does not in 2026.
 
-**3. Biennial proof of compliance ("Nachweispflicht")**
-Every two years, KRITIS operators must submit evidence (audit, certification, or inspection) that §8a measures are actually in place. Undocumented, unreproducible infrastructure fails this by default - there is nothing to show an auditor.
+**2. Systems to detect attacks ("Systeme zur Angriffserkennung", SzA, §31 Abs. 2)**
+Mandatory for KRITIS operators since May 2023 (then under §8a Abs. 1a) and carried over into the new law. The systems must continuously and automatically collect and evaluate relevant parameters from live operations, identify threats, and support remediation. A firewall that produces logs nobody reads does not qualify.
 
-**4. Mandatory incident reporting to the BSI**
-Significant disruptions must be reported to the BSI's contact point without undue delay, with a structured follow-up. You cannot report what your infrastructure never logged in the first place.
+**3. Proof of compliance ("Nachweispflicht", §39)**
+KRITIS operators must prove to the BSI, through audits, inspections or certifications, that the measures are in place. Under the old §8a this was every two years; §39 now requires it every three years, with the first deadline set by the BSI. Undocumented, unreproducible infrastructure fails this by default because there is nothing to show an auditor.
+
+**4. Incident reporting (§32)**
+Significant security incidents go to the joint reporting office of BSI and BBK in three stages: an early warning within 24 hours of becoming aware, an incident notification within 72 hours, and a final report one month after that. You cannot report what your infrastructure never logged.
 
 ## Mapping §8a to Azure Architecture
 
 ```
-§8a BSIG Requirement              →    Azure Control
+BSIG Requirement                  →    Azure Control
 ──────────────────────────────────────────────────────────
 Stand der Technik (Segmentation)  →    Hub & Spoke VNet topology
                                         NSG Default-Deny
 Stand der Technik (Access)        →    Azure Firewall + Forced Tunneling
                                         Managed Identities, no static keys
-Angriffserkennung (SzA)           →    NSG Flow Logs → Log Analytics
+Angriffserkennung (SzA)           →    VNet Flow Logs → Log Analytics
                                         Azure Firewall threat intelligence mode
 Nachweispflicht (Evidence)        →    Terraform state + Git history
                                         Azure Policy compliance dashboard
@@ -48,13 +50,13 @@ Incident Reporting (24h clock)    →    Diagnostic Settings on every resource
                                         Centralized Log Analytics workspace
 ```
 
-The Hub & Spoke foundation is the same one behind the [NIS2 Article 21 mapping](/blog/nis2-article-21-azure-terraform/) on this blog - unsurprising, since NIS2 and the KRITIS-Dachgesetz share the same technical DNA. What's different for KRITIS specifically is control #3 below: SzA is a named, mandatory control, not an implicit "monitoring is good practice" recommendation.
+The Hub & Spoke foundation is the same one behind the [NIS2 Article 21 mapping](/blog/nis2-article-21-azure-terraform/) on this blog. That's expected: since the reform, the NIS2 duties and the KRITIS duties live in the same BSIG, and §31 builds directly on §30. What's different for KRITIS is Control 2 below. SzA is a named, mandatory control, not an implicit "monitoring is good practice" recommendation.
 
 **[Get the base Hub & Spoke module free on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-hub-spoke)**
 
 ## Control 1: Segmentation as the Baseline
 
-Nothing here differs from a well-built NIS2 deployment - KRITIS and NIS2 both start from the same premise, that a flat network with unrestricted lateral movement cannot be "Stand der Technik" for critical infrastructure:
+Nothing here differs from a well-built NIS2 deployment. Both start from the same premise: a flat network with unrestricted lateral movement cannot be "Stand der Technik" for critical infrastructure.
 
 ```hcl
 resource "azurerm_network_security_group" "kritis_baseline" {
@@ -81,11 +83,13 @@ resource "azurerm_subnet_network_security_group_association" "spoke_bind" {
 }
 ```
 
-The difference from a generic hardening pass: for KRITIS, this NSG configuration itself becomes evidence during the biennial Nachweis. An auditor does not want a screenshot of the Azure Portal - they want to see that the control existed at deployment time and has stayed in place, which a `terraform plan` showing zero drift demonstrates directly.
+The difference from a generic hardening pass is that for KRITIS, this NSG configuration becomes evidence in the §39 audit. An auditor doesn't want a screenshot of the Azure Portal. They want to see that the control existed at deployment time and has stayed in place, and a `terraform plan` showing zero drift demonstrates exactly that.
 
-## Control 2: Systems zur Angriffserkennung (SzA)
+## Control 2: Systeme zur Angriffserkennung (SzA)
 
-This is the control most infrastructure-as-code write-ups skip entirely, and it's the one that's actually mandatory (not just "recommended") for KRITIS operators. SzA requires continuous collection and analysis of security-relevant events - which in Azure terms means NSG Flow Logs shipped to a Log Analytics workspace, not sitting unused in a Storage Account:
+Most infrastructure-as-code write-ups skip this control entirely, and it's the one that is mandatory for KRITIS operators. SzA requires continuous collection and analysis of security-relevant events. In Azure terms, that means flow logs shipped to a Log Analytics workspace, not sitting unused in a Storage Account.
+
+Use VNet flow logs, not NSG flow logs. Azure has blocked the creation of new NSG flow logs since June 30, 2025, and retires them entirely on September 30, 2027. VNet flow logs attach to the virtual network and capture traffic for every subnet and NIC in it:
 
 ```hcl
 resource "azurerm_network_watcher_flow_log" "spoke_flow_log" {
@@ -93,7 +97,7 @@ resource "azurerm_network_watcher_flow_log" "spoke_flow_log" {
   resource_group_name  = azurerm_resource_group.rg.name
   name                  = "fl-spoke-${var.environment}"
 
-  network_security_group_id = azurerm_network_security_group.kritis_baseline.id
+  target_resource_id        = azurerm_virtual_network.spoke.id
   storage_account_id        = azurerm_storage_account.flow_logs.id
   enabled                   = true
 
@@ -112,9 +116,11 @@ resource "azurerm_network_watcher_flow_log" "spoke_flow_log" {
 }
 ```
 
-`traffic_analytics` is the part that turns raw flow logs into an actual detection system - it correlates flows against Microsoft's threat intelligence feed and surfaces anomalous traffic patterns in the Log Analytics workspace, which is what "Angriffserkennung" means in practice rather than in policy language. The 10-minute interval is the minimum Azure offers; for a system that has to justify its detection latency to an auditor, minimum is the right default, not an afterthought.
+`traffic_analytics` turns raw flow logs into something you can detect with. It enriches flows with Microsoft's threat intelligence, flags traffic to and from known-malicious IPs, and surfaces it in the Log Analytics workspace. That is what "Angriffserkennung" means in practice rather than in policy language. Azure offers processing intervals of 10 or 60 minutes. A system that has to justify its detection latency to an auditor should use 10.
 
-Pair this with Azure Firewall's threat intelligence mode set to `Deny` rather than `Alert` - for KRITIS infrastructure, alerting on a known-malicious IP without blocking it is a weaker posture than the "Stand der Technik" bar requires:
+Flow logs plus Traffic Analytics cover the network layer. A complete SzA in the BSI's sense usually also needs a SIEM layer (Microsoft Sentinel on the same workspace, for example) with detection rules and someone who responds to them.
+
+Pair this with Azure Firewall's threat intelligence mode set to `Deny` rather than `Alert`. For KRITIS infrastructure, alerting on a known-malicious IP without blocking it falls short of the "Stand der Technik" bar:
 
 ```hcl
 resource "azurerm_firewall" "kritis_fw" {
@@ -126,24 +132,24 @@ resource "azurerm_firewall" "kritis_fw" {
 }
 ```
 
-## Control 3: Nachweispflicht - Building the Evidence Trail
+## Control 3: Nachweispflicht and the Evidence Trail
 
-The biennial proof requirement is where infrastructure-as-code stops being a nice-to-have and becomes the actual compliance mechanism. Azure Policy assignments give you a running compliance dashboard instead of a point-in-time audit scramble:
+The §39 proof requirement is where infrastructure-as-code stops being a nice-to-have and becomes the compliance mechanism. Azure Policy assignments give you a running compliance dashboard instead of a point-in-time audit scramble:
 
 ```hcl
-resource "azurerm_subscription_policy_assignment" "require_nsg_flow_logs" {
+resource "azurerm_subscription_policy_assignment" "require_vnet_flow_logs" {
   name                 = "require-flow-logs"
-  policy_definition_id = "/providers/Microsoft.Authorization/policyDefinitions/c251913d-7d24-4958-af87-478ed3b9ba41"
+  policy_definition_id = "/providers/Microsoft.Authorization/policyDefinitions/4c3c6c5f-0d47-4402-99b8-aa543dd8bcee"
   subscription_id      = data.azurerm_subscription.current.id
-  display_name         = "Flow logs should be configured for every NSG"
+  display_name         = "Audit flow logs configuration for every virtual network"
 }
 ```
 
-Every Terraform apply is a timestamped, attributable Git commit. Every policy assignment continuously verifies the control is still in place, not just at deployment. When the two-year audit window comes around, the evidence is `git log` plus the Azure Policy compliance report - not a fire drill reconstructing what was actually deployed eighteen months ago.
+Every Terraform apply traces back to a timestamped, attributable Git commit. Every policy assignment keeps verifying that the control is still in place after deployment. When the three-year audit comes around, the evidence is `git log` plus the Azure Policy compliance report, not a fire drill reconstructing what was deployed two years ago.
 
 ## Control 4: The Incident Reporting Clock
 
-KRITIS incident reporting has real time pressure once a significant disruption is identified. That clock only starts once you know something happened - which means Diagnostic Settings on every security-relevant resource, feeding one workspace, is a prerequisite rather than a nice-to-have:
+The 24-hour early warning under §32 runs from the moment you become aware of a significant incident. You only become aware if something logged it, so Diagnostic Settings on every security-relevant resource, feeding one workspace, are a prerequisite:
 
 ```hcl
 resource "azurerm_monitor_diagnostic_setting" "fw_diagnostics" {
@@ -163,27 +169,28 @@ resource "azurerm_monitor_diagnostic_setting" "fw_diagnostics" {
 }
 ```
 
-Without this, the first question a BSI incident report has to answer - "when did the disruption actually start, and what happened" - has no reliable source of truth. Diagnostic Settings applied uniformly across every resource in the Hub & Spoke (not just the ones that seemed important at design time) is what makes that question answerable after the fact instead of before.
+Without this, the first question an incident report has to answer ("when did it start, and what happened?") has no reliable source of truth. Diagnostic Settings applied uniformly across every resource in the Hub & Spoke, not just the ones that seemed important at design time, make that question answerable after the fact.
 
-## What This Covers - and What It Doesn't
+## What This Covers and What It Doesn't
 
-This addresses the technical network security and detection controls behind §8a BSIG. Full KRITIS compliance also requires:
+This addresses the technical network security and detection controls behind §§30–32 and §39 BSIG. Full KRITIS compliance also requires:
 
-- **Determining KRITIS status itself** - the BSI-KritisV sector thresholds, a legal/organizational question this article does not touch
-- **The B3S process** - branchenspezifische Sicherheitsstandards specific to your sector, which go well beyond generic network controls
-- **The Ansprechstelle (24/7 contact point)** and the organizational incident response process around the technical logging covered above
-- **Physical and personnel security measures** outside the scope of cloud infrastructure
+- **Determining KRITIS status itself:** the sector thresholds, a legal and organizational question this article does not touch
+- **Registration:** critical facilities register under §8 KRITIS-Dachgesetz (§33 Abs. 2 BSIG), with contact details kept current
+- **Sector-specific security standards (B3S):** an optional route under §30 Abs. 9 to define what "Stand der Technik" means for your sector, usually going well beyond generic network controls
+- **The organizational incident response process** around the technical logging covered above
+- **Physical resilience and personnel security**, which the KRITIS-Dachgesetz and §30 address outside the scope of cloud infrastructure
 
 ## The Result
 
-A Hub & Spoke deployment built against §8a BSIG gives you:
+A Hub & Spoke deployment built against the KRITIS sections of the BSIG gives you:
 
 - Network segmentation and default-deny as the baseline, not a follow-up ticket
-- NSG Flow Logs with Traffic Analytics - the actual "Angriffserkennung" mechanism, not just log storage
+- VNet flow logs with Traffic Analytics as the network-layer part of "Angriffserkennung", not just log storage
 - Azure Firewall threat intelligence in blocking mode
-- Continuous Azure Policy compliance evidence for the biennial Nachweis
-- A centralized, timestamped log trail that answers the incident-reporting clock's first question
+- Continuous Azure Policy compliance evidence for the §39 audit
+- A centralized, timestamped log trail that answers the first question of a §32 report
 
-The same [Hub & Spoke module](https://github.com/dwoitzik/terraform-azurerm-hub-spoke) behind the [NIS2 Article 21 mapping](/blog/nis2-article-21-azure-terraform/) on this blog is the foundation here too - KRITIS doesn't need a different network architecture, it needs the detection and evidence layer on top of the same segmentation.
+The same [Hub & Spoke module](https://github.com/dwoitzik/terraform-azurerm-hub-spoke) behind the [NIS2 Article 21 mapping](/blog/nis2-article-21-azure-terraform/) on this blog is the foundation here too. KRITIS doesn't need a different network architecture. It needs the detection and evidence layer on top of the same segmentation.
 
 If the underlying networking concepts (peering, flow logs, segmentation) are the unfamiliar part rather than the Terraform syntax, [Netzwerke: Verstehen, Einrichten, Administrieren*](/go/4f3kTar) is the reference I keep coming back to.

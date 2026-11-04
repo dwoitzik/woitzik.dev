@@ -1,121 +1,126 @@
 ---
 title: "Staggered VM Boot: How I Prevented a Load Average of 147"
-description: "All VMs and LXCs starting simultaneously spiked the Proxmox host load to 147. The fix was NFS first, k3s nodes 30 seconds apart, and LXCs last — a boot order strategy that costs nothing but prevents boot storms."
+description: "All VMs and LXCs starting at once pushed my Proxmox host load to 147. The fix: NFS first, k3s nodes 30 seconds apart, LXCs last. It costs nothing."
 date: "2026-09-06"
 tags: ["Proxmox", "Homelab", "Performance", "Debugging"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-After a host reboot, every VM and LXC on the Proxmox host started simultaneously. Twelve containers and VMs, all booting at once, all hitting the same NVMe for root filesystem reads, service starts, and NFS mounts. The host load average hit 147.
+After a host reboot, every VM and LXC on the Proxmox host started at the same time. Twelve guests booted at once, all hitting the same NVMe for root filesystem reads, service starts and NFS mounts. The host load average hit 147.
 
-For context: load average represents the number of processes in the run queue or waiting for I/O. On a 16-thread CPU, a load average of 147 means 147 processes are competing for CPU or disk time. Every service was slow to start, k3s took minutes to become ready, and DNS didn't resolve for the first 90 seconds because the Raspberry Pi DNS nodes were waiting for services that hadn't booted yet.
+On Linux, load average counts tasks that are runnable or stuck in uninterruptible I/O wait. On a 16-thread CPU, 147 means that on average about nine tasks were queued for every hardware thread. Every service was slow to start, k3s took minutes to become ready, and DNS didn't resolve for the first 90 seconds because the Raspberry Pi DNS nodes were waiting for services that hadn't booted yet.
 
-The fix wasn't more resources — it was boot order.
+The fix was boot order, not more hardware.
+
+> **Update (November 2026):** staggered boot fixed the boot-time storm, but it was not the whole story behind the host freezes I was chasing that week. An undersized PSU (mitigated by dropping the BIOS TDP from 54W to 25W) and a known OpenZFS 2.4.1 deadlock under ARC pressure (addressed by upgrading to 2.4.2 and capping ARC) were the other contributors. The k3s cluster has also since moved from three-member embedded etcd to a single server with SQLite via kine.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Boot Storm
 
-When the Proxmox host starts, all VMs and LXCs configured with `onboot=1` start simultaneously. The host's NVMe handles root filesystem reads for every container, plus the ZFS txg commits from the NFS server, plus etcd writes from the k3s control-plane.
+Without startup ordering, every guest with `onboot=1` starts as soon as the host is up. The host's NVMe serves root filesystem reads for every guest, plus the ZFS txg commits from the NFS server, plus etcd writes from the k3s nodes (the cluster ran three-member embedded etcd at the time).
 
-The simultaneous startup creates a thundering herd: 12 processes all requesting I/O at the same time, the NVMe queue depth maxes out, I/O latency spikes, and services that depend on each other (k3s needs NFS, k3s apps need DNS, DNS needs k3s services) enter a cascading wait state.
+That's a thundering herd: 12 guests requesting I/O at the same moment, the NVMe queue fills, I/O latency spikes, and services that depend on each other (k3s needs NFS, k3s apps need DNS, DNS needs k3s services) end up waiting on each other in a chain.
 
-The load average doesn't just spike and recover — it compounds. Services that fail to start within their timeout window retry, adding more processes to the queue. k3s control-plane tries to mount NFS volumes, NFS is slow because it's competing with 11 other containers for I/O, k3s retries the mount, adding more load.
+The load doesn't spike and recover; it compounds. Services that miss their start timeout retry and add more work to the queue. The k3s control-plane tries to mount NFS volumes, NFS is slow because it's competing with 11 other guests for I/O, k3s retries the mount, and the load climbs further.
 
 ## The Fix: Staggered Boot Order
 
-Proxmox supports `startup` order with delays. The configuration in Terraform:
+Proxmox supports a `startup` order with delays. In Terraform with the `bpg/proxmox` provider, that's the `startup` block (`order`, `up_delay`, `down_delay`):
 
 ```hcl
 # terraform/stacks/proxmox/lxc.tf
-
-# NFS first — k3s depends on it
-resource "proxmox_virtual_machine" "ct_srv_nfs_01" {
+# NFS first - k3s depends on it
+resource "proxmox_virtual_environment_container" "ct_srv_nfs_01" {
   # ...
-  startup = {
-    order = 1
-    up    = 30  # wait 30s after boot before starting next
+  startup {
+    order    = 1
+    up_delay = 15 # seconds to wait before starting the next guest
   }
 }
 
-# k3s control-plane — waits for NFS
-resource "proxmox_virtual_machine" "vm_srv_k3s_11" {
+# terraform/stacks/proxmox/vm.tf
+# k3s server - waits for NFS
+resource "proxmox_virtual_environment_vm" "vm_srv_k3s_11_master" {
   # ...
-  startup = {
-    order = 2
-    up    = 30  # 30s after NFS is up
+  on_boot = true
+  startup {
+    order    = 2
+    up_delay = 30
   }
 }
 
-# k3s workers — 30s apart from each other
-resource "proxmox_virtual_machine" "vm_srv_k3s_12" {
-  startup = {
-    order = 3
-    up    = 30
+# k3s agents - 30s apart from each other
+resource "proxmox_virtual_environment_vm" "vm_srv_k3s_12_worker" {
+  # ...
+  startup {
+    order    = 3
+    up_delay = 30
   }
 }
 
-resource "proxmox_virtual_machine" "vm_srv_k3s_13" {
-  startup = {
-    order = 4
-    up    = 30
+resource "proxmox_virtual_environment_vm" "vm_srv_k3s_13_worker" {
+  # ...
+  startup {
+    order    = 4
+    up_delay = 30
   }
 }
 ```
 
 The order:
-1. **NFS** (order 1) — boots first, 30s head start. k3s PVCs mount from NFS, so NFS must be ready before k3s starts.
-2. **k3s-11** (order 2) — control-plane + etcd. Boots 30s after NFS. Needs NFS for system PVCs.
-3. **k3s-12** (order 3) — worker. Boots 30s after control-plane. Needs API server ready.
-4. **k3s-13** (order 4) — worker. Boots 30s after k3s-12.
-5. **LXCs** (order 5+) — everything else. Docker workloads, media stack, DMZ.
+1. **NFS** (order 1): boots first with a 15s head start. k3s PVCs mount from NFS, so NFS must be ready before k3s starts.
+2. **k3s-11** (order 2): the k3s server (API server, SQLite datastore via kine). Starts after NFS and needs NFS for system PVCs.
+3. **k3s-12** (order 3): agent. Starts 30s after the server.
+4. **k3s-13** (order 4): agent. Starts 30s after k3s-12.
+5. **LXCs** (order 5 and 6, 10s apart): everything else, including Docker workloads, the media stack and the DMZ.
 
-Total boot sequence: ~3 minutes for everything to be online. Previously: all at once, 147 load average, 5+ minutes to stability.
+The full sequence takes about 3 minutes until everything is online. Before, everything started at once, load hit 147, and it took 5+ minutes to settle.
 
 ## Why NFS First
 
-NFS is the foundation of the storage layer. Every k3s PVC (Authelia, Vaultwarden, Paperless, Nextcloud) mounts from the NFS server at `10.0.20.100`. If NFS isn't ready when k3s starts, the pod mount attempts fail, Kubernetes retries with exponential backoff, and the pods sit in `ContainerCreating` for minutes.
+NFS is the storage layer. Every k3s PVC (Authelia, Vaultwarden, Paperless, Nextcloud) mounts from the NFS server at `10.0.20.100`. If NFS isn't ready when k3s starts, the mounts fail, the kubelet retries with exponential backoff, and the pods sit in `ContainerCreating` for minutes.
 
-NFS itself depends on ZFS — the NFS export directory lives on the ZFS pool. ZFS needs a few seconds after boot to complete any pending txg commits and mount the pool. The 30-second head start gives ZFS and NFS time to stabilize before k3s starts hammering them with mount requests.
+NFS in turn depends on ZFS, because the export directory lives on the ZFS pool, and the pool needs a few seconds after boot to import and mount. The head start gives ZFS and NFS time to settle before k3s floods them with mount requests.
 
 ## The CPU Scheduling Priority
 
 Beyond boot order, k3s VMs get CPU scheduling priority via `cpu.units`:
 
 ```hcl
-# k3s VMs get 2x scheduling priority
+# k3s VMs: explicit scheduling weight
 cpu {
   cores = 4
-  units = 2048  # default is 1024
+  type  = "host"
+  units = 2048
 }
 
-# LXCs stay at default priority
+# most LXCs: units left unset
 cpu {
   cores = 2
-  units = 1024  # default
 }
 ```
 
-`cpu.units` tells the Proxmox scheduler how to weight CPU time when multiple VMs compete for the same physical cores. `units=2048` means k3s VMs get twice the CPU scheduling priority over LXCs. When Ollama is running LLM inference on the AI LXC and k3s needs CPU for etcd fdatasync, etcd wins.
+`cpu.units` maps to the guest's cgroup CPU weight, which the Linux scheduler uses to split CPU time when guests compete for the same cores. On Proxmox VE 7 and later (cgroup v2) an unset guest gets the default weight of 100, not the 1024 of the cgroup v1 days. So with the k3s VMs at 2048 and most LXCs left unset, the k3s VMs get roughly 20 times the share of an LXC under contention. When Ollama runs LLM inference on the AI LXC and the k3s server needs CPU, k3s gets it first. The one LXC I deliberately raised is the Minecraft server, which also runs at 2048 because tick latency matters to players.
 
-This matters during boot too: even with staggered starts, there's overlap between late-booting LXCs and already-running k3s workloads. The CPU priority ensures k3s gets scheduling preference.
+The weighting matters during boot as well: even with staggered starts, late-booting LXCs overlap with k3s workloads that are already running, and the weight keeps k3s ahead.
 
 ## The `onboot` Gotcha
 
-Proxmox's `bpg/proxmox` Terraform provider doesn't reliably manage the `onboot` attribute. `terraform plan` always shows "No changes" regardless of the live value — a known limitation of the provider.
+For the k3s VMs, `on_boot = true` on `proxmox_virtual_environment_vm` works as expected. For LXCs it doesn't: on `bpg/proxmox` 0.100.0 the container resource's `start_on_boot` isn't read back from the API into state, so `terraform plan` shows "No changes" regardless of the live `onboot` value, and a value set in Terraform never gets applied.
 
-This means `onboot` must be set manually after any LXC recreate:
+So `onboot` has to be set by hand after any LXC is recreated:
 
 ```bash
 pct set <id> -onboot 1
 ```
 
-I discovered this the hard way: after recreating a container via Terraform, `onboot` defaulted to `0`. The next host reboot silently skipped that container. The k3s control-plane node came up without its NFS mount, and half the cluster was in CrashLoopBackOff until I noticed.
+I found this out the hard way. After recreating a container via Terraform, `onboot` was back at `0`, and the next host reboot skipped that container without a warning. The k3s control-plane came up without its NFS mount, and half the cluster sat in CrashLoopBackOff until I noticed.
 
-The workaround: a manual `pct set` step in the operations runbook, applied after every LXC creation. Not ideal, but documented and repeatable.
+The workaround is a manual `pct set` step in the operations runbook after every LXC creation. Not ideal, but documented and repeatable.
 
 ## Before vs. After
 
@@ -127,12 +132,12 @@ The workaround: a manual `pct set` step in the operations runbook, applied after
 | I/O wait % | 85% | 15% |
 | Failed mount attempts | 12-15 | 0 |
 
-The staggering didn't add total boot time — it redistributed the I/O load over 3 minutes instead of concentrating it in 30 seconds. Services come up later individually but the cluster as a whole is stable sooner because nothing is fighting for I/O. The same host also runs [a memory overcommit guard](/blog/overcommit-guard-python-host-freeze/) for the RAM side of this problem — boot order fixes the I/O storm, the guard fixes the memory one.
+Staggering didn't make the boot slower overall. It spread the I/O over 3 minutes instead of packing it into the first 30 seconds. Individual services start later, but the cluster as a whole is stable sooner because nothing is fighting for I/O. The same host also runs [a memory overcommit guard](/blog/overcommit-guard-python-host-freeze/) for the RAM side: boot order handles the I/O storm, the guard handles memory.
 
 ---
 
-Boot storm mitigation is the same problem in Azure: when you scale out a VMSS from 0 to 50 instances, all 50 hit the Azure fabric simultaneously. Azure handles this with staggered placement and shared disks, but the principle is identical — spread the I/O load over time instead of concentrating it. In a homelab, you do it yourself with `startup.order` and `startup.up` delays.
+The cloud has the same problem. Scale a VM scale set from 0 to 50 instances and all 50 hit the same database, registry and config service at once. The answer there is the same idea, spreading load over time with rolling batches and startup jitter. In a homelab you do it yourself with `startup.order` and `startup.up` delays.
 
-[Designing Data-Intensive Applications\*](/go/4aUtkCs) has a genuinely useful framing for this kind of thundering-herd problem, even though it's written about databases rather than hypervisors - the queueing math behind "everything wants the same resource at the same instant" doesn't care what the resource actually is.
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) has a useful framing for this kind of problem. It's written about databases rather than hypervisors, but its discussion of queueing delays applies to any resource that everything wants at the same moment.
 
 <NewsletterCTA />

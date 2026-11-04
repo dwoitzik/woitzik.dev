@@ -1,139 +1,162 @@
 ---
-title: "Prometheus Sizing for Homelab: When 2GB RAM Isn't Enough"
-description: "kube-prometheus-stack on a 64GB BMAX Mini PC with 200+ targets consumed 4GB RAM within a week. How to right-size retention, scrape intervals, and recording rules without losing visibility."
+title: "Prometheus Sizing for Homelab: RAM, Retention, and a 2Gi Limit"
+description: "kube-prometheus-stack on a small k3s cluster: no memory limit took down a 4GB node, then the TSDB filled its NFS volume. The real values that fixed both."
 date: "2026-11-05"
 tags: ["Kubernetes", "Prometheus", "Monitoring", "Homelab"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Prometheus started at 1.2GB RAM. A week later, it was at 4GB. The OOMKill threshold was 6GB. At the current growth rate, Prometheus would hit the limit in 10 days. The problem wasn't the number of targets — it was the combination of default retention (15 days), 15-second scrape intervals, and recording rules that pre-computed expensive queries. This is the same [kube-prometheus-stack](/blog/kube-prometheus-loki-grafana-k3s/) deployment behind the cluster's alerting, so an OOM here doesn't just lose metrics — it takes out the alert pipeline too.
+My Prometheus ran for months with no resource requests or limits. Nobody noticed until it landed on `vm-srv-k3s-13`, at the time the smallest node in the cluster with 4GB, and used about 1.4Gi there. Together with everything else scheduled on that node it pushed memory to 100%, and containerd kill timeouts started restarting unrelated pods. Three weeks later the TSDB was filling its NFS volume. This post covers the values that fixed both, what the live numbers look like now, and one restart problem that looked like memory but wasn't. It's the same [kube-prometheus-stack](/blog/kube-prometheus-loki-grafana-k3s/) deployment behind the cluster's alerting, so when Prometheus falls over, the alert pipeline goes with it.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## The Memory Growth
+## What Drives Prometheus Memory
 
-Prometheus stores time-series data in memory and on disk. The memory footprint is proportional to:
+Prometheus keeps the most recent data (roughly the last two to three hours) in an in-memory head block and writes older data to disk as compacted blocks. Memory follows from that:
 
-- **Active series count**: every unique label combination is a series
-- **Scrape interval**: shorter intervals = more data points = more series
-- **Retention**: longer retention = more data on disk, but also more cached data
-- **Recording rules**: pre-computed queries create new series
+- **Active series count** is the biggest factor. Every unique label combination is a series, and each one in the head block costs memory.
+- **Scrape interval** doesn't add series, but it adds samples, which means more head chunks per series and more data to compact.
+- **Retention** is mostly a disk cost. Older blocks are memory-mapped and paged in when queried, so long-range queries over long retention still cost RAM.
+- **Recording rules** produce new series of their own.
 
-On a homelab with 200+ scrape targets (node-exporters, kube-state-metrics, cAdvisor, Traefik, CoreDNS, etcd), the active series count was 45,000. At 15-second scrape intervals, that's 3 million data points per retention window.
+Target count is a poor predictor. My Prometheus scrapes 39 targets across 25 jobs and holds about 204,000 head series. Almost all of that comes from two jobs: the kubelet (cAdvisor container metrics) returns about 97,000 samples per scrape and the API server about 52,000. The largest single metrics are API server latency histograms like `apiserver_request_duration_seconds_bucket`. One detail I didn't expect: the API server still exports `etcd_request_duration_seconds_bucket` (about 22,000 series), even though this cluster's datastore is SQLite through kine, not etcd.
 
-## Right-Scraping Intervals
+## Scrape Interval: 60s Globally
 
-Not every target needs 15-second scraping. The kube-prometheus-stack defaults to 30 seconds, but many tutorials override this to 15 seconds for "better granularity." The reality: 15-second intervals double the data volume for marginal visibility improvement.
-
-The fix: differentiate scrape intervals by target type:
+The chart default is 30 seconds. I set it to 60:
 
 ```yaml
-# prometheus-stack values
-additionalScrapeConfigs:
-  - job_name: kubernetes-nodes
-    scrape_interval: 60s
-    scrape_timeout: 30s
-    kubernetes_sd_configs:
-      - role: node
-  - job_name: kubernetes-pods
-    scrape_interval: 30s
-    scrape_timeout: 10s
-    kubernetes_sd_configs:
-      - role: pod
-  - job_name: traefik
-    scrape_interval: 15s
-    scrape_timeout: 5s
-    static_configs:
-      - targets: ["traefik.traefik.svc:8080"]
-```
-
-Node metrics change slowly — 60 seconds is fine. Pod metrics (HTTP requests, latency) benefit from 30 seconds. Traefik metrics need 15 seconds for accurate rate calculations.
-
-## Reducing Retention
-
-15 days of retention on a homelab is overkill. Most dashboards show the last 24 hours. Alerts need at most 7 days of history. The fix:
-
-```yaml
-# prometheus values
 prometheus:
   prometheusSpec:
-    retention: 7d
-    retentionSize: "10GB"
+    # Scrape every 60s instead of chart default 30s: halves scrape
+    # load on the control-plane node and TSDB retention growth; 15s
+    # granularity is far below any alert window we configure.
+    scrapeInterval: 60s
+```
+
+That halves the samples written per series compared to the default. It applies to the chart's own ServiceMonitors (kubelet, API server, node-exporter, kube-state-metrics) unless a ServiceMonitor sets its own `interval`. The trade-off is that `rate()` windows need to be at least a few minutes wide to hold enough samples. With 60-second scrapes, a `[1m]` range often contains a single sample and returns nothing. My alerts all look back several minutes or longer, so that cost is zero in practice.
+
+Extra jobs go under `prometheus.prometheusSpec.additionalScrapeConfigs`, not at the top level of the values file. They inherit the global interval unless they set `scrape_interval` themselves. Mine cover node-exporters outside the cluster (the Raspberry Pis, the Docker LXC, the Proxmox host), the Proxmox and SNMP exporters, and a few blackbox probes:
+
+```yaml
+prometheus:
+  prometheusSpec:
+    additionalScrapeConfigs:
+      - job_name: 'node-exporter-rpi'
+        static_configs:
+          - targets:
+              - '10.0.20.2:9100'
+              - '10.0.20.3:9100'
+            labels:
+              group: 'rpi_nodes'
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+```
+
+These are small. The out-of-cluster node-exporters each return a few thousand samples per scrape, an order of magnitude below the kubelet.
+
+## Retention: 30 Days, Capped at 12GiB
+
+The TSDB lives on the `nfs-client` storage class, not on the Proxmox host's local NVMe. It ran with `retention: 30d` and nothing else until it started filling the NFS volume. The fix was a size cap:
+
+```yaml
+prometheus:
+  prometheusSpec:
+    retention: 30d
+    retentionSize: 12GiB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: nfs-client
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 20Gi
+```
+
+`retentionSize` sits on top of the time-based retention. Persisted blocks, the WAL, and memory-mapped head chunks all count toward it, and when the total goes over, Prometheus deletes the oldest blocks regardless of `retention`. Deletion happens block by block, so usage can sit a bit above the cap. Leave headroom on the volume. Also note that `nfs-subdir-external-provisioner` does not enforce the PVC size; the `20Gi` request is a label, and the real limit is the free space on the NFS export.
+
+In practice the size cap is now the limit that matters. Over the last 30 days, size-based retention deleted blocks nine times and time-based retention deleted none. The oldest sample in the TSDB is 21 days old, not 30. Blocks take about 10.9GB and the WAL about 0.2GB. If I wanted the full 30 days back, the lever would be fewer series (dropping unused kubelet and API server histogram buckets with `metricRelabelings`), not a bigger cap.
+
+WAL compression is not set in my values. It has been on by default since Prometheus 2.20, and this cluster runs Prometheus 3.12. If you do set it explicitly, `walCompression` in the Prometheus Operator CRD is a boolean (`walCompression: true`), not a string like `enabled`.
+
+## Resources and Placement
+
+After the k3s-13 incident, Prometheus got explicit requests and limits so the scheduler accounts for its real footprint, plus a soft preference away from both the control-plane node and the smallest worker:
+
+```yaml
+prometheus:
+  prometheusSpec:
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: NotIn
+                  values:
+                    - vm-srv-k3s-11
+                    - vm-srv-k3s-13
     resources:
       requests:
-        memory: "2Gi"
+        cpu: 100m
+        memory: 1Gi
       limits:
-        memory: "4Gi"
+        cpu: 1000m
+        memory: 2Gi
 ```
 
-`retentionSize: "10GB"` is a hard cap. When the WAL (Write-Ahead Log) exceeds 10GB, Prometheus starts deleting the oldest data regardless of retention days. This prevents unbounded disk usage.
+The current numbers, read from Prometheus itself on 2026-11-04:
 
-## Recording Rules: The Hidden Cost
+| Metric | Value |
+|---|---|
+| Scrape targets | 39 (25 jobs) |
+| Head series | ~204,000 |
+| Samples appended | ~3,800/s |
+| Resident memory (process) | ~1.1GB |
+| Container working set | ~1.7GB now, ~1.9GB peak over 14 days |
+| Memory limit | 2Gi |
+| TSDB on disk | ~10.9GB blocks + ~0.2GB WAL |
+| Oldest data | 21 days |
 
-Recording rules pre-compute expensive PromQL queries into new time series. They're useful for dashboards that query complex expressions on every refresh. But each recording rule creates a new series, and those series consume memory.
+The working set includes page cache from memory-mapped blocks, which the kernel can reclaim, so it overstates what Prometheus strictly needs. Still, a 14-day peak at roughly 88% of the limit is not much headroom. If series count grows, the 2Gi limit is the next thing to revisit, together with trimming the kubelet and API server histograms.
 
-The biggest offender in kube-prometheus-stack:
+## The Restarts That Weren't Memory
+
+In early October Prometheus had restarted 46 times, and with a 2Gi limit fresh in place, OOM kills were the obvious suspect. None of them were. The container's `lastState` showed `reason=Completed`, exit code 0: kubelet had sent SIGTERM after a failed liveness probe, and Prometheus shut down cleanly. The chart-default probe allows 3 seconds to answer `/-/healthy` and restarts after about 30 seconds of failures. During TSDB compaction stalls, and while the Proxmox host (a single [BMAX Mini PC*](/go/4bv3yF1)) sat at a load of 38 to 56 during a backup window, Prometheus couldn't answer in time.
+
+The fix was a more tolerant probe. The first attempt set `prometheusSpec.livenessProbe`, which looks right and does nothing: the Prometheus CRD has no such field, structural schema pruning dropped it on apply, and ArgoCD still reported Synced. Probe overrides have to go into the container override list:
 
 ```yaml
-groups:
-  - name: k8s.rules
-    rules:
-      - record: node:node_cpu_utilization:ratio
-        expr: |
-          1 - avg without(cpu) (
-            rate(node_cpu_seconds_total{mode="idle"}[5m])
-          )
+prometheus:
+  prometheusSpec:
+    containers:
+      - name: prometheus
+        livenessProbe:
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 12
+        readinessProbe:
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 4
 ```
 
-This rule runs on every node, every 15 seconds, creating one series per CPU core. On a system with 16 cores, that's 16 new series per node. Across 5 nodes, that's 80 additional series — just for one recording rule.
+That gives three minutes of tolerance before a restart. The Prometheus container has restarted once since. Before raising a memory limit because of restarts, check the exit code. OOMKilled with exit 137 is memory; Completed with exit 0 is a probe.
 
-The fix: disable recording rules you don't use. In the kube-prometheus-stack Helm values:
+## Recording Rules
 
-```yaml
-additionalPrometheusRulesMap:
-  custom-rules: {}
-# Disable default recording rules you don't need
-defaultRules:
-  create: true
-  rules:
-    etcd: false
-    configReloaders: false
-    general: true
-    k8s: false  # disable k8s.rules if not using them
-    node: false
-    nodeExporterAlerting: false
-    nodeExporterRecording: false
-    prometheus: false
-    prometheusOperator: false
-```
+The chart ships 48 rule groups with 259 rules in my setup, recording and alerting combined. Each recording rule produces series of its own, evaluated continuously whether or not anything reads them. I haven't disabled any rule groups wholesale. What I did turn off are the chart components that can never work on k3s: `kubeControllerManager`, `kubeScheduler`, `kubeProxy`, and `kubeEtcd`. k3s runs those inside the single server binary and doesn't expose them as scrapable endpoints, and this cluster has no etcd at all. Disabling them removed their ServiceMonitors and the alerts that fired permanently because of them.
 
-## The WAL Compaction Problem
+If you want to trim further, the `defaultRules.rules` map in the chart toggles individual groups. Key names change between chart versions, so read your chart's `values.yaml` first. Be careful: the bundled Grafana dashboards query many of the recorded series, and several of those groups are alerting rules, not recording rules. Turning one off removes alerts, not just series.
 
-Prometheus uses a WAL for crash recovery. The WAL grows until a compaction happens. On a homelab with limited I/O (SATA SSD on the [BMAX Mini PC*](/go/4bv3yF1)), WAL compaction can take minutes and consume significant I/O. During compaction, Prometheus's memory usage spikes.
+## Takeaway
 
-The fix: set `walCompression: enabled` in the Prometheus spec:
-
-```yaml
-prometheusSpec:
-  walCompression: enabled
-```
-
-WAL compression reduces disk usage by 50-70% at the cost of slightly more CPU during compaction. On a homelab where disk I/O is the bottleneck, this is the right trade-off.
-
-## The Result
-
-After applying these changes:
-
-| Metric | Before | After |
-|---|---|---|
-| Active series | 45,000 | 28,000 |
-| RAM usage | 4GB (growing) | 1.8GB (stable) |
-| Disk usage | 12GB | 6GB |
-| Scrape targets | 200+ | 200+ (unchanged) |
-
-The visibility didn't change — the same dashboards show the same data. The difference is that Prometheus isn't burning RAM on series nobody looks at, and it isn't a candidate for [the two-tier overcommit guard](/blog/overcommit-guard-python-host-freeze/) tripping on a workload that was never supposed to grow unbounded.
+Set requests and limits on Prometheus from day one, and pick its node on purpose; mine took down a 4GB worker before anyone gave it a budget. Cap the TSDB with `retentionSize`, because on a small NFS volume the size limit will win over the time limit. And when Prometheus restarts, look at the exit code before blaming memory. None of this is visible one layer down: [the two-tier overcommit guard](/blog/overcommit-guard-python-host-freeze/) checks Proxmox memory allocations per VM, and it can't see one pod eating most of a VM's RAM. Inside the cluster, requests and limits are that guard.
 
 <NewsletterCTA />

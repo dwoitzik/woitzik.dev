@@ -7,21 +7,21 @@ tags: ["Kubernetes", "Homelab", "Monitoring"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-I already run `kube-prometheus-stack` with Prometheus, Grafana, and Loki, full observability for everything inside the cluster. But host-level metrics like CPU temperature, disk health, and per-node resource usage on the Proxmox VMs and bare-metal nodes needed something separate. The node-exporter inside kube-prometheus handles k3s nodes, but the non-Kubernetes hosts, the [Raspberry Pi 5\*](/go/4wETNfv) edge nodes and the [BMAX Mini PC\*](/go/4bv3yF1) running Proxmox itself, were a blind spot.
+I already run `kube-prometheus-stack` with Prometheus, Grafana, and Loki, which covers everything inside the cluster. Host-level metrics like CPU temperature, disk health, and per-node resource usage on the Proxmox VMs and bare-metal machines needed something separate. The node-exporter inside kube-prometheus handles the k3s nodes, but the non-Kubernetes hosts were a blind spot: the Raspberry Pi 4B edge nodes (today I'd buy the [Raspberry Pi 5\*](/go/4wETNfv) instead) and the [BMAX Mini PC\*](/go/4bv3yF1) running Proxmox itself.
 
-The obvious answer was another exporter. The realistic answer was that I didn't want to manage another exporter, another Prometheus scrape config, and another set of dashboards for something that only needs to answer "is this machine healthy right now?"
+The obvious answer was another exporter. But I didn't want to manage another exporter, another Prometheus scrape config, and another set of dashboards for something that only needs to answer "is this machine healthy right now?"
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## What Beszel Actually Is
+## What Beszel Is
 
-Beszel is a lightweight host monitoring hub with per-agent collectors. One container runs the dashboard, each machine you want to monitor runs a tiny agent. CPU, memory, disk, network, temperatures, the basics, without the complexity of a full metrics pipeline.
+Beszel is a lightweight host monitoring hub with per-host agents. One container runs the dashboard, and each machine you want to monitor runs a small agent. It collects the basics (CPU, memory, disk, network, temperatures) without a full metrics pipeline.
 
-What sold me: the entire deployment is one YAML file, the container uses 64Mi of memory at idle, and it has a built-in API health endpoint that makes Kubernetes probes trivial.
+What sold me: the entire deployment is one YAML file, it runs comfortably on a 64Mi memory request, and it has a built-in API health endpoint that makes Kubernetes probes trivial.
 
-The catch: it needs to be internal-only. No public DNS record, no Cloudflare proxy, no reason for the Beszel dashboard to be reachable from the internet. It's an admin surface, not a user-facing service.
+It also has to stay internal-only. No public DNS record, no Cloudflare proxy: the Beszel dashboard has no reason to be reachable from the internet. It's an admin surface, not a user-facing service.
 
 ## The Deployment
 
@@ -72,17 +72,17 @@ spec:
               memory: 128Mi
 ```
 
-The `ndots: 1` DNS config is the same workaround I use on every deployment in this cluster, without it, k3s's default ndots of 5 causes a DNS lookup for every internal service name, adding latency to every inter-service call. Setting it to 1 means only names that actually need a search-domain suffix trigger extra lookups.
+The `ndots: 1` DNS config is the same tweak I use on every deployment in this cluster. With the Kubernetes default of `ndots: 5`, any name with fewer than five dots, including external ones like `api.github.com`, is tried against every search domain (`apps.svc.cluster.local`, `svc.cluster.local`, `cluster.local`) before being resolved as-is. Each external lookup then costs several failed queries first. With `ndots: 1`, any name containing a dot is tried as an absolute name first, and single-label names like `beszel` still go through the search list.
 
-The security context follows the same hardening pattern as everything else: no privilege escalation, seccomp RuntimeDefault, all capabilities dropped. The container doesn't need any of them.
+The security context follows the same hardening pattern as everything else: no privilege escalation, seccomp `RuntimeDefault`, all capabilities dropped. The container doesn't need any of them.
 
-The PVC is `nfs-client`, not `local-path`, same reasoning as every other app in this repo. Local-path pins the PV to whichever node created it, nfs-client doesn't. And since Velero's existing backup scope covers `["*"]` in the apps namespace with `defaultVolumesToFsBackup`, the PVC is automatically backed up without any additional configuration.
+The PVC is `nfs-client`, not `local-path`, for the same reason as every other app in this repo: local-path pins the PV to whichever node created it, and nfs-client doesn't. Velero's daily schedule already covers the `apps` namespace with `defaultVolumesToFsBackup`, so the PVC gets backed up without any extra configuration.
 
 ## Kyverno Caught the First Attempt
 
-The image tag is pinned to `0.18.7`, not `:latest`. This wasn't my first instinct, I initially wrote `henrygd/beszel:latest` because it was quicker. Kyverno's `disallow-latest-tag` policy rejected it at the admission webhook before any pod was created. The policy exists precisely for this: unpinned tags mean your deployment behavior depends on whatever the registry serves at apply time, not what you tested.
+The image tag is pinned to `0.18.7`, not `:latest`. That wasn't my first instinct: I initially wrote `henrygd/beszel:latest` because it was quicker. Kyverno's `disallow-latest-tag` policy, by then enforced in the `apps` namespace, rejected it at the admission webhook before any pod was created. That's what the policy is for. With an unpinned tag, what you deploy depends on whatever the registry serves at apply time, not on what you tested.
 
-If you're running Kyverno in your cluster and you don't have this policy, add it. It catches exactly this kind of lazy shorthand before it becomes a "works on my machine" surprise.
+If you run Kyverno and don't have this policy, add it. It catches exactly this kind of lazy shorthand before it turns into a "works on my machine" surprise.
 
 ## Internal-Only by Design
 
@@ -104,29 +104,26 @@ spec:
   tls: {secretName: wildcard-woitzik-dev-tls}
 ```
 
-No `cloudflare_dns_record` in Terraform for `beszel.woitzik.dev`. The hostname only resolves inside the LAN via AdGuard's wildcard rewrite that points `*.woitzik.dev` to the Traefik VIP. The Authelia middleware gates access, same SSO login as every other admin surface in the cluster.
+There's no `cloudflare_dns_record` in Terraform for `beszel.woitzik.dev`. The hostname only resolves inside the LAN, through AdGuard's wildcard rewrite that points `*.woitzik.dev` at the Traefik VIP. The Authelia middleware gates access with the same SSO login as every other admin surface in the cluster.
 
-This is the same pattern I use for ArgoCD, Gitea, and any other service that needs to be accessible from the LAN but has no business being on the public internet. The cost of maintaining it is zero: no Cloudflare DNS entry means no cert management, no WAF rules, no attack surface. The DNS wildcard does all the work.
+I use the same pattern for ArgoCD, Gitea, and any other service that needs to be reachable from the LAN but has no business on the public internet. It costs nothing to maintain: no public DNS entry, no WAF rules, no extra certificate (the existing wildcard covers it), and no internet-facing attack surface. The DNS wildcard does all the work.
 
 ## Resource Usage
 
-128Mi memory limit. 200m CPU limit. That's it. For context, Prometheus alone uses 2Gi on this cluster. Beszel's footprint is closer to a sidecar than a standalone monitoring system.
+128Mi memory limit, 200m CPU limit. For context, Prometheus alone uses 2Gi on this cluster. Beszel's footprint is closer to a sidecar than to a standalone monitoring system.
 
-This matters because monitoring tools have a nasty habit of becoming the thing that needs monitoring. A tool that uses 128Mi to tell you how your 16Gi nodes are doing isn't going to be the thing that tips your resource budget.
+Monitoring tools have a nasty habit of becoming the thing that needs monitoring. A tool capped at 128Mi that reports on 16Gi nodes isn't going to be what tips your resource budget.
 
 ## What It Covers vs. What It Doesn't
 
-Beszel handles the basics: CPU, memory, disk, network, temperatures. It does not replace Prometheus for cluster-level metrics, alerting, or log aggregation. It answers a different question: "is this specific host healthy right now?" versus "is my infrastructure operating within defined SLOs?"
+Beszel handles the basics: CPU, memory, disk, network, temperatures. It does not replace Prometheus for cluster-level metrics, alerting, or log aggregation. It answers "is this specific host healthy right now?", while Prometheus answers "is my infrastructure operating within its SLOs?"
 
-For my setup, the split makes sense:
-
-- **kube-prometheus-stack**: cluster metrics, service-level alerting, Grafana dashboards, Prometheus/Loki/Alertmanager
-- **Beszel**: host-level health for every machine in the rack, accessible from one dashboard without leaving the LAN
+In my setup, kube-prometheus-stack (Prometheus, Loki, Alertmanager, Grafana) owns cluster metrics, service-level alerting, and dashboards. Beszel owns host-level health for every machine in the rack, in one dashboard that never leaves the LAN.
 
 If you're running a smaller homelab without a full Prometheus stack, Beszel might be enough on its own. If you already have Prometheus, it fills the gap for non-Kubernetes hosts without adding another exporter to manage.
 
 ---
 
-Monitoring infrastructure at scale, whether a 10-inch rack or a multi-subscription Azure landing zone, follows the same principle: separate the layers, keep each one focused, and make sure the monitoring tool itself isn't the weakest link in terms of resource consumption and attack surface.
+The same principle holds from a 10-inch rack to a multi-subscription Azure landing zone: separate the monitoring layers, keep each one focused, and make sure the monitoring tool itself isn't the weakest link in resource consumption or attack surface.
 
 <NewsletterCTA />

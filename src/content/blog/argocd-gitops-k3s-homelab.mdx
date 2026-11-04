@@ -1,6 +1,6 @@
 ---
-title: "GitOps on K3s: Managing a Complete Homelab with ArgoCD"
-description: "How to manage an entire Kubernetes homelab - MetalLB, Traefik, Longhorn, Authelia, and more - as a Git repository using ArgoCD's App-of-Apps pattern."
+title: "GitOps on k3s: Managing a Complete Homelab with ArgoCD"
+description: "How I manage an entire k3s homelab (MetalLB, Traefik, Longhorn, Authelia, and more) as a single Git repository using ArgoCD's App-of-Apps pattern."
 date: "2026-05-20"
 updated: "2026-09-09"
 tags: ["Kubernetes", "GitOps", "Homelab"]
@@ -8,22 +8,21 @@ tags: ["Kubernetes", "GitOps", "Homelab"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
 **Update (2026-09-09):** this specific cluster's persistent storage has since moved off Longhorn
-onto NFS (same change documented in the [K3s/Authelia/Longhorn homelab article](/blog/k3s-authelia-proxmox-homelab/)).
+onto NFS (same change documented in the [k3s/Authelia/Longhorn homelab article](/blog/k3s-authelia-proxmox-homelab/)).
 The `kubernetes/system/longhorn/` and `longhorn-config/` Applications below no longer exist in the
-live repository. The GitOps mechanics this article is actually about - the App-of-Apps pattern,
-the Helm-chart-plus-config-Application split, the bootstrap sequence - are unaffected by that
-change and still accurate; Longhorn is left in place below purely as the worked example of
-"Pattern 1 / Pattern 2," which remains a correct illustration for anyone running it on genuinely
-distributed nodes.
+live repository. The GitOps mechanics this article is about (the App-of-Apps pattern,
+the Helm-chart-plus-config-Application split, the bootstrap sequence) are unaffected by that
+change. Longhorn stays below as the worked example of "Pattern 1 / Pattern 2," which is still
+a correct illustration for anyone running it on distributed nodes.
 
 Most Kubernetes tutorials end with `kubectl apply -f`. You deploy something, it works, and you move on. Three weeks later you have no idea what's running in your cluster, why it's configured that way, or how to recreate it if something breaks. My cluster runs on a [BMAX Mini PC\*](/go/4bv3yF1): small enough to sit in a 10" rack, powerful enough for a full k3s stack.
 
-GitOps solves this. With ArgoCD, your Git repository is the single source of truth for everything in the cluster. No manual `kubectl apply`, no Helm commands in your shell history, no configuration drift. If it's not in Git, it doesn't exist.
+GitOps fixes this. With ArgoCD, the Git repository is the single source of truth for everything in the cluster. No manual `kubectl apply`, no Helm commands in your shell history, no hand-edited resources. If it's not in Git, it doesn't exist.
 
-This article documents how a complete homelab stack - MetalLB, Traefik, Longhorn, cert-manager, Authelia, and Vaultwarden - is managed as a single Git repository using ArgoCD's App-of-Apps pattern.
+Here is how my complete homelab stack (MetalLB, Traefik, Longhorn, cert-manager, Authelia, and Vaultwarden) is managed as a single Git repository using ArgoCD's App-of-Apps pattern.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -54,11 +53,11 @@ homelab-infrastructure/
         └── test-app/            # nginx for smoke testing
 ```
 
-The separation between `apps/` and `system/` is intentional. System components are cluster infrastructure - they need to exist before applications can run. Applications are workloads that depend on system components. ArgoCD sync waves enforce this ordering.
+The separation between `apps/` and `system/` is intentional. System components are cluster infrastructure and need to exist before applications can run. Applications are workloads that depend on them. Keeping the two apart makes that dependency visible in the repo layout.
 
 ## The App-of-Apps Pattern
 
-Instead of manually creating each ArgoCD Application, we use the App-of-Apps pattern: a single root Application that points at the `argocd-config/` directory, which contains Application manifests for everything else.
+Instead of creating each ArgoCD Application by hand, I use the App-of-Apps pattern: a single root Application that points at the `argocd-config/` directory, which contains Application manifests for everything else.
 
 The root Application:
 
@@ -122,7 +121,7 @@ spec:
       - CreateNamespace=true
 ```
 
-The chart version is pinned (`v1.14.4`) - never use `latest` for system components. You want to control when upgrades happen, not have ArgoCD surprise you on a random sync.
+The chart version is pinned (`v1.14.4`). Never use `latest` for system components. You want to control when upgrades happen, not have ArgoCD surprise you on a random sync.
 
 **Pattern 2: Raw Manifests from Git**
 
@@ -149,7 +148,7 @@ spec:
       selfHeal: true
 ```
 
-This pattern - Helm chart Application + separate config Application - appears for MetalLB, cert-manager, and Longhorn. The split is necessary because CRDs installed by the Helm chart must exist before the configuration resources can be applied. Two Applications with an implicit ordering is cleaner than trying to manage this inside a single Application.
+This pattern (Helm chart Application plus a separate config Application) appears for MetalLB, cert-manager, and Longhorn. The split exists because the CRDs installed by the Helm chart must exist before the configuration resources can be applied. This repo doesn't use sync waves for it. With the config in its own Application, a sync that hits missing CRDs fails on its own without blocking the chart, and the config converges once the CRDs are there. That's simpler than managing the ordering inside a single Application.
 
 ## The Deployment Workflow
 
@@ -161,13 +160,13 @@ Once the cluster is running, the entire deployment workflow is:
 3. git push
 ```
 
-ArgoCD polls the repository every 3 minutes by default. Within 3 minutes of a push, ArgoCD detects the drift between the desired state (Git) and the actual state (cluster), and reconciles automatically.
+ArgoCD polls the repository every 3 minutes by default. Within a few minutes of a push, it detects the difference between the desired state (Git) and the actual state (cluster) and reconciles automatically.
 
 No `kubectl apply`. No `helm upgrade`. No SSH into nodes. The Git history is the deployment log.
 
 ## Handling the Bootstrap Problem
 
-There is one chicken-and-egg problem: ArgoCD itself must exist before it can manage anything. The bootstrap sequence is:
+There is one chicken-and-egg problem: ArgoCD has to exist before it can manage anything. The bootstrap sequence is:
 
 ```bash
 # 1. Install ArgoCD itself (one-time manual step)
@@ -187,10 +186,10 @@ After step 2, ArgoCD reads the `argocd-config/` directory, creates all the child
 All Applications in this setup use `automated` sync with `selfHeal: true`. This means:
 
 - ArgoCD automatically applies changes when it detects drift from Git
-- If someone manually changes something in the cluster (`kubectl edit`, Portal click, etc.), ArgoCD reverts it within minutes
+- If someone changes something in the cluster by hand (`kubectl edit`, a click in a dashboard), ArgoCD reverts it within minutes
 - `prune: true` means resources deleted from Git are deleted from the cluster
 
-This is intentionally strict. The cluster enforces Git as the source of truth - manual changes don't survive a sync cycle.
+This is intentionally strict. The cluster enforces Git as the source of truth, and manual changes don't survive a sync cycle.
 
 For production workloads where you want to review changes before they apply, switch to manual sync and use ArgoCD's UI or CLI to approve deployments.
 
@@ -198,15 +197,17 @@ For production workloads where you want to review changes before they apply, swi
 
 With ArgoCD managing the full stack:
 
-- **Reproducibility** - a fresh cluster rebuilds itself from `git push` in under 10 minutes
-- **Auditability** - every change is a Git commit with author, timestamp, and diff
-- **Drift prevention** - `selfHeal: true` reverts any manual changes automatically
-- **Dependency management** - the App-of-Apps pattern enforces ordering between system and application components
+- **Reproducibility:** a fresh cluster rebuilds itself from the two-step bootstrap in under 10 minutes
+- **Auditability:** every change is a Git commit with author, timestamp, and diff
+- **Drift prevention:** `selfHeal: true` reverts manual changes automatically
+- **Clear dependencies:** system components and their config live in separate Applications from the workloads that need them
 
-The entire homelab - from bare metal to running Authelia and Vaultwarden - is a Git repository. If the cluster burns down, `kubectl apply -f root-app.yaml` and wait.
+The entire homelab, from bare metal to running Authelia and Vaultwarden, is a Git repository. If the cluster burns down, install ArgoCD, `kubectl apply -f root-app.yaml`, and wait.
+
+One caveat I learned later: a `Synced` badge is not proof that a merged change is live. I wrote up [three merged fixes that never took effect](/blog/gitops-merged-not-applied-argocd-drift/) and how to check for that.
 
 ---
 
-GitOps doesn't change size when you move to Azure: Terraform still owns the infrastructure layer and ArgoCD or Flux still drives the application layer, only the platform underneath becomes AKS.
+The same split carries over to Azure: Terraform owns the infrastructure layer, ArgoCD or Flux drives the application layer, and AKS replaces k3s underneath.
 
 <NewsletterCTA />

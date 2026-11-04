@@ -1,15 +1,15 @@
 ---
 title: "Redis Killed Nextcloud and Nobody Noticed for Hours"
-description: "Redis running without a PVC still has persistence enabled by default. When it can't write RDB snapshots to a read-only rootfs, it doesn't crash - it silently refuses all writes. Here's how that turned into a full Nextcloud outage and why the logs pointed at the wrong thing first."
+description: "Redis running without a PVC still has persistence enabled by default. When it can't write RDB snapshots to a read-only rootfs, it doesn't crash. It silently refuses all writes. How that became a full Nextcloud outage, and why the first suspect was wrong."
 date: "2026-07-01"
 tags: ["Kubernetes", "Redis", "Homelab"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-The Nextcloud outage looked like a capabilities problem at first. Kubernetes had just received a `securityContext` hardening pass - `readOnlyRootFilesystem: true` across most containers - and the timing fit. Pods were up, they passed readiness checks, but PHP requests were hanging and returning zero bytes. The capabilities hardening had broken things before, on the same [BMAX Mini PC\*](/go/4bv3yF1) k3s cluster where the [securityContext post-mortem](/blog/kubernetes-securitycontext-hardening-broke-9-containers) happened. It was a reasonable assumption.
+The Nextcloud outage looked like a capabilities problem at first. The cluster had just received a `securityContext` hardening pass (`readOnlyRootFilesystem: true` and dropped capabilities across most containers), and the timing fit. Pods were up and passed readiness checks, but PHP requests hung and returned zero bytes. The capabilities hardening had broken things before, on the same [BMAX Mini PC\*](/go/4bv3yF1) k3s cluster where the [securityContext post-mortem](/blog/kubernetes-securitycontext-hardening-broke-9-containers/) happened. It was a reasonable assumption.
 
 It was wrong. The capabilities issue was real, but it wasn't what took Nextcloud down. This is the Redis story.
 
@@ -17,7 +17,7 @@ It was wrong. The capabilities issue was real, but it wasn't what took Nextcloud
 
 ## The Setup That Created the Problem
 
-Nextcloud's session data and file lock cache both run through a Redis instance deployed as a sidecar-style container in the same manifest. That Redis container had no `PersistentVolumeClaim` - it was intentionally ephemeral, purely in-memory, with sessions expected to survive only as long as the pod did.
+Nextcloud's session data and file lock cache both run through a Redis instance deployed as a sidecar-style container in the same manifest. That Redis container had no `PersistentVolumeClaim`. It was intentionally ephemeral and purely in-memory; sessions only had to survive as long as the pod.
 
 The problem: Redis doesn't know it's running without a PVC. Its default configuration ships with persistence enabled:
 
@@ -27,7 +27,7 @@ save 300 100  # write RDB snapshot if 100 keys changed in the last 5 minutes
 save 60 10000 # write RDB snapshot if 10000 keys changed in the last minute
 ```
 
-Nextcloud is an active application. It easily generates 100 session and lock writes within 300 seconds of normal use. When the 300-second threshold triggered, Redis attempted to write a snapshot - and hit a read-only filesystem:
+Nextcloud is a busy application. Normal use easily generates 100 session and lock writes within 300 seconds. When that threshold triggered, Redis tried to write a snapshot and hit a read-only filesystem:
 
 ```
 Failed opening the temp RDB file temp-repl-16307.rdb (in server root dir /data)
@@ -35,34 +35,35 @@ for saving: Read-only file system
 Background saving error
 ```
 
-That error alone would be logged and ignored. Redis would retry on the next threshold. The issue is what happens *after* enough background saves fail: Redis enables its `stop-writes-on-bgsave-error` safeguard, which is `yes` by default, and which means exactly what it says - **Redis stops accepting write commands entirely**.
+On its own, that error would be logged and Redis would retry on the next threshold. The problem is `stop-writes-on-bgsave-error`, which is `yes` by default and means what it says: as long as the last background save failed, **Redis refuses every write command**.
 
 ## Why the Logs Were Misleading
 
-The Redis log showed the RDB error. But Redis was still running, still responding to pings, still reachable via the network - just refusing writes. From Nextcloud's PHP perspective, the Redis session handler was calling `SET` and getting back a Redis error object instead of `OK`. PHP's error handling in that path doesn't surface a visible 500 - it hangs the request or returns an empty response, depending on the session lock timeout.
+The Redis log showed the RDB error. But Redis was still running, still answering `PING`, still reachable over the network. It only refused writes. From Nextcloud's side, the PHP session handler called `SET` and got a `MISCONF` error back instead of `OK`. PHP's error handling in that path doesn't surface a visible 500. It hangs the request or returns an empty response, depending on the session lock timeout.
 
-The result from outside: pages loaded up to the authentication stage, then returned nothing. Not a 500, not a timeout message - nothing. That looks exactly like what `capabilities.drop: [ALL]` does when it breaks an entrypoint: the process starts, gets partway through initialization, then stops.
+From outside, pages loaded up to the authentication stage, then returned nothing. No 500, no timeout message. That looks exactly like what `capabilities.drop: [ALL]` does when it breaks an entrypoint: the process starts, gets partway through initialization, then stops.
 
 The actual diagnostic path that found it:
 
 ```bash
-# Redis container still running, pod shows Running - check the logs directly
-kubectl logs nextcloud-<pod> -n apps -c redis-nextcloud --previous
+# Redis container never restarted (restart count 0), so there is no
+# previous instance: read the current container's log, not --previous
+kubectl logs nextcloud-<pod> -n apps -c redis-nextcloud
 
-# Key line:
-# "Background saving error" / "MISCONF Redis is configured to save RDB snapshots,
-# but it's currently not able to persist on disk."
+# Key lines:
+# "Failed opening the temp RDB file ... for saving: Read-only file system"
+# "Background saving error"
 
 # Confirm Redis is refusing writes:
 kubectl exec -it nextcloud-<pod> -n apps -c redis-nextcloud -- redis-cli SET test_key test_val
 # → (error) MISCONF Redis is configured to save RDB snapshots...
 ```
 
-Once the actual Redis error surfaced, the fix was immediate and obvious.
+Once the Redis error surfaced, the fix was obvious.
 
 ## The Fix: Invoke redis-server Directly with Persistence Off
 
-The fix used the same pattern already in place for the cluster's other ephemeral Redis instances (immich-redis, valkey) - invoke `redis-server` directly with the relevant flags rather than relying on the image's default config:
+The fix reused the pattern already in place for the cluster's other ephemeral Redis instances (immich-redis, valkey): invoke `redis-server` directly with explicit flags instead of relying on the image's default config.
 
 ```yaml
 # Before: redis-nextcloud relied on image defaults (persistence on)
@@ -81,20 +82,20 @@ containers:
       - "no"
 ```
 
-The same change applied to paperless's Redis, which had the same no-PVC configuration. The authelia Redis was left untouched - it actually has a real PVC (`kubernetes/system/redis`) so its `--appendonly yes` configuration is intentional and works correctly.
+The same change applied to paperless's Redis, which had the same no-PVC configuration. The Authelia Redis stayed as it was. It has a real PVC (`kubernetes/system/redis`), so its `--appendonly yes` configuration is intentional and works.
 
 ## The Asymmetry That Makes This Hard to Catch
 
-Redis with persistence enabled and no PVC doesn't fail immediately. It runs, accepts connections, handles traffic, and appears healthy in every Kubernetes signal:
+Redis with persistence enabled and no PVC doesn't fail immediately. It runs, accepts connections, handles traffic, and looks healthy in every Kubernetes signal:
 
 - Pod status: `Running`
 - Readiness probe: passing (Redis responds to TCP or `PING` checks)
 - ArgoCD application: `Synced/Healthy`
 - Restart count: 0
 
-The failure only manifests after the first persistence threshold is hit - which for the `300 100` threshold (100 writes in 5 minutes) could be minutes into normal operation, or could be hours if traffic is light. After that threshold fires and the first failed RDB save triggers `stop-writes-on-bgsave-error`, the failure is silent at the Redis level and confusing at the application level.
+The failure only appears once the first save threshold is hit. With the `300 100` rule (100 writes in 5 minutes) that can be minutes into normal operation, or an hour later via `3600 1` if traffic is light. Once the first RDB save fails and `stop-writes-on-bgsave-error` kicks in, the failure is silent at the Redis level and confusing at the application level.
 
-The version of this that would have prevented the outage:
+The check that would have prevented the outage:
 
 ```bash
 # Before deploying any Redis instance, check whether it has a PVC:
@@ -102,16 +103,16 @@ grep -A 20 "redis" kubernetes/apps/nextcloud/nextcloud.yml | grep -i "persistent
 # If nothing → persistence must be explicitly disabled
 ```
 
-Or more defensively: any Redis container without a PVC in its volume list gets `--save "" --appendonly no` as a matter of policy, not an afterthought.
+Or, more defensively, make it policy: any Redis container without a PVC in its volume list gets `--save "" --appendonly no`.
 
 ## Why This Shows Up in Hardened Clusters More Than Default Ones
 
-The `readOnlyRootFilesystem: true` security hardening is what surfaced this. Without it, Redis would have written its RDB snapshots to the container's writable root filesystem - wasteful, potentially filling the node's ephemeral storage, but functionally harmless in the short term. The write would succeed, `stop-writes-on-bgsave-error` would never trigger, and the outage would never happen.
+The `readOnlyRootFilesystem: true` hardening is what surfaced this. Without it, Redis would have written its RDB snapshots to the container's writable filesystem: wasteful, potentially filling the node's ephemeral storage, but harmless in the short term. The write would succeed, `stop-writes-on-bgsave-error` would never trigger, and the outage would never happen.
 
-In that sense, the security hardening exposed a pre-existing misconfiguration that was only dormant because the filesystem was writable. The hardening was correct. The Redis configuration was wrong, and the hardening just removed the thing that had been quietly absorbing the mistake.
+The hardening exposed a misconfiguration that had only stayed dormant because the filesystem was writable. The hardening was correct. The Redis configuration was wrong, and the writable filesystem had been absorbing the mistake without anyone noticing.
 
 ---
 
-The same scenario applies to any Redis instance in Kubernetes where sessions, cache, or ephemeral data don't need to survive a pod restart - which, in a cluster with properly-sized application replicas, is most of them. If the Redis deployment doesn't have a PVC, it should have `--save "" --appendonly no` as explicit arguments rather than inheriting defaults designed for a server with durable storage.
+The same applies to any Redis instance in Kubernetes whose sessions, cache, or other data don't need to survive a pod restart. If the Redis container has no PVC, give it `--save "" --appendonly no` as explicit arguments instead of inheriting defaults designed for a server with durable storage.
 
 <NewsletterCTA />

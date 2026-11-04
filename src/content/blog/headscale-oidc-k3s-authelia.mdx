@@ -1,17 +1,19 @@
 ---
 title: "Self-Hosted Tailscale Control Plane: Headscale on k3s with Authelia OIDC"
-description: "Deploy Headscale on a bare-metal k3s cluster with Longhorn persistence, Traefik ingress, and Authelia OIDC authentication - fully GitOps-managed via ArgoCD."
+description: "Deploy Headscale on a bare-metal k3s cluster with Longhorn persistence, Traefik ingress, and Authelia OIDC authentication, fully GitOps-managed via ArgoCD."
 date: "2026-06-13"
 tags: ["Kubernetes", "Homelab", "Security", "Networking"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Tailscale solves the "access everything from anywhere" problem better than any VPN I've used. The client experience is excellent. The problem is the control plane: your device list, user identities, and ACL policies all live on Tailscale's servers. My k3s cluster runs on a [BMAX Mini PC\*](/go/4bv3yF1): the same box that handles everything from ArgoCD to local LLM inference.
+Tailscale solves the "access everything from anywhere" problem better than any VPN I've used, and the client experience is excellent. My problem with it is the control plane: your device list, user identities, and ACL policies all live on Tailscale's servers. I wanted that state on my own hardware. My k3s cluster runs on a [BMAX Mini PC\*](/go/4bv3yF1), the same box that handles everything from ArgoCD to local LLM inference.
 
-[Headscale](https://github.com/juanfont/headscale) is a self-hosted, open-source implementation of the Tailscale control plane. Same WireGuard mesh, same clients - but your data stays on your infrastructure. If you're already running k3s with ArgoCD, adding Headscale is straightforward.
+[Headscale](https://github.com/juanfont/headscale) is a self-hosted, open-source implementation of the Tailscale control plane. Same WireGuard mesh, same clients, but your data stays on your infrastructure. If you already run k3s with ArgoCD, adding Headscale takes one more Application.
+
+> **Update (November 2026):** Longhorn is gone from this cluster. Headscale's PVC now uses `local-path` storage, and its SQLite database is replicated with Litestream to a warm standby on a separate host. The Longhorn steps below show the original setup; swap the `storageClassName` for whatever your cluster uses.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -31,11 +33,11 @@ Headscale Service (port 8080)
         └── DERP: Tailscale's relay servers (external)
 ```
 
-Headscale handles device registration and key exchange. All actual traffic flows peer-to-peer over WireGuard - the control plane is not in the data path.
+Headscale handles device registration and key exchange. Actual traffic flows peer-to-peer over WireGuard (or through a DERP relay when no direct path exists). The control plane is not in the data path.
 
 ## Step 1: Persistent Storage with Longhorn
 
-Headscale stores its private keys and SQLite database on disk. A pod restart must not lose these - they're the root of trust for your entire WireGuard mesh.
+Headscale stores its private keys and SQLite database on disk. A pod restart must not lose them, because they are the root of trust for your entire WireGuard mesh.
 
 ```yaml
 # kubernetes/apps/headscale/pvc.yaml
@@ -53,11 +55,11 @@ spec:
       storage: 5Gi
 ```
 
-`ReadWriteOnce` is correct here - Headscale is a single-replica deployment.
+`ReadWriteOnce` is correct here because Headscale runs as a single replica.
 
 ## Step 2: Headscale Configuration
 
-The full configuration is stored in a ConfigMap. Key sections:
+The full configuration lives in a ConfigMap. The key names below are for Headscale 0.22.x, the version this deployment pins. Headscale 0.23 renamed several of them (`database.type`, `dns`, `policy.path`, among others), so check the `config-example.yaml` for your release before copying.
 
 ```yaml
 # kubernetes/apps/headscale/configmap.yaml
@@ -70,6 +72,7 @@ data:
   config.yaml: |
     server_url: https://headscale.yourdomain.com
     listen_addr: 0.0.0.0:8080
+    metrics_listen_addr: 0.0.0.0:9090  # default is 127.0.0.1:9090, unreachable from outside the pod
 
     private_key_path: /var/lib/headscale/private.key
     noise:
@@ -103,12 +106,14 @@ data:
     ip_prefixes:
       - 100.64.0.0/10     # Tailscale CGNAT range
 
-    policy_path: /var/lib/headscale/policy.hujson
+    acl_policy_path: /var/lib/headscale/policy.hujson
 ```
 
-**DERP relay** is left to Tailscale's infrastructure (`controlplane.tailscale.com/derpmap/default`). Running your own DERP server adds operational overhead for minimal benefit in a homelab.
+**`metrics_listen_addr`** has to be set explicitly. Headscale binds its metrics endpoint to `127.0.0.1:9090` by default, so declaring `containerPort: 9090` in the Deployment alone gives Prometheus nothing to scrape.
 
-**OIDC** delegates authentication to [Authelia](/blog/k3s-authelia-proxmox-homelab). When a new device registers, the user authenticates via the Authelia web UI - no separate Headscale user management needed.
+**DERP relays** are left to Tailscale's infrastructure (`controlplane.tailscale.com/derpmap/default`). Running your own DERP server adds operational overhead for little benefit in a homelab.
+
+**OIDC** delegates authentication to [Authelia](/blog/k3s-authelia-proxmox-homelab/). When a new device registers, the user signs in through the Authelia web UI, so there is no separate Headscale user management.
 
 **`ip_prefixes: 100.64.0.0/10`** is the standard Tailscale CGNAT range. Clients in your mesh will receive addresses from this space.
 
@@ -160,7 +165,7 @@ spec:
             claimName: headscale-data
 ```
 
-`strategy: Recreate` is critical. With SQLite, two pods writing simultaneously would corrupt the database. Recreate kills the old pod before starting the new one - no rolling update.
+`strategy: Recreate` matters. With SQLite, two pods writing at the same time can corrupt the database. Recreate stops the old pod before starting the new one instead of doing a rolling update.
 
 <NewsletterCTA />
 
@@ -199,7 +204,7 @@ spec:
     secretName: wildcard-yourdomain-tls
 ```
 
-Headscale does not need an Authelia middleware on the IngressRoute - authentication is handled internally by the OIDC flow. The dashboard endpoint should be protected separately if exposed.
+Headscale does not need an Authelia middleware on the IngressRoute, because it handles authentication itself through the OIDC flow. A forward-auth middleware would also break the Tailscale clients, which talk to this endpoint directly. Headscale ships no web UI; if you add a third-party one, put that behind Authelia.
 
 ## Step 5: Authelia OIDC Client
 
@@ -222,7 +227,7 @@ identity_providers:
           - email
 ```
 
-The `client_secret` in Authelia must be the bcrypt hash of the plaintext secret in the Headscale config. Authelia validates the hash on the OIDC callback.
+The `client_secret` in Authelia is a hash (bcrypt here) of the plaintext secret in the Headscale config. Authelia stores only the hash and checks the plaintext secret Headscale sends when it exchanges the authorization code at the token endpoint.
 
 ## Step 6: ArgoCD Application
 
@@ -261,11 +266,11 @@ tailscale up --login-server https://headscale.yourdomain.com
 tailscale login --login-server https://headscale.yourdomain.com
 ```
 
-The client opens a browser to the OIDC callback URL. After authenticating via Authelia, the device is registered and receives a `100.64.x.x` IP from the mesh.
+The client prints (or opens) a login URL on your Headscale server, which redirects to Authelia. After you authenticate, Headscale registers the device and assigns it an address from `100.64.0.0/10`.
 
 ## Access Control Policy
 
-Headscale supports HuJSON ACL policies at `policy_path`. A minimal policy allowing all nodes to communicate:
+Headscale loads a HuJSON ACL policy from `acl_policy_path` (in 0.23+ the key is `policy.path`). A minimal policy that lets all nodes talk to each other:
 
 ```json
 {
@@ -279,19 +284,19 @@ Headscale supports HuJSON ACL policies at `policy_path`. A minimal policy allowi
 }
 ```
 
-For tighter control, you can restrict access by user or tag - the same policy syntax as Tailscale's ACLs.
+For tighter control, restrict access by user or tag with the same policy syntax as Tailscale's ACLs.
 
 ## The Result
 
-- Every device enrolled in Headscale can reach every other device over WireGuard, regardless of NAT or firewall
-- Authentication goes through Authelia - no separate Headscale user accounts
-- The database and keys are on Longhorn, [backed up daily by Velero](/blog/velero-garage-k3s-backup)
+- Every device enrolled in Headscale can reach every other device over WireGuard, through NAT and firewalls (relayed via DERP when a direct path fails)
+- Authentication goes through Authelia, with no separate Headscale user accounts
+- The database and keys are on Longhorn, [backed up daily by Velero](/blog/velero-garage-k3s-backup/)
 - The entire deployment is a `git push` away from any machine
 
 ---
 
-Running a self-hosted control plane is one more service to operate, but the trade-off is worth it if data sovereignty matters to you. The WireGuard mesh gives you a flat private network across all your devices - useful for reaching homelab services from anywhere without exposing anything to the public internet.
+A self-hosted control plane is one more service to operate, and it is worth it if you care where your device and identity data lives. The WireGuard mesh gives you a flat private network across all your devices, so you can reach homelab services from anywhere without exposing them to the public internet. The Headscale endpoint itself is the one thing that has to be public.
 
-Zero-Trust network access is the same problem in Azure - just solved with Private Link and Managed Identity instead of WireGuard.
+In Azure, the same zero-trust access problem gets solved with Private Link and Managed Identity instead of WireGuard.
 
 <NewsletterCTA />

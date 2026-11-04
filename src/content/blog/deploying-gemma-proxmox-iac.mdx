@@ -1,37 +1,37 @@
 ---
 title: "Deploying Gemma 4 26B on Proxmox: IaC Setup with Terraform, Ansible & AMD iGPU"
-description: "A complete guide to automating a local AI stack on Proxmox LXC using Terraform and Ansible, including Open-WebUI and AMD Radeon Vega iGPU workarounds."
+description: "How I automate a local AI stack on a Proxmox LXC with Terraform and Ansible: Ollama, Gemma 4 26B, Open-WebUI and the AMD Radeon Vega iGPU workaround."
 date: "2026-05-02"
 tags: ["Homelab", "AI", "Terraform"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Running large language models (LLMs) like Gemma 4 26B locally usually requires massive Nvidia clusters. But what if you want to run it in a home lab or a constrained edge environment using Infrastructure as Code (IaC)? 
+Most guides for running a model like Gemma 4 26B locally assume a large Nvidia GPU. I run it on a mini PC in my homelab, deployed entirely as Infrastructure as Code (IaC).
 
-This guide covers how to automate a complete local AI stack on Proxmox VE using **Terraform** for the infrastructure and **Ansible** for provisioning. We will cover the quirks of the Proxmox Terraform provider, setting up Ollama, and deploying Open-WebUI as our frontend. 
+The stack runs on Proxmox VE, with **Terraform** for the infrastructure and **Ansible** for provisioning. Below: the quirks of the Proxmox Terraform provider, the Ollama setup, and Open-WebUI as the frontend.
 
-As a bonus, I will show you how to enable hardware acceleration by passing through an unsupported AMD iGPU to the LXC container.
+The last piece is hardware acceleration: handing an officially unsupported AMD iGPU to the LXC container.
 
 **[View the complete Proxmox IaC source code on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Hardware Stack
 
-My current environment for this deployment runs on a compact, highly efficient node. For testing and baseline deployments, the 8-core Ryzen handles CPU inference surprisingly well:
+This deployment runs on a single compact node. For testing and baseline deployments, the 8-core Ryzen handles CPU inference better than I expected:
 
 *   **CPU:** AMD Ryzen 7 5825U (8C/16T), runs on a [BMAX Mini PC\*](/go/4bv3yF1) (the 8745HS successor is the current equivalent)
 *   **RAM:** 64 GB DDR4 3200 MT/s ([Crucial SODIMM Kit\*](/go/3QZejZn))
-*   **GPU:** AMD Radeon Vega iGPU (Optional Passthrough)
+*   **GPU:** AMD Radeon Vega iGPU (optional passthrough)
 *   **Storage:** 512 GB NVMe (ZFS `rpool`)
 *   **OS:** Proxmox VE (Debian 13)
 
 ## 1. Infrastructure Provisioning with Terraform
 
-We use Terraform (via the `bpg/proxmox` provider) to spin up dedicated, unprivileged LXC containers. To keep the environment secure and segmented, the containers are split across different [VLANs](/blog/mikrotik-vlan-filtering-terraform-proxmox/).
+Terraform (via the `bpg/proxmox` provider) creates dedicated, unprivileged LXC containers. For segmentation, the containers are split across [VLANs](/blog/mikrotik-vlan-filtering-terraform-proxmox/).
 
-Here is the configuration for the AI stack container. Note the `device_passthrough` blocks-these are strictly required if you want to hand the host's iGPU over to the container for rendering.
+Here is the configuration for the AI stack container. The `device_passthrough` blocks are required if you want to hand the host's iGPU to the container.
 ```hcl
 resource "proxmox_virtual_environment_container" "ct_srv_ai_01" {
   vm_id        = 201
@@ -96,13 +96,13 @@ resource "proxmox_virtual_environment_container" "ct_srv_ai_01" {
 ```
 
 ### The `ignore_changes` Workaround
-If you manually enable features like `keyctl`, `fuse`, or `nesting` via the Proxmox Web UI, Terraform will often attempt to overwrite them or throw state errors on the next `apply`. Adding `features` to the `ignore_changes` lifecycle block prevents Terraform from actively fighting the Web UI overrides, keeping your deployments stable.
+If you enable features like `keyctl`, `fuse` or `nesting` by hand in the Proxmox Web UI, Terraform will try to revert them or fail on the next `apply`. Part of the reason: on unprivileged containers, Proxmox only lets `root@pam` change most feature flags (everything except `nesting`), so an API token often can't apply them at all. Adding `features` to `ignore_changes` stops Terraform from fighting the manual settings.
 
 ## 2. Provisioning Ollama & The AMD Workaround (Ansible)
 
-Next, we use Ansible to install Ollama and pull the Gemma model. 
+Next, Ansible installs Ollama and pulls the Gemma model.
 
-If you enabled the `device_passthrough` in Terraform to utilize the integrated AMD Radeon Vega GPU, you will hit a roadblock: ROCm (AMD's compute stack) is extremely picky about officially supported hardware. We can force Ollama to utilize the Vega iGPU by overriding the GFX version in the systemd service using `HSA_OVERRIDE_GFX_VERSION`.
+If you enabled `device_passthrough` in Terraform to use the integrated Radeon Vega GPU, you hit a roadblock: ROCm (AMD's compute stack) only supports a short list of GPUs, and the Vega iGPU (`gfx90c`) isn't on it. Setting `HSA_OVERRIDE_GFX_VERSION` in the systemd service makes ROCm treat it as a supported `gfx900` part.
 ```yaml
 ---
 - name: Ensure required dependencies are installed (curl, zstd)
@@ -166,11 +166,11 @@ If you enabled the `device_passthrough` in Terraform to utilize the integrated A
   changed_when: "'downloading' in ollama_pull_result.stdout"
 ```
 
-*(Note: Downloading a massive 26B model takes time. Your Ansible playbook might look like it's hanging during the `ollama pull` task. Be patient, it's just processing gigabytes of data.)*
+*(Note: a 26B model is a large download. The playbook can look like it's hanging during the `ollama pull` task; it's pulling gigabytes of data.)*
 
 ## 3. Deploying the Frontend: Open-WebUI
 
-To interact with Gemma comfortably, we deploy Open-WebUI as a Docker container within our server stack.
+For a usable chat interface, Open-WebUI runs as a Docker container in the server stack.
 ```yaml
 ---
 - name: Ensure Open-WebUI directory exists
@@ -209,12 +209,12 @@ To interact with Gemma comfortably, we deploy Open-WebUI as a Docker container w
   changed_when: "'Started' in openwebui_start.stdout or 'Created' in openwebui_start.stdout or 'Pulled' in openwebui_start.stdout"
 ```
 
-By explicitly setting the `OLLAMA_BASE_URL` to point to the dedicated IP of our AI LXC container, the WebUI immediately connects to the Gemma model without requiring manual API configuration in the interface.
+Because `OLLAMA_BASE_URL` points at the AI container's IP, Open-WebUI connects to the Gemma model on first start, with no API configuration in the interface.
 
 ## Wrapping Up
 
-Building a private AI environment doesn't require cloud instances. With Proxmox, Terraform, and Ansible, you can treat your edge node or home lab exactly like an enterprise data center. The entire stack is ephemeral, version-controlled, and reproducible in minutes.
+A private AI environment doesn't need cloud instances. With Proxmox, Terraform and Ansible, a mini PC gets the same treatment as an enterprise data center: the whole stack is version-controlled and can be rebuilt from code.
 
-Terraform for provisioning, Ansible for configuration — the workflow that stands up this edge node is the same one that stands up an enterprise cloud environment. Host an LLM in Azure and you answer the same isolation questions: where does the model endpoint live, what can reach it, and how is [AI Search / OpenAI traffic](/blog/azure-rag-shared-private-link-automation/) kept off the public internet.
+Terraform for provisioning and Ansible for configuration is also how enterprise cloud environments get built. Host an LLM in Azure and you answer the same isolation questions: where does the model endpoint live, what can reach it, and how is [AI Search / OpenAI traffic](/blog/azure-rag-shared-private-link-automation/) kept off the public internet.
 
 <NewsletterCTA />

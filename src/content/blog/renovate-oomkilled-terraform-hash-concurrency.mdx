@@ -1,81 +1,86 @@
 ---
 title: "Renovate OOMKilled Three Times: Why the Fix Wasn't More Memory"
-description: "Two GiB wasn't enough, so I bumped to 3 GiB. Still OOMKilled. Bumped to 4 GiB. Still OOMKilled. The real fix wasn't memory at all — it was Terraform hash concurrency. Here's how I isolated the actual spike."
+description: "2 GiB, 3 GiB, 4 GiB: Renovate kept getting OOMKilled. The real fix was capping Terraform provider hash concurrency. How I isolated the spike."
 date: "2026-07-14"
 tags: ["Kubernetes", "Homelab", "Debugging"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Renovate kept getting OOMKilled on the [BMAX Mini PC\*](/go/4bv3yF1) running my entire k3s cluster. The Kubernetes CronJob would start, run for a while, and then die with exit code 137. The natural assumption: not enough memory. Bump the limit. Problem solved.
+Renovate kept getting OOMKilled on the [BMAX Mini PC\*](/go/4bv3yF1) that runs my entire k3s cluster. The CronJob would start, run for a while and die with exit code 137. The obvious reading was not enough memory, so I raised the limit.
 
-Three rounds of bumps later, 2 GiB then 3 GiB then 4 GiB, it was still dying. The fix had nothing to do with memory limits. It had to do with what Renovate was actually doing with the memory it had.
+Three rounds later (2 GiB, then 3 GiB, then 4 GiB) it was still dying. The fix wasn't a bigger limit. It was changing what Renovate did with the memory it had.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Escalation
 
-Round 1: the CronJob was OOMKilled at 2 GiB. Every job, 3 retries each, all dying. `kubectl describe pod` confirmed exit code 137, reason `OOMKilled`. Bumped to 3 GiB container limit / 2304Mi V8 heap, keeping the same ~25% non-heap headroom ratio as the previous configuration.
+Round 1: the CronJob was OOMKilled at 2 GiB. Every job, three retries each, all dying. `kubectl describe pod` confirmed exit code 137, reason `OOMKilled`. I raised the container limit to 3 GiB and the V8 heap to 2304Mi, keeping the same ~25% non-heap headroom as before.
 
-Round 2: OOMKilled again at 3 GiB. Same pattern. Checked for regressions, no commits landed between the last clean run and the first failure that meaningfully grew the dependency count. The internal-docs relocation merged after the failures started, and Renovate doesn't scan `.md` files anyway. Read as ordinary run-to-run variance tipping an already-marginal limit over, not a new regression.
+Round 2: OOMKilled again at 3 GiB, same pattern. I checked for regressions: no commit between the last clean run and the first failure had meaningfully grown the dependency count. The internal-docs relocation merged after the failures started, and Renovate doesn't scan `.md` files anyway. I read it as ordinary run-to-run variance tipping an already marginal limit over.
 
-Round 3: bumped to 4 GiB. This time, it landed at 3 GiB instead of 4 GiB, the edit was described but never actually made before merge. A separate PR corrected it to the intended 3 GiB → 4 GiB / 2304Mi → 3072Mi heap.
+Round 3: the bump to 4 GiB. Except it landed as 3 GiB, because the edit was described in the PR but never made before merge. A separate PR made the intended change: 3 GiB → 4 GiB, 2304Mi → 3072Mi heap.
 
 Still OOMKilled.
 
 ## The Diagnostic Run
 
-At this point, guessing at memory limits wasn't working. The approach shifted to isolating the spike instead of outrunning it.
+Guessing at limits wasn't working, so I stopped trying to outrun the spike and measured it instead.
 
-I ran Renovate off-cluster in an isolated diagnostic run with 12 GiB of headroom, a real GitHub token, real branches, and user authorization. The goal: measure the actual peak instead of guessing at it.
+I ran Renovate off-cluster with 12 GiB of headroom, a real GitHub token, real branches and explicit authorization, to measure the actual peak.
 
-The diagnostic run finished clean at exit 0. Peak memory usage: **3.99 GiB**.
+The run finished cleanly with exit 0. Peak memory: **3.99 GiB**.
 
-That confirmed this was never unbounded growth. The 2 GiB and then 4 GiB production kills both landed mid-spike, ~30-40 MiB past the ceiling. The cgroup limit sat too close to a single transient spike for GC to reclaim before the kill.
+So this was never unbounded growth. The kernel's oom-kill records put the 2 GiB kills at an anon-rss of about 2054–2064Mi and the 4 GiB kills at about 4.12–4.15 GiB, both just over the cap. Those numbers only show where the limit was, not how high the process wanted to go. A 3.99 GiB peak leaves no margin under a 4 GiB cgroup limit, so normal run-to-run variance was enough to cross it mid-spike, before GC could reclaim anything.
 
 ## The Root Cause: Terraform Hash Concurrency
 
-The spike wasn't random. It was Renovate's Terraform manager SHA256-hashing all 14 platform builds of a major `hashicorp/aws` provider bump (5.x → 6.53.0) to keep `.terraform.lock.hcl` valid.
+The spike wasn't random. Renovate's Terraform manager was downloading and SHA256-hashing all 14 platform builds of a major `hashicorp/aws` provider bump (5.x → 6.53.0) to keep `.terraform.lock.hcl` valid.
 
-At the default `concurrentRequestLimit` of 16, that's up to 16 provider zips buffered in memory simultaneously, each one a large binary being hashed for lock-file integrity. The spike is predictable: any Terraform provider upgrade that touches multiple platforms hits this.
+At Renovate's default `concurrentRequestLimit` of 16, up to 16 of those provider zips, each a large binary, can sit in memory at once while being hashed. Any major provider upgrade with many platform builds will trigger the same spike.
 
-The fix wasn't more memory. It was flattening the spike at the source:
+So the fix was to flatten the spike at the source, in a `hostRules` entry for `releases.hashicorp.com`:
 
 ```json
 {
-  "terraform": {
-    "concurrentRequestLimit": 2
-  }
+  "hostRules": [
+    {
+      "matchHost": "releases.hashicorp.com",
+      "concurrentRequestLimit": 2
+    }
+  ]
 }
 ```
 
-Cap concurrent Terraform hash operations at 2 for `releases.hashicorp.com`. The spike shrinks because fewer provider zips are buffered simultaneously. The 4 GiB limit becomes genuine headroom instead of a near-miss ceiling, and the 6 GiB / 4608Mi heap becomes defense in depth, sized from the actual measured 3.99 GiB peak with real GC margin, not a blind guess.
+This caps concurrent requests to `releases.hashicorp.com` at 2, so only two provider zips are buffered at a time and the spike shrinks. On top of that, the limit went to 6 GiB with a 4608Mi V8 heap as defense in depth, sized from the measured 3.99 GiB peak with real GC margin instead of a blind guess.
 
 ```yaml
+env:
+  - name: NODE_OPTIONS
+    value: "--max-old-space-size=4608"
 resources:
+  requests:
+    memory: 1Gi
   limits:
     memory: 6Gi
-  env:
-    - name: V8_FLAG_INITIAL_HEAP_SIZE
-      value: "4608"
 ```
 
-The CronJob stays suspended, this fix doesn't re-enable it. That's a separate decision once the fix is reviewed and validated in production.
+The CronJob had been suspended during the outage, and this fix doesn't re-enable it. That's a separate decision once the change is reviewed and validated in production.
 
 ## The Lesson
 
-The first two bumps were the obvious response to OOMKilled: more memory. They were also wrong, because they treated the symptom (process needs more memory) instead of the cause (process is buffering too many large objects simultaneously).
+The memory bumps were the obvious response to OOMKilled, and they were wrong, because they treated the symptom (the process needs more memory) instead of the cause (the process buffers too many large objects at once).
 
-The diagnostic run with 12 GiB of headroom was the turning point. Instead of guessing at limits, I isolated the real peak. 3.99 GiB. Then the question became: why is the peak 3.99 GiB, and can I flatten it instead of accommodating it?
+The diagnostic run with 12 GiB of headroom was the turning point. Once I had the real peak, 3.99 GiB, the question changed: why is the peak that high, and can I flatten it instead of accommodating it?
 
-`concurrentRequestLimit=2` flattens it. The memory limit becomes a safety net, not the fix.
+`concurrentRequestLimit: 2` flattens it. The memory limit is the safety net, not the fix.
 
-This is the same pattern as tuning Kubernetes resource requests: you don't set requests based on what the app uses at peak, you set them based on what it needs to function normally, and you use limits as a ceiling for the spikes. In this case, the "normal" was far below the spike, and the spike was artificially inflated by a configuration knob nobody had touched.
+It's the same pattern as Kubernetes resource requests: you size requests for what the app needs to run normally and use limits as a ceiling for spikes. Here the normal usage was far below the spike, and the spike was inflated by a default nobody had touched.
 
 ---
 
-Right-sizing infrastructure isn't just a Kubernetes problem, Azure VM sizing, AKS node pool autoscaling, and Cosmos DB RU allocation all face the same trap: responding to peak usage with more capacity instead of understanding what's driving the peak.
+The same trap exists outside Kubernetes. Azure VM sizing, AKS node pool autoscaling and Cosmos DB RU allocation all invite you to answer peak usage with more capacity instead of finding out what drives the peak.
 
 <NewsletterCTA />

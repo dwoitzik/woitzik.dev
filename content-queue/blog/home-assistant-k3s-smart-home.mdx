@@ -1,41 +1,37 @@
 ---
 title: "Home Assistant on k3s: Smart Home Without the Cloud"
-description: "Home Assistant runs as a Kubernetes Deployment with Zigbee2MQTT for device communication. The k3s cluster handles high availability, backups, and TLS — everything Home Assistant OS does, but under your control."
+description: "Home Assistant Core as a hardened k3s Deployment: local-path storage for its SQLite recorder, reverse-proxy config behind Traefik, Velero backups, and a tested restore."
 date: "2026-11-22"
 tags: ["Kubernetes", "Home Assistant", "IoT", "Homelab"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Home Assistant OS is the easiest way to run Home Assistant. It's also the hardest to customize. The OS manages everything — Zigbee sticks, Bluetooth, network config — and gives you a UI to configure it. The trade-off: you can't run other workloads on the same machine, backups are Home Assistant's responsibility, and TLS is handled by the Nabu Casa cloud service. Running Home Assistant on k3s on a [BMAX Mini PC*](/go/4bv3yF1) means it shares the cluster with everything else, gets Velero backups, cert-manager TLS, and ArgoCD GitOps management.
+Home Assistant OS is the easiest way to run Home Assistant. It's also an appliance: it wants a whole machine or VM, backups live in its own backup system, and remote TLS means an add-on or a Nabu Casa subscription. I run Home Assistant Core as a plain Deployment on my k3s cluster instead, on the same [BMAX Mini PC*](/go/4bv3yF1) as everything else. Traefik and cert-manager handle TLS, Authelia guards the UI, Velero backs it up, and ArgoCD deploys the manifest.
+
+Three things took real work: the SQLite recorder can't live on NFS, the container needs a writable `/run` under a read-only root filesystem, and Home Assistant rejects proxied requests until you tell it about the proxy.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## The Architecture
+## The Deployment
 
-Home Assistant on k3s needs three components:
-
-1. **Home Assistant Core** — the main application
-2. **Zigbee2MQTT** — bridges Zigbee devices to MQTT
-3. **Mosquitto** — MQTT broker for device communication
-
-All three run as Deployments in a `home-assistant` namespace.
-
-## Home Assistant Deployment
+One container, one PVC, in the `apps` namespace:
 
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: home-assistant
-  namespace: home-assistant
+  namespace: apps
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: home-assistant
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
@@ -43,166 +39,139 @@ spec:
     spec:
       containers:
         - name: home-assistant
-          image: ghcr.io/home-assistant/home-assistant:stable
+          image: ghcr.io/home-assistant/home-assistant:2026.7.1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 8123
+          env:
+            - name: TZ
+              value: Europe/Berlin
           volumeMounts:
             - name: config
               mountPath: /config
-          env:
-            - name: TZ
-              value: "Europe/Berlin"
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /run
+          readinessProbe:
+            httpGet:
+              path: /manifest.json
+              port: 8123
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /manifest.json
+              port: 8123
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            failureThreshold: 6
       volumes:
         - name: config
           persistentVolumeClaim:
             claimName: home-assistant-config
+        - name: tmp
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
 ```
 
-The `/config` volume stores Home Assistant's configuration, automations, and database. It's a PersistentVolumeClaim backed by Longhorn for replication.
+A few choices in there are not defaults:
 
-## Zigbee2MQTT
+- **Pinned tag, not `stable`.** Renovate opens a PR per release, so an update is a Git commit with CI and a soak period instead of a surprise on the next pod restart.
+- **`strategy: Recreate`.** The PVC is `ReadWriteOnce` and the recorder database must never have two writers. A rolling update would start the new pod while the old one still holds the volume.
+- **Read-only root filesystem with an `emptyDir` on `/run`.** The image uses s6-overlay v3, and its init runs `rm -rf /run/s6` on startup. Without a writable `/run` the container dies with `Read-only file system`.
+- **Probes on `/manifest.json`.** It returns 200 without an auth token once the frontend is up, unlike `/api/*`.
+- **A 300-second liveness delay.** After a restore or an unclean shutdown, the recorder can spend minutes recovering its SQLite database. A short liveness probe kills the pod in the middle of that and starts the recovery over.
 
-Zigbee2MQTT bridges Zigbee devices to MQTT. It needs access to a Zigbee USB stick. On a k3s node with a USB Zigbee coordinator:
+## Storage: local-path, Not NFS
 
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: v1
+kind: PersistentVolumeClaim
 metadata:
-  name: zigbee2mqtt
-  namespace: home-assistant
+  name: home-assistant-config
+  namespace: apps
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: zigbee2mqtt
-  template:
-    metadata:
-      labels:
-        app: zigbee2mqtt
-    spec:
-      nodeSelector:
-        homelab/zigbee: "true"
-      containers:
-        - name: zigbee2mqtt
-          image: koenkk/zigbee2mqtt
-          ports:
-            - containerPort: 8080
-          volumeMounts:
-            - name: data
-              mountPath: /app/data
-            - name: usb
-              mountPath: /dev/ttyUSB0
-      volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: zigbee2mqtt-data
-        - name: usb
-          hostPath:
-            path: /dev/ttyUSB0
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
 ```
 
-The `nodeSelector: homelab/zigbee: "true"` ensures the pod runs on the node with the Zigbee USB stick. The `hostPath` mount passes the USB device through to the container.
+`/config` holds the configuration, automations, and `home-assistant_v2.db`, the recorder's SQLite database in WAL mode. Home Assistant started on `nfs-client` like most of my apps. It was the last of six SQLite apps I moved to `local-path` after an audit found them all on NFS, for the reasons in [the NFS vs local-path SQLite trap](/blog/nfs-vs-local-path-sqlite-trap/). Before the move I ran `PRAGMA integrity_check`, copied the data over, and checked again on the live container afterwards. The recorder logged its usual unclean-shutdown warning on first start and recovered on its own.
 
-Label the node:
+`local-path` ties the pod to one node. For a single-writer workload that writes state constantly, I'll take node-local latency over the ability to reschedule.
 
-```bash
-kubectl label node k3s-node-1 homelab/zigbee=true
-```
-
-## Mosquitto MQTT Broker
+If you'd rather move the recorder off SQLite entirely, the setting lives under `recorder:` in `configuration.yaml`, not under `homeassistant:`:
 
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mosquitto
-  namespace: home-assistant
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: mosquitto
-  template:
-    spec:
-      containers:
-        - name: mosquitto
-          image: eclipse-mosquitto
-          ports:
-            - containerPort: 1883
-          volumeMounts:
-            - name: config
-              mountPath: /mosquitto/config
-      volumes:
-        - name: config
-          configMap:
-            name: mosquitto-config
+recorder:
+  db_url: postgresql://homeassistant:PASSWORD@home-assistant-db.apps.svc:5432/homeassistant
 ```
 
-The Mosquitto config allows anonymous connections from the home-assistant namespace (internal traffic only):
+A [CNPG cluster](/blog/cnpg-postgresql-operator-k3s/) works as the backend. I haven't needed it: SQLite on local storage is fine for one house.
 
-```
-listener 1883
-allow_anonymous true
-```
+## Behind Traefik and Authelia
 
-For production, add authentication. For a homelab where only internal pods connect, anonymous is fine.
-
-## TLS with Traefik
-
-Home Assistant's UI gets TLS via a Traefik IngressRoute:
+The UI is published through a Traefik IngressRoute with the CrowdSec bouncer and Authelia in front:
 
 ```yaml
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: home-assistant
-  namespace: home-assistant
+  name: ha-final
+  namespace: apps
 spec:
-  entryPoints:
-    - websecure
+  entryPoints: [websecure]
   routes:
-    - match: Host(`ha.lab.woitzik.dev`)
+    - match: Host(`ha.woitzik.dev`)
       kind: Rule
-      services:
-        - name: home-assistant
-          port: 8123
-  tls:
-    secretName: lab-wildcard-tls
+      middlewares: [{name: crowdsec-bouncer}, {name: authelia}]
+      services: [{name: home-assistant, port: 8123}]
 ```
 
-No Nabu Casa cloud needed. The wildcard certificate from cert-manager handles TLS.
+The Companion app can't complete an Authelia redirect, so it is meant to connect over the Headscale VPN instead, the same pattern as Jellyfin's native clients.
 
-## Database: PostgreSQL
-
-Home Assistant's default database is SQLite — the same kind of embedded database that [corrupts under NFS file-locking](/blog/nfs-vs-local-path-sqlite-trap/) if you're not careful about storage class. On k3s, switch to PostgreSQL for better performance:
+The first version of this returned `400 Bad Request` for every request. Home Assistant's own log said why: "A request from a reverse proxy was received ... but your HTTP integration is not set-up for reverse proxies". The fix is an `http:` block in `configuration.yaml`:
 
 ```yaml
-# configuration.yaml
-homeassistant:
-  db_url: postgresql://homeassistant:password@home-assistant-db.home-assistant.svc:5432/homeassistant
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 10.42.0.0/16
 ```
 
-The PostgreSQL instance is managed by [CNPG (CloudNativePG)](/blog/cnpg-postgresql-operator-k3s/) with daily backups to MinIO.
+`10.42.0.0/16` is the whole k3s pod CIDR, because Traefik's pod IP changes on every restart. `configuration.yaml` lives on the PVC and is edited through Home Assistant's own file editor, not in Git, so I documented the fix as a comment in the Kubernetes manifest. Otherwise the next person to read the repo has no idea why it works.
 
-## Backup with Velero
+## Backups and Restore
 
-Velero backs up the home-assistant namespace including PVCs:
+The PVC is covered by the cluster-wide Velero schedules, with file-system backup through the node-agent:
+
+- `daily-backup` at 05:00 UTC to Garage, kept 7 days
+- `daily-offsite` at 04:00 UTC to Cloudflare R2, which includes the `apps` namespace, kept 3 days
+
+Before a risky change I take an on-demand copy from the schedule template:
 
 ```bash
-velero backup create home-assistant-daily \
-  --include-namespaces home-assistant \
-  --schedule "0 2 * * *" \
-  --ttl 720h
+velero backup create ha-before-change --from-schedule daily-backup
 ```
 
-Daily backups at 2am, retained for 30 days. If Home Assistant breaks after a configuration change, restore from Velero:
+`velero backup create` has no `--schedule` flag. Recurring backups are `velero schedule create` or a `Schedule` manifest, and `--from-schedule` reuses that template for a one-off run.
 
-```bash
-velero restore create --from-backup home-assistant-daily-20261122
-```
+The restore I've actually tested is file-level: scale the Deployment to 0, mount the PVC in a throwaway pod, copy the saved `/config` directory in, scale back to 1. After the August 2026 rebuild I verified it by comparing file counts and contents against the pre-disaster copy, not by checking that the pod showed `Running`.
 
-## The Trade-off
+## What This Setup Doesn't Do
 
-Running Home Assistant on k3s means you lose the one-click add-on store and the managed Zigbee/Bluetooth stack. You gain: GitOps-managed configuration, Velero backups, cert-manager TLS, and the ability to run Home Assistant alongside 20 other workloads on the same cluster. For a homelab that already runs k3s, this is the right architecture.
+No Zigbee or Bluetooth. Home Assistant OS manages radios for you; on k3s a USB coordinator means pinning the pod to the node that has the stick and passing the device through, and my three k3s VMs have no radio attached today. You also lose the add-on store, since add-ons are a Supervisor feature that Home Assistant Core doesn't have.
+
+What you gain is a Home Assistant that is versioned, reviewed, backed up, and TLS-terminated the same way as the other workloads on the cluster. If you already run k3s, that's the better trade.
 
 <NewsletterCTA />

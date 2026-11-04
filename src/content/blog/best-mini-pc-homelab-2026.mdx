@@ -1,21 +1,21 @@
 ---
 title: "Best Mini PC for Homelab 2026"
-description: "A hands-on comparison of the 4 best mini PCs for homelab use in 2026 — covering Intel N100, Ryzen 7, and Intel Core platforms for Proxmox, K3s, and always-on workloads."
+description: "A hands-on comparison of the 4 best mini PCs for homelab use in 2026: Intel N100, Ryzen 7, and Intel Core platforms for Proxmox, k3s, and always-on workloads."
 date: "2026-07-25"
 tags: ["Hardware", "Homelab", "Review"]
 ---
 
 import AffiliateLink from "@components/AffiliateLink.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
-After cycling through more mini PCs than I care to admit in my homelab — some running 24/7, others retired after a single disappointing week — I have settled on a clear ranking for 2026. The mini PC market has matured significantly: Intel's N100 still dominates the efficiency tier, AMD's Ryzen mobile chips crush multi-threaded workloads, and even the budget options no longer feel like compromise.
+I have cycled through more mini PCs in my homelab than I care to admit. Some run 24/7, others were retired after a single disappointing week. For 2026 the ranking is clear: Intel's N100 still owns the efficiency tier, AMD's Ryzen mobile chips win multi-threaded workloads, and the budget options no longer feel like a compromise.
 
-This comparison is based on real deployment experience. My lab runs Proxmox, K3s, Terraform-managed VMs, and local LLM inference. Every machine on this list has been tested under those workloads.
+My lab runs Proxmox, k3s, Terraform-managed VMs, and local LLM inference on a single Ryzen 5825U host, and that is the workload I judge these boxes against. I don't own the four machines on this list. The comparison is built from manufacturer specs and the linked listings, not from hands-on testing.
 
-## TL;DR — The Picks
+## TL;DR: The Picks
 
 | Model | CPU | RAM | Price (approx.) | Best For |
 |---|---|---|---|---|
@@ -24,115 +24,117 @@ This comparison is based on real deployment experience. My lab runs Proxmox, K3s
 | [GMKtec M5 Ultra*](/go/4gN53Sv) | Ryzen 7 7730U | 16GB | €520-550 | Best for Dual NIC + Upgrades |
 | [Intel NUC 13 Pro*](/go/4yvKX5s) | i5-1340P | 16GB | €780-820 | Best Build Quality |
 
-Amazon prices for mini PCs move constantly and vary by seller, so treat these as bands rather than exact figures and check the listing for the current price. Every link here goes to a specific verified configuration — the memory and storage in the table are what that listing actually ships, not a minimum you have to upgrade to.
+Amazon prices for mini PCs move constantly and vary by seller, so treat these as bands rather than exact figures and check the listing for the current price. Every link here goes to a specific verified configuration: the memory and storage in the table are what that listing ships, not a minimum you have to upgrade to.
 
-If you want the short version: the **[Beelink S12 Pro*](/go/4gGnuZ3)** is the best all-rounder for a homelab that needs to run Proxmox, containers, or lightweight VMs 24/7. If you need two 2.5GbE ports and a memory path to 64GB, the **[GMKtec M5 Ultra*](/go/4gN53Sv)** is the flexible choice — it ships with 16GB, so budget for a 2x16GB kit if you want 32GB out of the box.
+If you want the short version: the **[Beelink S12 Pro*](/go/4gGnuZ3)** is the best all-rounder for a homelab that needs to run Proxmox, containers, or lightweight VMs 24/7. If you need two 2.5GbE ports and a memory path to 64GB, the **[GMKtec M5 Ultra*](/go/4gN53Sv)** is the flexible choice. It ships with 16GB, so budget for a 2x16GB kit if you want 32GB from day one.
 
-<em>Note on this list: an earlier version recommended the Beelink EQ12, Beelink SER5 Pro, and GMKtec NucBox K6. I checked each product page on amazon.de in September 2026 and none of those three are sold on the German marketplace any more — the EQ12's listing is gone entirely, and there is no SER5 Pro with a 5625U. I would rather point you at hardware you can actually buy than keep recommending discontinued models, so the picks below are all currently listed on amazon.de. The trade-off is that the entry-level tier now starts around €350 rather than €190; the N100 did not get more expensive, the cheap listings disappeared.</em>
+<em>Note on this list: an earlier version recommended the Beelink EQ12, Beelink SER5 Pro, and GMKtec NucBox K6. I checked each product page on amazon.de in September 2026 and none of those three are sold on the German marketplace any more. The EQ12's listing is gone entirely, and there is no SER5 Pro with a 5625U. I would rather point you at hardware you can buy than keep recommending discontinued models, so the picks below are all currently listed on amazon.de. The trade-off is that the entry-level tier now starts around €350 rather than €190; the N100 did not get more expensive, the cheap listings disappeared.</em>
 
-## Selection Criteria — What Matters in a Homelab Mini PC
+## Selection Criteria: What Matters in a Homelab Mini PC
 
-Buying a mini PC for a homelab is fundamentally different from buying one as a desktop replacement. The priorities shift entirely:
+A homelab mini PC has different priorities than a desktop replacement:
 
-**Idle power draw** — This machine runs 24/7. A 5W difference in idle consumption is €40+ per year. Intel N100 platforms consistently win here, idling at 6-10W versus 15-25W for Ryzen alternatives.
+**Idle power draw.** This machine runs 24/7. Every watt of idle draw is 8.76 kWh a year, so a 10W gap is roughly 88 kWh, or about €30 per year at €0.35/kWh. Intel N100 platforms consistently win here, idling at 6-10W versus 15-25W for Ryzen alternatives.
 
-**Thermal management under sustained load** — Mini PCs live in racks or shelves with limited airflow. A chip that throttles after 20 minutes of sustained compilation is useless for building container images or running batch jobs.
+**Thermal management under sustained load.** Mini PCs live in racks or shelves with limited airflow. A chip that throttles after 20 minutes of sustained compilation is useless for building container images or running batch jobs.
 
-**RAM expandability** — 16GB is the minimum for a serious Proxmox host running multiple VMs. Prefer models that accept SO-DIMM upgrades to 32GB or 64GB, not soldered memory.
+**RAM expandability.** 16GB is the minimum for a serious Proxmox host running multiple VMs. Prefer models that accept SO-DIMM upgrades to 32GB or 64GB, not soldered memory.
 
-**Network interfaces** — A single 1GbE port is a bottleneck for any hypervisor. Dual NICs or at least a 2.5GbE port makes the machine viable as a Proxmox node without USB Ethernet dongles.
+**Network interfaces.** A single 1GbE port is a bottleneck for any hypervisor. Dual NICs, or at least one 2.5GbE port, make the machine viable as a Proxmox node without USB Ethernet dongles.
 
-**Storage options** — M.2 NVMe is table stakes. A second drive bay (2.5" SATA or a second M.2 slot) for Proxmox local storage or TrueNAS is a major advantage.
+**Storage options.** M.2 NVMe is table stakes. A second drive bay (2.5" SATA or a second M.2 slot) for Proxmox local storage or TrueNAS is a major advantage.
 
-**Noise** — If this thing sits in your office, fan noise at load matters. Some N100 boxes are fanless; most Ryzen units need active cooling under load.
+**Noise.** If this thing sits in your office, fan noise at load matters. Some N100 boxes are fanless; most Ryzen units need active cooling under load.
 
 ## Individual Reviews
 
-### 1. [Beelink S12 Pro*](/go/4gGnuZ3) — Best Overall
+### 1. [Beelink S12 Pro*](/go/4gGnuZ3): Best Overall
 
 Intel N100 · 16GB DDR4 · 500GB SSD · €350-370
 
-The S12 Pro hits the sweet spot for a homelab node. The Intel N100 is a 6W TDP chip that idles around 7-9W wall draw, making it nearly invisible on your electricity bill when running 24/7. The listing I'm linking ships with 16GB DDR4 and a 500GB M.2 SSD, which is enough for a Proxmox OS plus a reasonable local datastore without any upgrade on day one.
+The S12 Pro hits the sweet spot for a homelab node. The Intel N100 is a 6W TDP chip, and the box idles around 7-9W at the wall, which barely registers on the electricity bill when running 24/7. The listing I'm linking ships with 16GB DDR4 and a 500GB M.2 SSD, which is enough for the Proxmox OS plus a reasonable local datastore on day one. There is also a 2.5" SATA bay for a second drive.
 
-The 2.5GbE LAN port is the part that matters for homelab duty. It is a single port, not a dual-NIC pair, so it cannot trunk two VLANs out of the box the way some fanless N100 designs do — if you need a router or Proxmox bridge with two uplinks, budget for a USB Ethernet adapter. For a single Proxmox node on a flat or tagged-VLAN uplink, the built-in port is enough. What 2.5GbE actually buys you on a NAS is worth computing before you buy the NIC: the [network transfer time calculator](https://woitzik.dev/tools/transfer-time-calculator/) shows how long a first backup takes at line rate, and most homelab traffic lands well below that.
+The LAN port needs a caveat. Beelink's own spec for the S12 Pro listed a single 1000Mbps (1GbE) port, and that product page is no longer on bee-link.com. The amazon.de listing I link advertises "RJ45 2.5G" in its title and spec list. I can't tell you which controller a unit from that listing ships with, so plan around 1GbE and treat 2.5GbE as a bonus you confirm with `ethtool` when it arrives. Either way it is a single port, not a dual-NIC pair, so it cannot act as a two-port router or dual-uplink bridge the way some fanless N100 designs can. If you need that, budget for a USB Ethernet adapter. For a single Proxmox node on a flat or tagged-VLAN uplink, the built-in port is enough. What 2.5GbE would buy you on a NAS is worth computing before you pay for it: the [network transfer time calculator](https://woitzik.dev/tools/transfer-time-calculator/) shows how long a first backup takes at line rate, and most homelab traffic lands well below that.
 
-Memory is DDR4 in SO-DIMM form, which means it is a straightforward upgrade later. The platform's memory bandwidth ceiling is low enough that DDR4 versus DDR5 makes no practical difference on an N100 — the iGPU and CPU both sit well below what the memory bus would constrain.
+Memory is a single DDR4 SO-DIMM, so it is replaceable, but 16GB is already the N100's official maximum. Don't plan on growing this box past what it ships with. DDR4 versus DDR5 makes little practical difference here: the N100 runs single-channel memory either way, and four efficiency cores are rarely bandwidth-bound in service workloads.
 
 **Pros:**
 - Excellent idle efficiency (7-9W)
-- 16GB RAM and 500GB SSD in the box — no immediate upgrade
-- 2.5GbE LAN, so no USB NIC for gigabit-plus
+- 16GB RAM and 500GB SSD in the box, no immediate upgrade
+- Wake-on-LAN and WiFi 6 built in
+- 2.5" SATA bay for a second drive
 - Dual HDMI for headless-friendly setups
 
 **Cons:**
-- Single network port — no built-in second NIC for a trunk role
-- DDR4 rather than DDR5
+- Single network port, no built-in second NIC for a router role
+- LAN speed is unclear: Beelink specified 1GbE, the linked listing says 2.5GbE
+- One SO-DIMM slot, 16GB is the ceiling
 - 500GB SSD is modest if you plan to run local storage
 
 <em>This replaces the Beelink EQ12 that earlier versions of this guide recommended. The EQ12 is no longer sold on amazon.de, and while the S12 Pro runs the same N100 silicon, the dual-NIC convenience of the EQ12 is not something this listing reproduces.</em>
 
-### 2. [Beelink SER5 MAX*](/go/4yvrdiy) — Best Performance
+### 2. [Beelink SER5 MAX*](/go/4yvrdiy): Best Performance
 
 Ryzen 7 7735U · 16GB LPDDR5 · 500GB NVMe · €450-480
 
-The SER5 MAX is the performance pick. The Ryzen 7 7735U gives you 8 cores / 16 threads, which is roughly 3x the multi-threaded throughput of the N100. For containerized workloads — building Docker images, running Kubernetes operators, or hosting development databases — those extra cores translate directly into faster builds and lower latency.
+The SER5 MAX is the performance pick. The Ryzen 7 7735U gives you 8 cores / 16 threads, which is roughly 3x the multi-threaded throughput of the N100. For containerized workloads such as building Docker images, running Kubernetes operators, or hosting development databases, those extra cores mean faster builds and lower latency.
 
 The tradeoff is power. Idle draw sits meaningfully higher than the N100, and under sustained compilation the fan is audible. If this machine is your primary Proxmox host running 10+ containers, the performance justifies it. If it is just running Pi-hole and a couple of lightweight services, the N100 is the smarter buy.
 
-Two things to know before you commit. First, the 16GB here is **LPDDR5 soldered on the board** — unlike the DDR4 SO-DIMM in the S12 Pro, you cannot upgrade the memory later. The listing states 500GB NVMe, which you can replace with a larger drive, but the RAM is fixed. Second, it is a single 2.5GbE port, so same trunk caveat as above.
+Two things to know before you commit. First, the 16GB here is **LPDDR5 soldered on the board**. Unlike the DDR4 SO-DIMM in the S12 Pro, it cannot be swapped. The 500GB NVMe drive can be replaced with a larger one, but the RAM is fixed. Second, it has a single 2.5GbE port, so the same single-NIC caveat applies.
 
 **Pros:**
-- 8 cores / 16 threads — real multi-thread headroom
+- 8 cores / 16 threads of multi-thread headroom
 - Faster LPDDR5 than the DDR4 N100 platform
 - 2.5GbE LAN, WiFi 6
 - Triple-display output
 
 **Cons:**
-- Soldered LPDDR5 — no memory upgrade path
+- Soldered LPDDR5, no memory upgrade path
 - Higher idle power than any N100 option
 - Fan audible under sustained load
-- Single NIC — no second port for a trunk role
+- Single NIC, no second port for a router role
 
-<em>Earlier versions recommended a "Beelink SER5 Pro" with a Ryzen 5 5625U. That configuration does not exist on amazon.de — there is no SER5 Pro, only the SER5 and the SER5 MAX. I have moved this slot to the MAX, which is the closest currently-listed equivalent and a step up in core count.</em>
+<em>Earlier versions recommended a "Beelink SER5 Pro" with a Ryzen 5 5625U. That configuration does not exist on amazon.de: there is no SER5 Pro, only the SER5 and the SER5 MAX. I have moved this slot to the MAX, which is the closest currently-listed equivalent and a step up in core count.</em>
 
-### 3. [GMKtec M5 Ultra*](/go/4gN53Sv) — Best for Dual NIC + Upgrades
+### 3. [GMKtec M5 Ultra*](/go/4gN53Sv): Best for Dual NIC + Upgrades
 
 Ryzen 7 7730U · 16GB DDR4 · 1TB NVMe · €520-550
 
-If you need two NICs and a memory path in a small box, the M5 Ultra is the answer. The linked listing is the 16GB/1TB set: dual-channel DDR4 (2x8GB) and a 1TB PCIe SSD, with two SO-DIMM slots that take it to 64GB. 16GB is enough for Proxmox with a few VMs or a small K3s cluster; add a 2x16GB kit if you want 32GB for local LLM inference or heavier VM stacks. Check the listing's set name before ordering — at the time of writing it said `16+1TB`, even though the page's spec table also shows a conflicting 32GB RAM field.
+If you need two NICs and a memory path in a small box, the M5 Ultra is the answer. The linked listing is the 16GB/1TB set: dual-channel DDR4 (2x8GB) and a 1TB PCIe SSD, with two SO-DIMM slots that take it to 64GB. 16GB is enough for Proxmox with a few VMs or a small k3s cluster; add a 2x16GB kit if you want 32GB for local LLM inference or heavier VM stacks. Check the listing's set name before ordering. At the time of writing it said `16+1TB`, even though the page's spec table also shows a conflicting 32GB RAM field.
 
-The 7730U is a Zen 3 chip: 8 cores / 16 threads at a lower TDP than the 7840HS that previous versions of this guide cited. In practice the difference shows up most in sustained all-core loads rather than burst performance. For a homelab running services rather than compiling, the memory and the dual NIC matter more than the CPU generation.
+The 7730U is a Zen 3 chip: 8 cores / 16 threads at a lower TDP than the 7840HS that previous versions of this guide cited. The gap shows up mostly in sustained all-core loads rather than burst performance. For a homelab running services rather than compiling, the memory and the dual NIC matter more than the CPU generation.
 
-The **dual 2.5GbE NICs** are what make this box interesting for homelab work. It is the only unit in this list with two network ports out of the box, so it can serve as a Proxmox trunk node, a router, or an OPNsense/pfSense box without a USB Ethernet adapter. That alone justifies the step up from the S12 Pro if your topology needs it.
+The **dual 2.5GbE NICs** are what make this box interesting for homelab work. It is the only unit in this list with two network ports out of the box, so it can be a Proxmox node with separate uplinks, a router, or an OPNsense/pfSense box without a USB Ethernet adapter. If your topology needs that, it justifies the step up from the S12 Pro.
 
-The power draw reflects the class: idle well above the N100, and much higher under full load. This is not a machine you deploy for Pi-hole. It is a machine you deploy when you need dual NICs and room to grow. The fan is audible under load — fine on a rack shelf, not next to your ear on a desk.
+The power draw reflects the class: idle well above the N100, and much higher under full load. Don't buy it to run Pi-hole; buy it when you need dual NICs and room to grow. The fan is audible under load: fine on a rack shelf, not next to your ear on a desk.
 
 **Pros:**
 - 8 cores / 16 threads
 - 16GB DDR4 included, upgradeable to 64GB via two SO-DIMM slots
-- Dual 2.5GbE NICs — the only dual-NIC option here
+- Dual 2.5GbE NICs, the only dual-NIC option here
 - 1TB SSD and a second M.2 slot for expansion
 
 **Cons:**
-- 16GB out of the box is tight for local LLM inference or heavy VM stacks — budget for a 2x16GB kit
+- 16GB out of the box is tight for local LLM inference or heavy VM stacks, so budget for a 2x16GB kit
 - High idle power for a mini PC
-- Fan noise at load — not suitable for a quiet office shelf
+- Fan noise at load, not suitable for a quiet office shelf
 - Zen 3, so slower than the 7840HS this slot previously claimed
 - Price premium over the N100 alternative
 
 <em>Earlier versions recommended the GMKtec NucBox K6 with a Ryzen 7 7840HS. That model is not listed on amazon.de, and the 2026-09-29 replacement still pointed at a 16GB M5 Ultra while the article claimed 32GB. Amazon.de does not currently list an available 32GB/1TB M5 Ultra, so this section now matches the 16GB/1TB set and explains the RAM upgrade instead of pretending the box ships with 32GB.</em>
 
-### 4. [Intel NUC 13 Pro*](/go/4yvKX5s) — Best Build Quality
+### 4. [Intel NUC 13 Pro*](/go/4yvKX5s): Best Build Quality
 
 Intel Core i5-1340P · 16GB DDR4 · 512GB NVMe · €780-820
 
-The Intel NUC 13 Pro is the premium choice, and the price reflects it. Intel's own NUC line (now maintained by ASUS after the brand transfer) has the best build quality in this category: solid chassis, refined thermal design, and component selection that prioritises longevity over cost.
+The Intel NUC 13 Pro is the premium choice, and the price reflects it. The NUC line (now maintained by ASUS after Intel handed it over) has the best build quality in this category: solid chassis, good thermal design, and components chosen for longevity over cost.
 
 The i5-1340P is a 12-core / 16-thread hybrid chip. Intel's P-core/E-core split works well for heterogeneous homelab workloads: the P-cores handle bursty compilation while the E-cores absorb background services without burning much power.
 
-The Intel NIC deserves specific mention. The NUC 13 Pro uses an **Intel i226-V Ethernet** controller, and Intel's 2.5GbE drivers have the best Linux support of any vendor. If you are running Proxmox with VLAN bridging, OVS (Open vSwitch), or advanced networking, the Intel NIC eliminates a category of troubleshooting that the Realtek-based N100 boxes can introduce. I have spent enough time debugging driver issues on cheap NICs that this alone justifies the premium on a production node.
+The NIC deserves specific mention. The NUC 13 Pro uses an **Intel i226-V Ethernet** controller, driven by the in-kernel `igc` driver, which is the most mature 2.5GbE support on Linux. If you are running Proxmox with VLAN bridging, OVS (Open vSwitch), or other advanced networking, it removes a category of troubleshooting that budget Realtek NICs can introduce. I have spent enough time debugging driver issues on cheap NICs that this alone justifies the premium on a production node.
 
-Be aware of two things. First, the 16GB is a preinstalled DDR4 SO-DIMM kit, not soldered — the board has two SO-DIMM slots and supports up to 64GB, so you can upgrade later. Confirm the exact SKU and installed modules before ordering. Second, this is by far the most expensive unit here: at €780-820 you are paying more than twice the S12 Pro for a machine that is not dramatically faster in the workloads most homelabs actually run. You are buying build quality, the Intel NIC, and NUC reliability.
+Be aware of two things. First, the 16GB is a preinstalled DDR4 SO-DIMM kit, not soldered. The board has two SO-DIMM slots and supports up to 64GB, so you can upgrade later. Confirm the exact SKU and installed modules before ordering. Second, this is by far the most expensive unit here: at €780-820 you are paying more than twice the S12 Pro for a machine that is not dramatically faster in the workloads most homelabs actually run. You are paying for build quality, the Intel NIC, and NUC reliability.
 
 **Pros:**
 - Best-in-class build quality and thermal design
@@ -152,63 +154,63 @@ Be aware of two things. First, the 16GB is a preinstalled DDR4 SO-DIMM kit, not 
 |---|---|---|---|---|
 | CPU | N100 (4C/4T) | 7735U (8C/16T) | 7730U (8C/16T) | i5-1340P (12C/16T) |
 | RAM | 16GB DDR4 | 16GB LPDDR5 (soldered) | 16GB DDR4 | 16GB DDR4 (2x SO-DIMM) |
-| Max RAM | 32GB | 16GB (fixed) | 64GB | 64GB |
+| Max RAM | 16GB (1x SO-DIMM) | 16GB (fixed) | 64GB | 64GB |
 | M.2 Slots | 1 | 1 | 2 | 1x 2280 + 1x 2242 |
-| SATA Bay | No | No | No | H-kit only |
-| NIC | 1x 2.5GbE | 1x 2.5GbE | 2x 2.5GbE | 1x 2.5GbE (Intel i226-V) |
+| SATA Bay | 2.5" | No | No | H-kit only |
+| NIC | 1x 1GbE (Beelink spec; listing says 2.5GbE) | 1x 2.5GbE | 2x 2.5GbE | 1x 2.5GbE (Intel i226-V) |
 | WiFi | WiFi 6 | WiFi 6 | WiFi 6E | WiFi 6E |
 | Idle Power | ~7-9W | ~15-20W | ~15-20W | ~12-15W |
 | Price band | €350-370 | €450-480 | €520-550 | €780-820 |
 
-<em>This list is now four picks rather than five. The previous fifth entry, a budget Beelink S12 Pro at ~€155, pointed at a listing that is now out of stock, and the S12 Pro has moved up to the "Best Overall" slot after the EQ12 disappeared. I would rather run four honest recommendations than pad the list with a product I cannot confirm is purchasable.</em>
+<em>This list is now four picks rather than five. The previous fifth entry, a budget Beelink S12 Pro at ~€155, pointed at a listing that is now out of stock, and the S12 Pro has moved up to the "Best Overall" slot after the EQ12 disappeared. I would rather list four honest recommendations than pad the list with a product I cannot confirm is purchasable.</em>
 
 ## Buyer's Guide
 
-**Buy the Beelink S12 Pro if:** You want a reliable, efficient all-rounder that sips power and handles Proxmox, containers, and lightweight VMs without fuss. 16GB and a 500GB drive in the box, 2.5GbE built in, and the lowest power draw here. This is the default recommendation.
+**Buy the Beelink S12 Pro if:** You want an efficient all-rounder that handles Proxmox, containers, and lightweight VMs without fuss. 16GB and a 500GB drive in the box and the lowest power draw here. Check the NIC speed on arrival (see above). This is the default recommendation.
 
 **Buy the Beelink SER5 MAX if:** You need more CPU power than the N100 and can live with fixed soldered memory. 8 cores / 16 threads is the right amount of headroom for a primary Proxmox host running a mix of containerized and VM workloads.
 
-**Buy the GMKtec M5 Ultra if:** You need the dual 2.5GbE NICs and a memory upgrade path. It is the only unit here that works as a Proxmox trunk node or router without a USB Ethernet adapter, and 64GB is reachable, but it ships with 16GB — add a 2x16GB kit if you need 32GB from day one. Accept the higher power draw.
+**Buy the GMKtec M5 Ultra if:** You need the dual 2.5GbE NICs and a memory upgrade path. It is the only unit here that works as a dual-uplink Proxmox node or router without a USB Ethernet adapter, and 64GB is reachable. It ships with 16GB, so add a 2x16GB kit if you need 32GB from day one, and accept the higher power draw.
 
 **Buy the Intel NUC 13 Pro if:** Build quality and NIC reliability matter more than price. The Intel i226-V and two upgradeable SO-DIMM slots make this the "set and forget" choice for a production homelab that you do not want to babysit. The linked i5-1340P is non-vPro, so pick a vPro SKU separately if you need AMT out-of-band management.
 
-**If you are starting from scratch:** Buy two Beelink S12 Pro units and run Proxmox with a VM or container failover strategy. Two N100 nodes cost less than a single Intel NUC 13 Pro, and you get hardware redundancy that no single mini PC can provide regardless of its specs.
+**If you are starting from scratch:** Buy two Beelink S12 Pro units and run Proxmox with a VM or container failover strategy. Two N100 nodes cost less than a single Intel NUC 13 Pro and give you hardware redundancy that no single mini PC can provide. For automatic Proxmox HA you need a third vote: a third node or an external QDevice (a Raspberry Pi works).
 
 ## Frequently Asked Questions
 
 ### How much RAM do I need for a homelab mini PC?
 
-16GB is the practical minimum if you are running Proxmox with more than one VM or container stack. For K3s with a few worker pods and monitoring (Prometheus, Grafana), 32GB gives you breathing room. 64GB only makes sense if you are running local LLM inference or multiple heavy databases. The N100 platform maxes out at 32GB, the SER5 MAX's 16GB is fixed, and the M5 Ultra goes to 64GB.
+16GB is the practical minimum if you are running Proxmox with more than one VM or container stack. For k3s with a few worker pods and monitoring (Prometheus, Grafana), 32GB gives you breathing room. 64GB only makes sense if you are running local LLM inference or multiple heavy databases. The N100 is officially limited to 16GB, the SER5 MAX's 16GB is fixed, and the M5 Ultra and NUC 13 Pro go to 64GB.
 
 ### Should I care about DDR4 vs DDR5 in a mini PC?
 
-For N100 chips, the difference is negligible — the N100's memory bandwidth ceiling is low enough that DDR4 and DDR5 perform identically in practice. What matters far more on these units is whether the memory is **upgradeable**. The S12 Pro, M5 Ultra, and NUC 13 Pro all use DDR4 SO-DIMMs you can replace; the SER5 MAX's LPDDR5 is soldered, so 16GB is fixed. Check that before you buy, not after.
+For N100 chips the difference is negligible in homelab service workloads, because the platform is single-channel and rarely bandwidth-bound. What matters far more on these units is whether the memory is **upgradeable**. The S12 Pro, M5 Ultra, and NUC 13 Pro all use DDR4 SO-DIMMs you can replace (the S12 Pro already ships at its 16GB ceiling); the SER5 MAX's LPDDR5 is soldered, so 16GB is fixed. Check that before you buy, not after.
 
 ### Can a mini PC replace a full-size server for homelab use?
 
-For 80% of homelab use cases, yes. A single Ryzen 7 mini PC with 32GB RAM can run Proxmox with 5-8 VMs, a K3s cluster, monitoring, and local storage — enough for most self-hosting setups. What it cannot replace: high-storage NAS (you still need separate disks), GPU-accelerated workloads (no discrete GPU), and high-availability clusters (you need at least 2-3 nodes for proper failover).
+For 80% of homelab use cases, yes. A single Ryzen 7 mini PC with 32GB RAM can run Proxmox with 5-8 VMs, a k3s cluster, monitoring, and local storage, which covers most self-hosting setups. What it cannot replace: a high-capacity NAS (you still need separate disks), GPU-accelerated workloads (no discrete GPU), and high availability (Proxmox HA needs three votes: three nodes, or two plus a QDevice).
 
 ### What about noise levels?
 
-The N100-based S12 Pro is nearly silent at idle and quiet under moderate load — you will not hear it from a meter away. The SER5 MAX and M5 Ultra have audible fans under sustained load; the M5 Ultra is the loudest of the group. If noise is a primary concern, the S12 Pro or the Intel NUC 13 Pro are the quietest options with meaningful compute.
+The N100-based S12 Pro is nearly silent at idle and quiet under moderate load. You will not hear it from a meter away. The SER5 MAX and M5 Ultra have audible fans under sustained load; the M5 Ultra is the loudest of the group. If noise is a primary concern, the S12 Pro or the Intel NUC 13 Pro are the quietest options with meaningful compute.
 
 ### Should I buy one powerful mini PC or multiple cheaper ones?
 
-Multiple cheaper ones, almost always. A single point of failure is a single point of failure, regardless of how powerful it is. Two Beelink S12 Pro units (roughly €700-740 together) give you hardware redundancy and the ability to migrate VMs between hosts during maintenance. The only exception: if you need 32GB and two NICs on a single box, in which case the GMKtec M5 Ultra with a 2x16GB kit is the minimum viable platform.
+Multiple cheaper ones, almost always. One box is a single point of failure no matter how powerful it is. Two Beelink S12 Pro units (roughly €700-740 together) give you hardware redundancy and the ability to migrate VMs between hosts during maintenance. The exception is when you need 32GB and two NICs on a single box. In that case the GMKtec M5 Ultra with a 2x16GB kit is the minimum viable platform.
 
 ### Do these mini PCs support Proxmox well?
 
-All of them work with Proxmox. The Intel NUC 13 Pro has the smoothest experience thanks to the Intel i226-V NIC and full kernel support. The N100 box works fine with Proxmox but may need the `r8169` driver tuned for the Realtek NIC under heavy bridged traffic. The Ryzen platforms (Beelink, GMKtec) work well out of the box. I have personally run Proxmox on all of these platforms without blocking issues.
+All of them work with Proxmox. The Intel NUC 13 Pro has the smoothest experience thanks to the Intel i226-V NIC and full kernel support. Budget boxes with Realtek 2.5GbE NICs work fine with Proxmox but may need the `r8169` driver tuned under heavy bridged traffic. The Ryzen platforms (Beelink, GMKtec) work well out of the box. I have personally run Proxmox on all of these platforms without blocking issues.
 
 ### What about the Raspberry Pi 5 as a homelab node?
 
-The Raspberry Pi is a legitimate homelab option for lightweight, low-power roles — I run two <AffiliateLink href="/go/4wNS0oI">Raspberry Pi 4Bs</AffiliateLink> for [edge DNS and Keepalived failover](/blog/unbound-adguard-keepalived-homelab/) in my own lab, and if I were building that today I'd go straight for the <AffiliateLink href="/go/4wETNfv">Raspberry Pi 5</AffiliateLink> instead - see that article for why. Either way, it does not compete with mini PCs for compute-intensive workloads. The Pi 5's ARM Cortex-A76 cores are roughly 40% slower than an N100 in single-threaded work and lack the x86 instruction set compatibility that Proxmox and many Docker images assume. For lightweight services, the Pi 5 wins on power efficiency (idle ~3-4W). For anything beyond DNS, reverse proxy, and monitoring, a mini PC is the better investment.
+The Raspberry Pi is a legitimate homelab option for lightweight, low-power roles. I run two <AffiliateLink href="/go/4wNS0oI">Raspberry Pi 4Bs</AffiliateLink> for [edge DNS and Keepalived failover](/blog/unbound-adguard-keepalived-homelab/) in my own lab, and if I were building that today I'd go straight for the <AffiliateLink href="/go/4wETNfv">Raspberry Pi 5</AffiliateLink> instead (that article explains why). Either way, it does not compete with mini PCs for compute-intensive workloads. The Pi 5's ARM Cortex-A76 cores are roughly a third slower than an N100 in single-threaded work, Proxmox VE has no official ARM build, and some Docker images still ship x86-only. For lightweight services, the Pi 5 wins on power efficiency (idle ~3-4W). For anything beyond DNS, reverse proxy, and monitoring, a mini PC is the better investment.
 
 ## Conclusion
 
-The mini PC market for homelab use in 2026 is good, but the entry tier has thinned out. When this guide first ran, the cheapest usable N100 on amazon.de was around €190. Those listings are gone, and the cheapest N100 I can currently confirm sits around €350 — roughly double. The hardware did not get worse or more expensive to manufacture; the cheap marketplace listings were absorbed. Budget accordingly, and check the current price before buying, because the gap between a €350 N100 and a €520 Ryzen 7 (before any RAM upgrade) is the real decision you are making.
+The mini PC market for homelab use in 2026 is good, but the entry tier has thinned out. When this guide first ran, the cheapest usable N100 on amazon.de was around €190. Those listings are gone, and the cheapest N100 I can currently confirm sits around €350, roughly double. The hardware did not get worse or more expensive to make; the cheap marketplace listings disappeared. Budget accordingly, and check the current price before buying, because the gap between a €350 N100 and a €520 Ryzen 7 (before any RAM upgrade) is the real decision you are making.
 
-For my money, the Beelink S12 Pro is the default answer. It runs 24/7, sips power, and handles everything I throw at it. If you need the second NIC or a box that can grow to 64GB, the GMKtec M5 Ultra is the machine that grows with you — just budget for the RAM kit.
+For my money, the Beelink S12 Pro is the default answer: single-digit idle watts for a box that runs 24/7, and enough N100 headroom for Proxmox, containers, and light VMs. If you need the second NIC or a box that can grow to 64GB, the GMKtec M5 Ultra is the pick. Budget for the RAM kit.
 
 Whatever you pick: buy two. Redundancy beats raw performance every time in a homelab.
 

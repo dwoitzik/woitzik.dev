@@ -1,17 +1,19 @@
 ---
 title: "HA DNS for Homelab: Unbound + AdGuard Home + Keepalived on Raspberry Pi"
-description: "A two-node recursive DNS stack with ad filtering, automatic config sync, and transparent failover - fully managed with Ansible."
+description: "A two-node recursive DNS stack on Raspberry Pi with ad filtering, automatic config sync, and transparent failover, fully managed with Ansible."
 date: "2026-06-27"
 tags: ["Homelab", "Networking", "DNS"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-DNS is the most critical service in any network. If it goes down, nothing works - browsers can't resolve hostnames, services can't reach each other, and the error messages are uniformly unhelpful. In a homelab, a single DNS server is a single point of failure.
+DNS is the most critical service in any network. If it goes down, nothing works: browsers can't resolve hostnames, services can't reach each other, and the error messages are uniformly unhelpful. In a homelab, a single DNS server is a single point of failure.
 
-This is the DNS architecture running on two Raspberry Pi 4B edge nodes ([starter set\*](/go/4wNS0oI)) in my homelab. If you're building this today, go straight for the [Raspberry Pi 5\*](/go/4wETNfv), the performance jump for containerized workloads is massive: Unbound as a recursive resolver, AdGuard Home for filtering, and Keepalived for automatic failover. The whole stack is managed with Ansible.
+This is the DNS architecture running on two Raspberry Pi 4B edge nodes ([starter set\*](/go/4wNS0oI)) in my homelab: Unbound as a recursive resolver, AdGuard Home for filtering, and Keepalived for automatic failover. The whole stack is managed with Ansible. If you're building this today, go straight for the [Raspberry Pi 5\*](/go/4wETNfv), which has a much faster CPU than the 4B.
+
+> **Update (November 2026):** The code blocks below now match the Ansible roles in the repo. The earlier version had a container healthcheck that queried port 5335 inside the container (Unbound listens on 53 there, so it could never pass), an empty `forward-zone` block, and a DNSSEC trust-anchor line that the real config does not have. That last one matters: without a trust anchor, Unbound does not validate DNSSEC. Checked live on 2026-11-04, `dnssec-failed.org` resolves with `NOERROR` and no answer carries the `ad` flag. See [the DNSSEC section](#dnssec-is-not-validated-yet) below.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -36,13 +38,13 @@ Virtual IP 10.0.20.5 (Keepalived VIP)
         Root DNS servers (no upstream forwarder)
 ```
 
-Clients point to a single IP (the VIP). If the primary Pi fails, Keepalived moves the VIP to the backup node within seconds. No client reconfiguration, no DNS TTL wait.
+Clients point to a single IP (the VIP). If the primary Pi fails, Keepalived moves the VIP to the backup node within a few seconds. No client reconfiguration, no DNS TTL wait.
 
 ## Why Recursive Resolution
 
 Most homelab DNS setups forward queries to a public upstream (Cloudflare, Google, Quad9). That works, but every query you make is visible to a third party.
 
-Unbound resolves queries by starting at the DNS root servers and following delegations down - the same way authoritative DNS actually works. No single upstream sees your full query history. The trade-off is slightly higher first-query latency; subsequent queries are cached locally.
+Unbound resolves queries by starting at the DNS root servers and following delegations down to the authoritative server for each zone. No single upstream sees your full query history. Your ISP can still see the queries, since recursion runs over plain, unencrypted DNS. The trade-off is slightly higher latency on the first lookup of a name; repeat queries are answered from the local cache.
 
 ## Step 1: Unbound Ansible Role
 
@@ -56,26 +58,36 @@ Unbound runs in Docker on each Pi. The Ansible role deploys the Compose stack an
     state: directory
     mode: '0755'
 
+- name: Copy root hints
+  ansible.builtin.copy:
+    src: root.hints
+    dest: /opt/unbound/conf/root.hints
+    mode: '0644'
+  notify: Restart Unbound
+
 - name: Deploy Unbound configuration
   ansible.builtin.template:
     src: unbound.conf.j2
     dest: /opt/unbound/conf/unbound.conf
+    mode: '0644'
   notify: Restart Unbound
 
 - name: Deploy Unbound Docker Compose stack
   ansible.builtin.copy:
     dest: /opt/unbound/docker-compose.yml
+    mode: '0644'
     content: |
       services:
         unbound:
-          image: klutchell/unbound:latest
+          image: klutchell/unbound:1.26.1@sha256:9a3939ca33d6d3b42b81a70391bb8e43f0a08d2bd7a3fdffb43d427493345c36
           container_name: unbound
           restart: unless-stopped
+          mem_limit: 256m
           ports:
             - "5335:53/udp"
             - "5335:53/tcp"
           healthcheck:
-            test: ["CMD", "dig", "+short", "@127.0.0.1", "-p", "5335", "google.com"]
+            test: ["CMD", "dig", "@127.0.0.1", "google.com"]
             interval: 30s
             timeout: 10s
             retries: 3
@@ -83,15 +95,23 @@ Unbound runs in Docker on each Pi. The Ansible role deploys the Compose stack an
             - "autoheal=true"
           volumes:
             - /opt/unbound/conf/unbound.conf:/etc/unbound/unbound.conf
+            - /opt/unbound/conf/root.hints:/etc/unbound/root.hints
 
         autoheal:
-          image: willfarrell/autoheal:latest
+          image: willfarrell/autoheal:latest@sha256:7221058d5f68f4aef6eccd88417c6ae18436ad81b8f9d98a204901033b662740
           container_name: autoheal
           restart: always
+          mem_limit: 64m
           environment:
             - AUTOHEAL_CONTAINER_LABEL=autoheal
           volumes:
             - /var/run/docker.sock:/var/run/docker.sock
+  notify: Restart Unbound
+
+- name: Ensure Unbound and Autoheal are running
+  community.docker.docker_compose_v2:
+    project_src: /opt/unbound
+    state: present
 
 - name: Optimize kernel network buffers for Unbound
   ansible.posix.sysctl:
@@ -104,44 +124,107 @@ Unbound runs in Docker on each Pi. The Ansible role deploys the Compose stack an
     - { name: "net.core.wmem_max", value: "4194304" }
 ```
 
-Two things worth noting:
+**Port 5335:** Unbound listens on 53 inside the container, but Docker publishes it on host port 5335. Port 53 on the host belongs to AdGuard Home, which forwards to `127.0.0.1:5335`. The healthcheck runs inside the container, so it queries `127.0.0.1` on the default port 53. Pointing it at 5335 from inside the container fails every time, and autoheal would restart a healthy Unbound in a loop.
 
-**Port 5335** - Unbound does not bind to port 53. That port belongs to AdGuard Home. AdGuard forwards to `127.0.0.1:5335`.
+**Autoheal** watches for containers with the `autoheal=true` label and restarts them when their healthcheck fails. DNS downtime on a Pi is silent and annoying; autoheal catches it without me. A separate cron script on each Pi (`dns-healthcheck.sh` in the `rpi_optimize` role) queries AdGuard on 53 and Unbound on 5335 from the host and posts to Discord on a state change, with no dependency on the k3s monitoring stack.
 
-**Autoheal** - watches for containers with the `autoheal=true` label and restarts them if the healthcheck fails. DNS downtime on a Pi is silent and annoying; autoheal catches it automatically.
+Images are pinned by digest, so a rebuild pulls exactly what was tested, not whatever `latest` points to that day.
 
-The Unbound configuration template:
+The Unbound configuration template (abridged; the full file also carries comments and two local-zone fixes for noisy clients):
 
 ```
 # ansible/roles/unbound/templates/unbound.conf.j2
 server:
+    # Network
     interface: 0.0.0.0
     port: 53
     do-ip4: yes
+    do-ip6: no
     do-udp: yes
     do-tcp: yes
-    do-ip6: no
+    prefer-ip4: yes
 
+    # Access control
     access-control: 127.0.0.0/8 allow
     access-control: 10.0.0.0/8 allow
+    access-control: 172.16.0.0/12 allow
+    access-control: 192.168.0.0/16 allow
 
+    # Privacy & hardening
     hide-identity: yes
     hide-version: yes
+    harden-glue: yes
+    harden-dnssec-stripped: yes
+    harden-below-nxdomain: yes
+    harden-referral-path: yes
+    use-caps-for-id: yes
+    qname-minimisation: yes
 
-    # Cache settings
-    cache-min-ttl: 60
+    # Performance: RPi 4B has 4 cores, use them
+    num-threads: 4
+    msg-cache-slabs: 8
+    rrset-cache-slabs: 8
+    infra-cache-slabs: 8
+    key-cache-slabs: 8
+
+    # Cache
+    msg-cache-size: 128m
+    rrset-cache-size: 256m
+    key-cache-size: 32m
+    cache-min-ttl: 300
     cache-max-ttl: 86400
+    cache-max-negative-ttl: 300
+
+    # Prefetching and serve-stale
     prefetch: yes
+    prefetch-key: yes
+    serve-expired: yes
+    serve-expired-ttl: 86400
+    serve-expired-client-timeout: 1800
+    aggressive-nsec: yes
 
-    # DNSSEC
-    auto-trust-anchor-file: "/var/lib/unbound/root.key"
+    # Outgoing connections
+    outgoing-range: 8192
+    num-queries-per-thread: 4096
+    so-rcvbuf: 4m
+    so-sndbuf: 4m
+    so-reuseport: yes
 
-forward-zone:
-    name: "."
-    forward-first: no
+    # System
+    do-daemonize: no
+    username: "unbound"
+    chroot: ""
+
+    # Root hints
+    root-hints: "/etc/unbound/root.hints"
+
+stub-zone:
+    name: "fritz.box"
+    stub-addr: 192.168.178.1
 ```
 
-`access-control: 10.0.0.0/8 allow` permits queries from all homelab VLANs. Queries from outside that range are refused. A `/8` is 16 million addresses, which is deliberately wider than the network - it is the choice that fails safe, since a client anywhere in 10/8 can ask and only a policy decision stops it. If you would rather narrow it to the VLANs that actually exist, the [IPv4 subnet calculator](https://woitzik.dev/tools/subnet-calculator/) shows what each prefix covers and how many addresses it hands out.
+There is no `forward-zone` for `.` at all. Without one, Unbound recurses from the root hints, which is the whole point. A `forward-zone` with `name: "."` and no `forward-addr` (what the first version of this post showed) is not a valid way to say "no forwarder". The only stub zone sends `fritz.box` names to the ISP router.
+
+The access list has four entries. `10.0.0.0/8` covers the homelab VLANs. `172.16.0.0/12` is there because of Docker: AdGuard queries `127.0.0.1:5335` on the host, Docker's userland proxy forwards that into the container, and inside the container the query arrives from the bridge gateway address (172.17.0.1 on a default install), not from 127.0.0.1. Without that line Unbound would answer AdGuard with `REFUSED`. `192.168.0.0/16` covers the Fritz!Box LAN (192.168.178.0/24), whose clients also query these Pis. Unbound refuses everything else. A `/8` is 16 million addresses, far wider than the five /24 VLANs that exist. That is acceptable here because Unbound is not reachable from outside the network, but it is a convenience, not a security boundary. If you would rather narrow it to the VLANs that actually exist, the [IPv4 subnet calculator](https://woitzik.dev/tools/subnet-calculator/) shows what each prefix covers and how many addresses it hands out.
+
+### DNSSEC is not validated yet
+
+Unbound only validates DNSSEC when it has a trust anchor for the root, set with `auto-trust-anchor-file`. The `klutchell/unbound` image ships a config with that line and a `root.key` generated at build time under `/var/unbound/`, but my role mounts its own `unbound.conf` over the image's file, and that template has no trust-anchor line. `harden-dnssec-stripped` does nothing without an anchor. AdGuard's `enable_dnssec: true` does not fill the gap either: it sets the DO bit and passes through the `ad` flag from its upstream, it does not validate on its own.
+
+The live test (2026-11-04) shows it:
+
+```bash
+dig @10.0.20.2 -p 5335 dnssec-failed.org A | grep status
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 10619
+```
+
+A validating resolver returns `SERVFAIL` for that name. The fix is one line in the template, pointing at the key the image already contains:
+
+```
+    auto-trust-anchor-file: "/var/unbound/root.key"
+```
+
+RFC 5011 trust-anchor tracking rewrites that file, so it has to be writable by the `unbound` user; the image already ships it owned by `unbound:unbound`. After the change, the same `dig` should return `SERVFAIL`, and `dig +dnssec cloudflare.com` should show `ad` in the flags.
 
 ## Step 2: AdGuard Home Ansible Role
 
@@ -155,16 +238,38 @@ AdGuard runs in `network_mode: host` so it can bind to port 53 directly on the P
     content: |
       services:
         adguardhome:
-          image: adguard/adguardhome
+          image: adguard/adguardhome:v0.107.79@sha256:aba9e3bf0613be3ba3755e1fc311b126e2c24bec25e18b6483894a88283074f0
           container_name: adguardhome
           restart: always
           network_mode: host
+          mem_limit: 512m
           volumes:
             - /opt/adguardhome/work:/opt/adguardhome/work
             - /opt/adguardhome/conf:/opt/adguardhome/conf
+            - /opt/npm/letsencrypt:/opt/npm/letsencrypt:ro
+    mode: '0644'
+  notify: Restart AdGuard Home
 ```
 
-In the AdGuard UI, set the upstream DNS to `127.0.0.1:5335` (Unbound). All filtered queries that pass through AdGuard's blocklists are forwarded to Unbound for recursive resolution.
+The upstream is not set by hand in the UI. The role templates the whole `AdGuardHome.yaml`, including the DNS section:
+
+```yaml
+# ansible/roles/adguard/templates/AdGuardHome.yaml.j2 (excerpt)
+dns:
+  bind_hosts:
+    - 0.0.0.0
+  port: 53
+  upstream_dns:
+    - 127.0.0.1:5335
+  bootstrap_dns:
+    - 9.9.9.10
+    - 149.112.112.10
+  cache_enabled: true
+  cache_size: 67108864
+  cache_optimistic: true
+```
+
+Each Pi's AdGuard talks only to the Unbound on the same Pi. All queries that pass AdGuard's blocklists go to Unbound for recursive resolution. The template exists because AdGuard migrates its config schema on upgrades and changes made in the UI never make it back into the repo; it was rebuilt from the live config after that drift had already lost three DNS rewrites.
 
 <NewsletterCTA />
 
@@ -182,20 +287,21 @@ AdGuard doesn't natively replicate configuration between instances. The role use
         content: |
           services:
             adguardhome-sync:
-              image: ghcr.io/bakito/adguardhome-sync
+              image: ghcr.io/bakito/adguardhome-sync:latest@sha256:4fec72b9c580c6711036ea42db645232d86384fde687365b0d0452d38d507280
               container_name: adguardhome-sync
               restart: unless-stopped
+              mem_limit: 128m
               environment:
                 - ORIGIN_URL=http://10.0.20.2:3001
                 - ORIGIN_USERNAME=dw
-                - ORIGIN_PASSWORD={{ vault_adguard_password }}
-                - REPLICA1_URL=http://127.0.0.1:3001
-                - REPLICA1_USERNAME=dw
-                - REPLICA1_PASSWORD={{ vault_adguard_password }}
-                - CRON=*/10 * * * *
+                - ORIGIN_PASSWORD={{ adguard_ui_password }}
+                - REPLICA_URL=http://10.0.20.3:3001
+                - REPLICA_USERNAME=dw
+                - REPLICA_PASSWORD={{ adguard_ui_password }}
+                - CRON=*/15 * * * *
 ```
 
-Every 10 minutes, the replica pulls filter lists, custom rules, and settings from the primary. If the primary goes down, the replica is already up to date and takes over immediately.
+Every 15 minutes, the sync container pushes filter lists, custom rules, and settings from the primary to the replica. If the primary goes down, the replica's config is at most 15 minutes old and it serves queries immediately.
 
 ## Step 4: Keepalived for Failover
 
@@ -221,9 +327,9 @@ vrrp_instance VI_1 {
 }
 ```
 
-The primary node (`rpi-srv-01`) has priority 150, the backup has 100. As long as the primary is up, it holds the VIP. If it stops sending VRRP advertisements, the backup promotes itself and takes over the IP within ~3 seconds.
+The primary node (`rpi-srv-01`) has priority 150, the backup has 100. As long as the primary is up, it holds the VIP. If it stops sending VRRP advertisements, the backup promotes itself after the master-down interval (three advertisement intervals plus a small skew, about 3.6 seconds with `advert_int 1` and priority 100) and takes over the IP.
 
-VRRP uses multicast. If your switch filters multicast between ports ([MikroTik\*](/go/4w08b21) does by default), you need to permit `224.0.0.18` on the VLAN carrying the Pi nodes.
+VRRP advertisements are multicast to `224.0.0.18` (IP protocol 112). Both Pis sit on the same VLAN, so the router's forward chain never sees them, but anything that filters on that segment has to let them through: host firewalls on the Pis, or bridge filtering on the switch (a [MikroTik\*](/go/4w08b21) with `use-ip-firewall` enabled on the bridge, for example). If the advertisements are dropped, both nodes claim the VIP at once.
 
 The Ansible task:
 
@@ -249,25 +355,27 @@ The Ansible task:
 
 ## Deploying with Ansible
 
-The three roles are applied to the `rpi_nodes` host group:
+The roles are applied to the `rpi_nodes` host group, together with the Pi tuning role and HAProxy:
 
 ```yaml
-# ansible/playbooks/site.yml (relevant section)
-- hosts: rpi_nodes
+# ansible/site.yml (relevant section)
+- name: Provision HA Core Services & Gateway
+  hosts: rpi_nodes
+  become: true
   roles:
-    - common
-    - docker
-    - unbound
-    - adguard
+    - rpi_optimize
     - keepalived
+    - adguard
+    - unbound
+    - haproxy
 ```
 
 ```bash
-# Deploy to both Pi nodes
-ansible-playbook ansible/playbooks/site.yml --limit rpi_nodes
-
 # Dry run first
-ansible-playbook ansible/playbooks/site.yml --limit rpi_nodes --check
+ansible-playbook ansible/site.yml --limit rpi_nodes --check
+
+# Deploy to both Pi nodes
+ansible-playbook ansible/site.yml --limit rpi_nodes
 ```
 
 ## Testing Failover
@@ -302,16 +410,17 @@ Restart Keepalived on the primary and it re-claims the VIP automatically.
 
 ## The Result
 
-- All devices point to `10.0.20.5` - a single address that never changes
-- Queries are filtered by AdGuard (blocklists, custom rules) then resolved recursively by Unbound
-- If either Pi goes down, the other takes over within 3 seconds
-- Filter lists and config sync automatically every 10 minutes
-- Kernel buffer tuning ensures Unbound can handle high-volume UDP traffic without dropping queries
+- All devices point to `10.0.20.5`, a single address that never changes
+- AdGuard filters queries (blocklists, custom rules), then Unbound resolves them recursively
+- If the primary Pi goes down, the backup takes over the VIP in about 4 seconds
+- Filter lists and config sync to the replica every 15 minutes
+- The sysctl task raises the kernel's socket buffer limit to 4 MB, so Unbound's `so-rcvbuf: 4m` and `so-sndbuf: 4m` actually take effect
+- DNSSEC validation is still missing until the trust-anchor line goes in (see above)
 
-The entire stack is idempotent Ansible - running the playbook again changes nothing if everything is already in the desired state.
+The whole stack is idempotent Ansible: running the playbook again changes nothing if everything is already in the desired state.
 
 ---
 
-DNS control is the foundation of any Zero-Trust network - on-premises or in the cloud. The same internal DNS infrastructure that serves client queries also drives TLS certificate automation — [cert-manager on k3s uses DNS validation](/blog/cert-manager-wildcard-k3s-cloudflare/) for wildcard Let's Encrypt certificates, making DNS reliability a prerequisite for both connectivity and encryption. In Azure, the equivalent of this setup is Azure Private DNS Zones with Private Link resolvers.
+Every zero-trust network, on-premises or in the cloud, depends on DNS it controls. DNS also sits under TLS certificate automation: [cert-manager on k3s uses DNS validation](/blog/cert-manager-wildcard-k3s-cloudflare/) for wildcard Let's Encrypt certificates, so DNS reliability is a prerequisite for both connectivity and encryption. In Azure, the closest equivalent to this setup is Azure DNS Private Resolver in front of Private DNS zones.
 
 <NewsletterCTA />

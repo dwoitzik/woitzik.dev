@@ -7,27 +7,27 @@ tags: ["Kubernetes", "Backup", "Velero", "Homelab"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
 The circularity: [Velero](/blog/velero-garage-k3s-backup/) backs up into Garage S3, which runs inside the Kubernetes cluster it's backing up. Cluster lost → Garage PVC lost → Velero backup bucket gone → nothing to restore from.
 
-This is the backup equivalent of storing your offsite backup key in the safe you're backing up. The offsite target exists in config but isn't actually reachable — and you don't realize the gap until you need it.
+It's the backup equivalent of locking the spare key inside the safe it opens. An offsite target existed in config but was never activated, and that kind of gap stays invisible until you need the backup.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Two-Problem Stack
 
-Two issues compound into structural fragility:
+Two issues compound:
 
 ### Problem 1: Backup Circularity
 
-Velero's backup storage location points to Garage, an S3-compatible object store running as a StatefulSet inside the cluster. Every Velero backup — daily snapshots of Vault, Authelia, databases, ArgoCD configs — lands in a bucket that depends on the cluster surviving.
+Velero's backup storage location points to Garage, an S3-compatible object store running as a StatefulSet inside the cluster. Every Velero backup (daily snapshots of Vault, Authelia, databases, ArgoCD configs) lands in a bucket that only exists while the cluster survives.
 
 ```
 Cluster lost → Garage PVC lost → Velero backup bucket gone → nothing to restore from
 ```
 
-PBS backs up the VM/LXC disks to a [Seagate 2TB External HDD*](/go/4vxwLpY), but PBS runs on the same physical host — a [BMAX Mini PC*](/go/4bv3yF1). Simultaneous loss of host + USB HDD means total unrecoverability at the VM layer. Velero was the last safety net — except it was circular.
+PBS backs up the VM/LXC disks to a [Seagate 2TB External HDD*](/go/4vxwLpY), but PBS runs on the same physical host, a [BMAX Mini PC*](/go/4bv3yF1). Lose the host and the USB HDD together and nothing is recoverable at the VM layer. Velero was supposed to be the last safety net, and it was circular.
 
 ### Problem 2: Torn-State Hazard
 
@@ -38,7 +38,7 @@ Two PVCs with different storage backends, different failure modes:
 | `garage-meta` | `local-path` | k3s node | Node-pinned, survives if node survives |
 | `garage-data` | NFS (`nfs-client`) | NFS LXC | Survives if NFS LXC survives |
 
-On 2026-07-12, an unclean Garage shutdown (OOM kill) left `db.sqlite` corrupted — [the same NFS/SQLite locking incompatibility](/blog/nfs-vs-local-path-sqlite-trap/) that eventually forced every embedded database off NFS. The metadata — SQLite, bucket/key ownership, access grants — and the actual object data were on different volumes with different rollback fates. A partial restore or node loss would leave one without the other, with no clean way to reconcile them.
+On 2026-07-12, an unclean Garage shutdown (OOM kill) left `db.sqlite` corrupted. NFS was not the cause this time: `garage-meta` had been on `local-path` since 2026-06-23, when an earlier corruption ("database disk image is malformed") traced back to [the NFS/SQLite locking incompatibility](/blog/nfs-vs-local-path-sqlite-trap/) and forced the metadata onto local disk. Local disk fixed the locking problem. It doesn't make SQLite immune to a process killed mid-write. The metadata (SQLite, bucket/key ownership, access grants) and the actual object data were on different volumes with different rollback fates. A partial restore or node loss would leave one without the other, with no clean way to reconcile them.
 
 ## The Four Options
 
@@ -46,7 +46,7 @@ On 2026-07-12, an unclean Garage shutdown (OOM kill) left `db.sqlite` corrupted 
 
 Move `garage-meta` from `local-path` to NFS (same backend as `garage-data`). Both PVCs on the same storage class → same snapshot/restore fate.
 
-**Verdict**: Fixes torn-state but not circularity. NFS for SQLite is proven fragile — the 07-12 corruption happened on NFS-backed data. Moving data to `local-path` requires hardware you don't have yet.
+**Verdict**: Fixes torn state but not circularity. NFS for SQLite is proven fragile: the 06-23 corruption happened while `garage-meta` was on `nfs-client`, and moving it back would reopen that. The opposite direction, moving data to `local-path`, needs disk I don't have yet.
 
 ### Option B: External off-cluster target (Cloudflare R2)
 
@@ -57,19 +57,19 @@ Cluster lost → Garage gone → Velero still has offsite copy on R2
 Bootstrap: rebuild cluster → ArgoCD → Velero → restore from R2
 ```
 
-**Cost**: ~$0.015/GB/month on R2 (egress free). At current backup size (~5-10Gi), negligible. **Risk**: Near-zero — additive only, no existing backup path changes.
+**Cost**: ~$0.015/GB/month on R2, egress free, first 10 GB of storage free each month. At current backup size (~5–10 GiB), negligible. **Risk**: near zero. It's additive; no existing backup path changes.
 
-**Verdict**: Directly solves circularity. The existing R2 config is ready — needs credentials and a "go".
+**Verdict**: Directly solves circularity. The existing R2 config is ready and only needs credentials and a "go".
 
 ### Option C: PBS as the primary recovery layer
 
 Lean into PBS as the from-scratch recovery path. PBS already backs up all VMs/LXCs (including the k3s VMs that carry Garage's data). Velero becomes a convenience layer for single-app restore, not the bootstrap path.
 
-**Verdict**: Already the real bootstrap path (DR Tier 1-4). Velero is Tier 5, only if Garage survived. PBS is the actual safety net. The circularity is a Velero-level problem, not a PBS-level one.
+**Verdict**: Already the real bootstrap path (DR Tier 1-4). Velero is Tier 5, usable only if Garage survived. PBS is the real safety net. The circularity is a Velero-level problem, not a PBS-level one.
 
 ### Option D: Combine B + C (what I chose)
 
-Activate R2 offsite for Velero (breaks circularity) AND acknowledge PBS as the primary VM-level recovery layer. Velero becomes the single-app/namespace convenience tool with a real offsite target.
+Activate R2 offsite for Velero (breaks circularity) and treat PBS as the primary VM-level recovery layer. Velero becomes the single-app/namespace convenience tool with a real offsite target.
 
 | Layer | What it covers | Recovery path |
 |---|---|---|
@@ -77,7 +77,7 @@ Activate R2 offsite for Velero (breaks circularity) AND acknowledge PBS as the p
 | Velero + R2 | App-level config, secrets, databases | ArgoCD → Velero → restore from R2 |
 | Garage rebuild | If PVCs are lost entirely | Terraform re-creates buckets, ESO re-seeds keys |
 
-**Verdict**: Covers both problems. R2 breaks circularity (zero risk, additive). PBS handles VM-level recovery (already there). Garage rebuild from scratch is the fallback if PVCs are lost — better than a partial restore that could leave metadata/data inconsistent.
+**Verdict**: Covers both problems. R2 breaks circularity (zero risk, additive). PBS handles VM-level recovery (already there). Rebuilding Garage from scratch is the fallback if its PVCs are lost, which beats a partial restore that could leave metadata and data inconsistent.
 
 ## The Recovery Model
 
@@ -89,14 +89,14 @@ Scenario                          → Recovery path
 Single app crash                  → Kubernetes restart (self-heals)
 Single PVC lost                   → Velero restore from R2 offsite
 Full cluster lost (host survives) → PBS restores k3s VMs → Velero from R2
-Host + USB HDD lost               → Insurance (nothing saves this)
+Host + USB HDD lost               → New host, rebuild cluster from Git, Velero from R2
 ```
 
-The key insight: no single layer has to be perfect. Each layer covers the failure modes the layer below misses. Garage's torn-state problem becomes irrelevant when the recovery procedure is "rebuild from scratch" rather than "restore from backup."
+No single layer has to be perfect. Each layer covers the failure modes the layer below misses. Garage's torn-state problem becomes irrelevant when the recovery procedure is "rebuild from scratch" rather than "restore from backup."
 
 ## Implementation (Zero Downtime)
 
-The R2 activation was purely additive — no existing backup path changed:
+The R2 activation was purely additive; no existing backup path changed:
 
 1. Create Cloudflare R2 bucket (free tier)
 2. Populate `r2-backuplocation.yml` with real R2 credentials via External Secrets Operator
@@ -104,11 +104,11 @@ The R2 activation was purely additive — no existing backup path changed:
 4. Run one test backup, verify with `velero backup describe`
 5. Confirm `PodVolumeBackup` entries present for PVCs
 
-The in-cluster Garage target stays. Velero now writes to both: Garage for fast local restores, R2 for bootstrap-from-scratch. If Garage is gone, R2 has everything.
+The in-cluster Garage target stays. Velero now writes to both through separate schedules: Garage for fast local restores, R2 via `daily-offsite` for bootstrap from scratch. If Garage is gone, R2 still has a copy.
 
 ## What I'd Change
 
-1. **Implement R2 sooner.** The config existed for weeks before activation. The circularity was a known risk — the "I'll do it later" mindset is what creates disaster recovery gaps.
+1. **Implement R2 sooner.** The config existed for weeks before activation. The circularity was a known risk, and "I'll do it later" is exactly how disaster recovery gaps happen.
 
 2. **Add a Velero backup age alert.** Alert when the most recent successful backup is older than 48 hours. If backups silently stop, you want to know before you need one.
 
@@ -116,8 +116,8 @@ The in-cluster Garage target stays. Velero now writes to both: Garage for fast l
 
 ---
 
-Backup circularity is the most common structural flaw in self-hosted Kubernetes: the tool that protects you depends on the thing you're protecting. The fix is always the same — add an independent offsite layer. Cloudflare R2 costs nothing at homelab scale, and the R2 egress-free model means you're not penalized for actually using the restore. The hardest part isn't the implementation. It's admitting your current backup doesn't survive the scenario you built it for.
+Backup circularity is a common structural flaw in self-hosted Kubernetes: the tool that protects you depends on the thing you're protecting. The fix is always an independent offsite layer. Cloudflare R2 costs next to nothing at homelab scale, and with free egress you're not penalized for actually restoring. The implementation was the easy part. The hard part was admitting my backup didn't survive the scenario I built it for.
 
-**Further reading:** For understanding the full recovery architecture, [Designing Data-Intensive Applications by Martin Kleppmann*](/go/4aUtkCs) covers replication, backup strategies, and the failure modes that make torn-state hazards so dangerous. The Velero circularity is a specific case of the general problem Kleppmann describes: systems that depend on their own recovery path.
+**Further reading:** [Designing Data-Intensive Applications by Martin Kleppmann*](/go/4aUtkCs) isn't a backup book, but its chapters on replication, consistency, and partial failures explain why torn state between metadata and data is so hard to recover from.
 
 <NewsletterCTA />

@@ -7,11 +7,11 @@ tags: ["Kubernetes", "Homelab", "Security"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-After locking down Vault's namespace with NetworkPolicies, I ran the same check on every other namespace. Everything runs on a [BMAX Mini PC\*](/go/4bv3yF1) behind a [MikroTik RB5009\*](/go/4w08b21): one misconfigured NetworkPolicy and the wrong pod reaches Authelia's database. `kubectl get networkpolicy -n database` returned empty. Zero policies. Any pod anywhere in the cluster could reach Authelia's PostgreSQL and Redis instances with no network-layer restriction.
+After locking down Vault's namespace with NetworkPolicies, I ran the same check on every other namespace of the k3s cluster (one [BMAX Mini PC\*](/go/4bv3yF1) behind a [MikroTik RB5009\*](/go/4w08b21)). The RB5009's firewall controls traffic between VLANs; it never sees pod-to-pod traffic inside the cluster, so inside k3s, NetworkPolicies are the only segmentation there is. `kubectl get networkpolicy -n database` returned empty. Zero policies. Any pod anywhere in the cluster could reach Authelia's PostgreSQL and Redis instances with no network-layer restriction.
 
-This is the same gap class as Vault, missed in that pass because the audit focused on external-facing trust roots first. The database namespace holds Authelia's actual session and configuration storage. If Authelia is the gate for every exposed service in the homelab, the database namespace is what Authelia trusts. A compromised workload in the apps namespace could brute-force session tokens directly at the Postgres level, bypassing Authelia's own API entirely.
+This is the same gap class as Vault, missed in that pass because the audit focused on external-facing trust roots first. The database namespace holds Authelia's storage backend (TOTP secrets, WebAuthn devices, user preferences) in Postgres and its session store in Redis. If Authelia is the gate for every exposed service in the homelab, the database namespace is what Authelia trusts. A compromised workload in the apps namespace could attack Postgres credentials and the Redis session store directly, bypassing Authelia's own API and its rate limiting entirely.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -25,7 +25,7 @@ Real traffic sources, confirmed against the live cluster:
 2. **Prometheus (monitoring namespace)**: scrapes `:9187` metrics from CNPG instances via the PodMonitor.
 3. **CNPG operator (cnpg-system namespace)**: calls each instance's status API on `:8000` for health and failover decisions. Confirmed via the live pod's declared ports: `postgresql:5432`, `metrics:9187`, `status:8000`.
 
-That's it. Three sources, three ports. The policy follows directly:
+That's it: three external sources, four ports. The policy follows directly:
 
 ```yaml
 # kubernetes/system/postgres/network-policies.yml
@@ -117,32 +117,32 @@ spec:
           protocol: TCP
 ```
 
-Five policies. Each one corresponds to a real, verified traffic source. No guesswork.
+Five policies: a default deny plus one allow rule for each verified traffic source.
 
 ## What I Deliberately Left Alone
 
-The `cnpg-system` namespace, where the operator itself runs, does not get a default-deny in this pass. This was a conscious decision, not an oversight.
+The `cnpg-system` namespace, where the operator itself runs, does not get a default-deny in this pass. That was a conscious decision.
 
-The CNPG operator serves the admission webhook (`cnpg-webhook-service:443`) that kube-apiserver calls for every `Cluster` and `Backup` CRD operation cluster-wide. In k3s, apiserver-to-pod traffic doesn't originate from a normal namespaced pod IP. A default-deny in `cnpg-system` risks silently breaking webhook admission for all CNPG resources, every `Cluster` and `Backup` apply would fail.
+The CNPG operator serves the admission webhook (`cnpg-webhook-service:443`) that kube-apiserver calls for every `Cluster` and `Backup` CRD operation cluster-wide. In k3s, the apiserver runs inside the k3s server process on the host, so its calls to the webhook don't come from a normal namespaced pod IP that a `namespaceSelector` could match. A default-deny in `cnpg-system` risks silently breaking webhook admission for all CNPG resources: every `Cluster` and `Backup` apply would fail.
 
-On top of that, the operator already had a flaky restart history: 299 restarts over 21 days, with the most recent about 2 hours before this audit. Adding a NetworkPolicy that might interfere with its admission webhook, on a component that's already unstable, is how you turn a monitoring gap into an outage.
+On top of that, the operator already had a flaky restart history: 299 restarts over 21 days, with the most recent about 2 hours before this audit. Adding a NetworkPolicy that might interfere with its admission webhook, on a component that's already unstable, is how you turn a security gap into an outage.
 
-Flagged as a separate reliability issue. Not guessed at.
+I flagged the restarts as a separate reliability issue to investigate on their own instead of guessing at a policy around them.
 
 ## The Pattern
 
 The audit followed the same methodology as the Vault fix:
 
-1. `kubectl get networkpolicy -n <namespace>` - confirm it's empty
-2. `kubectl get pods -n <namespace>` - identify what's running
-3. Check each pod's declared ports and cross-reference with the consumer's config
+1. `kubectl get networkpolicy -n <namespace>`: confirm it's empty
+2. `kubectl get pods -n <namespace>`: identify what's running
+3. Check each pod's declared ports and cross-reference them with the consumer's config
 4. Write policies that match real traffic, not assumed traffic
-5. Apply, test, verify - don't apply and hope
+5. Apply, then test every consumer from its own namespace
 
-The key discipline: never write a NetworkPolicy based on what you think the traffic pattern is. Check the actual config files, check the live pod's ports, and verify the source pod exists in the source namespace before committing.
+Never write a NetworkPolicy based on what you think the traffic pattern is. Check the actual config files, check the live pod's ports, and verify the source pod exists in the source namespace before committing.
 
 ---
 
-Network segmentation at the Kubernetes layer, namespace-level NetworkPolicies, pod-level isolation, deny-by-default, is the same model as Azure NSGs at the subnet level, Hub-Spoke traffic flow, and Zero Trust network architecture. The scale changes, the principle doesn't.
+Deny-by-default NetworkPolicies per namespace are the same model as Azure NSGs per subnet in a hub-and-spoke network: block everything, then allow each verified flow explicitly. The scale changes, the principle doesn't.
 
 <NewsletterCTA />

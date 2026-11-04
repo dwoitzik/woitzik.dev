@@ -7,19 +7,19 @@ tags: ["Kubernetes", "MinIO", "Storage", "Homelab"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-CNPG needs WAL archiving to object storage. Gitea needs artifact storage. The options: AWS S3 (recurring cost), Backblaze B2 (egress fees), or MinIO (self-hosted, no recurring cost). MinIO on k3s runs as a single pod with a local PersistentVolume, exposing an S3 API on port 9000. It's not distributed, not redundant, and not production-grade. For a homelab, it's exactly right.
+CNPG needs WAL archiving to object storage. Gitea needs artifact storage. The options: AWS S3 (recurring cost), Backblaze B2 (egress fees), or MinIO (self-hosted, no recurring cost). MinIO on k3s runs as a single pod with a local PersistentVolume and exposes an S3 API on port 9000. It isn't distributed, redundant, or production-grade. For a homelab, that's an acceptable trade.
 
-This is a deliberately different role than [Garage](/blog/velero-garage-k3s-backup/), the other S3-compatible store in this cluster — Garage backs Velero specifically, and MinIO backs everything else. Splitting them means a Garage incident (like [the SQLite corruption that hit its metadata volume](/blog/nfs-vs-local-path-sqlite-trap/)) doesn't also take out CNPG's WAL archiving.
+Its role is deliberately different from [Garage](/blog/velero-garage-k3s-backup/), the other S3-compatible store in this cluster: Garage backs Velero, and MinIO backs everything else. Splitting them means a Garage incident (like [the SQLite corruption that hit its metadata volume](/blog/nfs-vs-local-path-sqlite-trap/)) doesn't also take out CNPG's WAL archiving.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Why MinIO
 
-AWS S3 costs money. Backblaze B2 is cheap for storage but charges for egress. For a homelab where backups go to local disk and the only S3 consumers are Velero, CNPG, and Gitea, MinIO eliminates the external dependency entirely.
+AWS S3 costs money. Backblaze B2 is cheap for storage but charges for egress. In a homelab where backups go to local disk and the only S3 consumers besides Velero are CNPG and Gitea, MinIO removes the external dependency entirely.
 
-The downside: MinIO on a single node has no redundancy. If the PVC is lost (disk failure, Proxmox host crash), all S3 data is gone. Velero handles this by keeping a local copy of the last backup. CNPG handles it by keeping WAL archives on local disk as a fallback.
+The downside: MinIO on a single node with a single drive has no redundancy. If the PVC is lost (disk failure, Proxmox host crash), all S3 data is gone.
 
 ## Deployment
 
@@ -73,7 +73,7 @@ spec:
             storage: 100Gi
 ```
 
-The 100Gi PVC is backed by local-path storage (no Longhorn replication — MinIO handles its own data durability).
+The 100Gi PVC is backed by local-path storage, with no Longhorn replication underneath. A single-drive MinIO deployment has no erasure coding either, so nothing in this stack provides durability for the data on that volume.
 
 ## The Console
 
@@ -98,7 +98,7 @@ spec:
     secretName: lab-wildcard-tls
 ```
 
-The console lets you create buckets, upload files, and manage access policies.
+Since mid-2025 the community edition console is reduced to an object browser. Bucket, user, and policy management happen through the `mc` CLI.
 
 ## Bucket Configuration
 
@@ -112,7 +112,7 @@ mc mb minio/cnpg-wal
 mc mb minio/gitea-artifacts
 ```
 
-Each consumer gets its own access key with limited permissions:
+Each consumer gets its own access key:
 
 ```bash
 # Create CNPG user with read/write on cnpg-wal only
@@ -120,7 +120,9 @@ mc admin user add minio cnpg-user cnpg-password
 mc admin policy attach minio readwrite cnpg-wal --user cnpg-user
 ```
 
-## Integrating with CNPG
+MinIO's built-in `readwrite` policy covers every bucket, though. Restricting a user to `cnpg-wal` alone takes a custom policy scoped to `arn:aws:s3:::cnpg-wal` and `arn:aws:s3:::cnpg-wal/*`, created with `mc admin policy create` and attached with `mc admin policy attach minio <policy> --user cnpg-user`.
+
+## Integrating With CNPG
 
 CNPG's Barman backup target points at MinIO for continuous WAL archiving:
 
@@ -144,13 +146,13 @@ spec:
           key: SECRET_ACCESS_KEY
 ```
 
-CNPG streams WAL segments to MinIO continuously, not just on a schedule. When the PVC is lost, CNPG can replay from the last base backup plus every archived WAL segment. See [the CNPG deep dive](/blog/cnpg-postgresql-operator-k3s/) for the full failover story — this MinIO bucket is the backup half of that setup.
+CNPG archives each WAL segment to MinIO as it completes, not on a schedule. If the database PVC is lost, CNPG can restore from the last base backup and replay every archived WAL segment. See [the CNPG write-up](/blog/cnpg-postgresql-operator-k3s/) for the full failover story; this MinIO bucket is the backup half of that setup.
 
 ## The Storage Reality
 
-MinIO on a single node with local-path storage is not HA. If the disk dies, the data is gone. The mitigation: CNPG's WAL archiving writes to MinIO and to local disk simultaneously, and Gitea's artifacts are reconstructible from Git — neither consumer treats this MinIO bucket as its only copy.
+MinIO on a single node with local-path storage is not HA. If the disk dies, the data is gone.
 
-The real risk is the 100Gi PVC. On a [BMAX Mini PC*](/go/4bv3yF1) with a 512GB NVMe, 100Gi is 20% of the disk. That's acceptable for a homelab where the alternative is paying for S3.
+The other cost is space. On a [BMAX Mini PC\*](/go/4bv3yF1) with a 512GB NVMe, a 100Gi PVC is 20% of the disk. That's acceptable for a homelab where the alternative is paying for S3.
 
 ## Monitoring
 
@@ -162,6 +164,6 @@ minio_cluster_disk_total_bytes 107374182400
 minio_s3_requests_total{bucket="cnpg-wal"} 1250
 ```
 
-Alert: if `disk_free_bytes` drops below 10GB, something is filling up the bucket. Usually a WAL archive that isn't getting cleaned up after a base backup.
+Alert when `disk_free_bytes` drops below 10GB: something is filling a bucket, usually WAL archives that aren't being cleaned up after a base backup.
 
 <NewsletterCTA />

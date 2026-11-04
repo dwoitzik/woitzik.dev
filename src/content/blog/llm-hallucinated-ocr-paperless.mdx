@@ -1,19 +1,19 @@
 ---
 title: "When Your LLM Hallucinated Your OCR"
-description: "paperless-gpt's VISION_LLM_MODEL pointed at a text-only model that fabricated German OCR content for real documents. Combined with an Ollama iGPU that crashed 451 times in one day from an unstable Vulkan/radv fallback, the AI pipeline was hallucinating on hallucinating hardware."
+description: "paperless-gpt's VISION_LLM_MODEL pointed at a text-only model that fabricated German OCR for real documents, while Ollama's iGPU backend crashed 451 times in one day on an unstable Vulkan/radv path."
 date: "2026-08-27"
 tags: ["AI", "Kubernetes", "Homelab", "Debugging"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-I discovered that paperless-gpt was generating plausible-looking but entirely fabricated German OCR text for scanned documents. The model returned confident, grammatically correct German sentences for pages that were actually invoices, receipts, and handwritten notes. The titles it assigned to these documents were similarly fictional.
+paperless-gpt was generating plausible-looking, entirely fabricated German OCR text for my scanned documents. The model returned confident, grammatically correct German for pages that were actually invoices, receipts, and handwritten notes, and the titles it assigned were just as fictional.
 
-The root cause wasn't a bug in paperless-gpt. It was a configuration error that sent page images to a text-only model that couldn't see images at all — and the model did exactly what language models do when given input they can't process: it made something up.
+The cause was not a bug in paperless-gpt. A configuration error sent page images to a text-only model that could not see images at all, and the model did what language models do with input they can't process: it made something up.
 
-The second root cause was underneath: the Ollama iGPU backend that was supposed to accelerate inference was crashing 451 times per day from an unstable Vulkan/radv driver fallback.
+A second, independent problem sat underneath. The Ollama iGPU backend that was supposed to speed up inference crashed 451 times in one day on an unstable Vulkan/radv path.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -30,9 +30,9 @@ env:
     value: "qwen2.5-coder:7b"           # ← BUG: this is also text-only
 ```
 
-`VISION_LLM_MODEL` should point at a model that can process images. `qwen2.5-coder:7b` is a text-only code completion model — it has no vision capability, no image encoder, no way to process pixel data.
+`VISION_LLM_MODEL` has to point at a model that can process images. `qwen2.5-coder:7b` is a text-only code model. It has no image encoder and no way to process pixel data.
 
-paperless-gpt's OCR provider sends page images directly to the model specified by `VISION_LLM_MODEL`. There's no fallback mode, no capability check, no error when the model can't process images. The model receives the image (encoded as base64 in the prompt), can't interpret it, and returns its best guess based on context clues in the prompt text.
+paperless-gpt's OCR provider sends page images to whatever model `VISION_LLM_MODEL` names. In this setup there was no capability check and no error when the model couldn't handle images. The page image never reached anything that could interpret it, so the model answered from the only input it had, the prompt text, which asks for the content of a document page.
 
 For a scanned German invoice, the model would generate something like:
 
@@ -42,11 +42,11 @@ Betrag: €1.247,83
 Firma: Mustermann GmbH
 ```
 
-Confident. Grammatically correct. Entirely fictional. The real document might be a parking ticket, a utility bill, or a handwritten note — the model couldn't tell because it couldn't see the image.
+Confident, grammatically correct, and entirely fictional. The real document might have been a parking ticket, a utility bill, or a handwritten note. The model couldn't tell, because it never saw the image.
 
 ## How Many Documents Were Affected
 
-The pipeline processed documents for several weeks with this misconfiguration. Every image-based document — scanned PDFs, photographed receipts, screenshots — received fabricated OCR content. Text-based documents (digital PDFs with selectable text) were unaffected because paperless-gpt uses the embedded text layer, not the vision model, for those.
+The pipeline ran with this misconfiguration for several weeks. Every image-based document (scanned PDFs, photographed receipts, screenshots) received fabricated OCR content. Text-based documents (digital PDFs with selectable text) were unaffected because paperless-gpt uses the embedded text layer, not the vision model, for those.
 
 The affected documents had titles like:
 
@@ -55,7 +55,7 @@ Rechnung Nr. 2024-1847 — Firma Schmidt & Partner
 GEPRÜFT — Handelsregister HRB 12345
 ```
 
-The titles were completely made up, but they looked real enough that I didn't notice until I searched for a specific invoice and found a document titled with a company name I didn't recognize. Checking the actual scanned image confirmed: the document was a utility bill from a different provider entirely.
+The titles were made up, but they looked real enough that I didn't notice until I searched for a specific invoice and found a document titled with a company name I didn't recognize. The scanned image showed a utility bill from a different provider entirely.
 
 ## The Fix
 
@@ -68,15 +68,15 @@ env:
     value: "minicpm-v"                   # actual vision-capable model
 ```
 
-`minicpm-v` is a small (4B parameter) vision-language model that can process images and return text. It's not as capable as larger models, but it can actually see the page content and generate accurate OCR text.
+`minicpm-v` (MiniCPM-V 2.6, 8B parameters in Ollama's library) is a small vision-language model that takes images and returns text. It is less capable than larger models, but it can actually see the page and produce real OCR text.
 
-After switching, previously affected documents needed re-OCR. paperless-gpt doesn't re-process documents automatically — the fabricated content was already committed to the Paperless database. Manual re-processing was required for each affected document.
+Switching the model did not repair the damage. paperless-gpt doesn't re-process documents on its own, and the fabricated content was already written to the Paperless database, so every affected document had to be re-OCRed by hand.
 
 ## The Ollama iGPU Problem
 
-The configuration error was discoverable earlier if the Ollama backend had been stable. But the Ollama instance was running on the AI LXC with the AMD Barcelo iGPU's Vulkan/radv fallback, and it was crashing constantly.
+The configuration error would have been easier to spot with a stable Ollama backend. The Ollama instance ran on the AI LXC using the AMD Barcelo iGPU through the Vulkan/radv path, and it crashed constantly.
 
-The AMD Ryzen 7 5825U's integrated GPU (gfx90c) has no official ROCm support. The community workaround uses `HSA_OVERRIDE_GFX_VERSION=9.0.0` to spoof a supported GPU, combined with the Vulkan/radv driver for compute. This configuration was never stable on this chip.
+The integrated GPU of the AMD Ryzen 7 5825U (gfx90c) has no official ROCm support. I had tried two GPU paths on it. The first was the usual community workaround for ROCm, `HSA_OVERRIDE_GFX_VERSION=9.0.0`, which makes ROCm treat the chip as a supported gfx900. It was never stable and I had already abandoned it. The second was Vulkan via the radv driver, enabled with `OLLAMA_IGPU_ENABLE=1`. That is the one that was running here.
 
 The crash pattern:
 
@@ -84,9 +84,9 @@ The crash pattern:
 vk::DeviceLostError: the GPU has been lost
 ```
 
-451 crashes in a single day. Each crash terminates the Ollama inference process, which kills any in-flight LLM request. paperless-gpt, Open WebUI, and any other service using Ollama would see connection refused errors.
+451 crashes in a single day, under paperless-gpt's auto-tagging backlog, which worked out to roughly one crash per request under concurrent load. Each crash kills the Ollama inference process and every in-flight request with it. paperless-gpt, Open WebUI, and anything else using Ollama saw connection refused errors.
 
-The iGPU crashes were the *actual* cause of paperless-gpt failures that I initially attributed to paperless-gpt itself. The vision model was working correctly — it was Ollama crashing before the model could finish processing.
+Some of the paperless-gpt failures I first blamed on paperless-gpt itself were these crashes: the request died before the model returned anything. Single isolated requests usually went through, which is why the instability went unnoticed at first.
 
 The fix: switch Ollama to CPU-only mode and remove the `OLLAMA_IGPU_ENABLE=1` flag entirely.
 
@@ -94,27 +94,27 @@ The fix: switch Ollama to CPU-only mode and remove the `OLLAMA_IGPU_ENABLE=1` fl
 # Ansible role for Ollama
 env:
   OLLAMA_HOST: "0.0.0.0:11434"
-  # OLLAMA_IGPU_ENABLE removed — CPU-only for stability
-  # HSA_OVERRIDE_GFX_VERSION removed — was never stable on gfx90c
+  # OLLAMA_IGPU_ENABLE removed - CPU-only for stability
+  # HSA_OVERRIDE_GFX_VERSION removed - was never stable on gfx90c
 ```
 
-CPU inference is slower (qwen2.5:7b takes ~30 seconds per inference vs ~8 seconds on the iGPU), but it doesn't crash. Stability over speed for a homelab document processing pipeline — the same trade-off that governs what gets to auto-update vs. what needs a human on this cluster: a slower, boring path beats a fast, unstable one.
+CPU inference is slower (qwen2.5:7b takes ~30 seconds per inference vs ~8 seconds on the iGPU), but it doesn't crash. For a homelab document pipeline, stability wins over speed. It is the same trade-off that decides what gets to auto-update on this cluster and what needs a human: a slow, boring path beats a fast, unstable one.
 
 ## The Lesson: Two Failure Modes Stacked
 
 The incident had two independent root causes that interacted to make debugging harder:
 
-1. **Vision model pointing at text-only model** — fabricated OCR content
-2. **Ollama iGPU crashing 451x/day** — intermittent connection failures
+1. **Vision model pointing at a text-only model:** fabricated OCR content
+2. **Ollama iGPU crashing 451 times in a day:** intermittent connection failures
 
-If only (1) existed, I'd have noticed the fabricated content immediately. If only (2) existed, I'd have blamed Ollama instability. Both together meant that paperless-gpt failures looked like Ollama crashes (intermittent, random) rather than a systematic configuration error (consistent, every image document).
+On its own, (1) produces consistent garbage on every image document, a pattern that points straight at configuration. On its own, (2) looks like plain Ollama instability. Together, every paperless-gpt problem looked like an Ollama crash (intermittent, random) instead of a systematic configuration error (consistent, every image document).
 
-The debugging lesson: when a system fails in two different ways (sometimes fabricated content, sometimes connection refused), check for two separate root causes rather than assuming one explains both — the same discipline that mattered when three merged GitOps fixes turned out to have three unrelated failure modes.
+The debugging lesson: when a system fails in two different ways (sometimes fabricated content, sometimes connection refused), look for two separate root causes instead of assuming one explains both. The same discipline mattered when three merged GitOps fixes turned out to have three unrelated failure modes.
 
 ---
 
-AI model misconfiguration in production has the same pattern: a model that can't process the input type it's given will produce plausible-looking but wrong output, and there's no automatic error. Azure OpenAI's vision models require explicit multimodal input formatting — sending a raw image to a text-only deployment doesn't error, it just ignores the image and responds to any text in the prompt. The fix is the same: verify that your model's capabilities match your input types, and test with known inputs before trusting the output.
+The same risk exists in production AI pipelines: if the input type silently never reaches the model, you get plausible-looking wrong output instead of an error. Hosted APIs such as Azure OpenAI generally reject image content sent to a deployment without vision support with an HTTP 400, which is the failure mode you want. A self-hosted stack that drops the image without an error is the dangerous one. Either way, the fix is the same: confirm the model's capabilities match your input types, and test with known inputs before you trust the output.
 
-The LXC running this workload is on an older BMAX B5A Pro (Ryzen 7 5825U) — the ROCm gap described above is specific to that chip. If you're buying a mini PC for this kind of local-inference box today, the [BMAX Ryzen 7 8745HS Mini PC\*](/go/4bv3yF1) is the direct successor with a much stronger Radeon 780M iGPU.
+The LXC running this workload sits on an older BMAX B5A Pro (Ryzen 7 5825U), and the ROCm gap described above is specific to that chip. If you're buying a mini PC for this kind of local-inference box today, the [BMAX Ryzen 7 8745HS Mini PC\*](/go/4bv3yF1) is the direct successor with a much stronger Radeon 780M iGPU.
 
 <NewsletterCTA />

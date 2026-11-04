@@ -7,13 +7,13 @@ tags: ["Kubernetes", "Backup", "Homelab", "Debugging"]
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Velero reported "Completed" on every daily backup. The schedule ran on time, the S3 uploads succeeded, the backup size looked reasonable. I never verified the contents — because "Completed" means completed, right?
+Velero reported "Completed" on every daily backup. The schedule ran on time, the S3 uploads succeeded, the backup size looked reasonable. I never verified the contents, because "Completed" means completed. Or so I assumed.
 
 On 2026-06-19, I needed to restore a PVC. The backup existed in Garage S3. The restore completed. The PVC was empty.
 
-Postgres data, Vaultwarden passwords, Paperless documents, Nextcloud files — none of it was there. Velero had been faithfully backing up Kubernetes manifests for weeks while completely ignoring the actual data in PersistentVolumeClaims.
+Postgres data, Vaultwarden passwords, Paperless documents, Nextcloud files: none of it was there. For weeks Velero had backed up Kubernetes manifests and ignored the data in the PersistentVolumeClaims.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -21,13 +21,13 @@ Postgres data, Vaultwarden passwords, Paperless documents, Nextcloud files — n
 
 Velero has two backup modes for PersistentVolumes:
 
-1. **Snapshot-based** (default): Takes a CSI snapshot of the PV. Works for cloud providers with snapshot APIs (EBS, Azure Disk). Doesn't work for NFS, local-path, or any storage class without a snapshot provider.
+1. **Snapshot-based** (default): takes a volume snapshot through a provider plugin or CSI. Works for cloud disks with snapshot APIs (EBS, Azure Disk). Doesn't work for NFS, local-path, or any storage without a snapshot provider.
 
-2. **Filesystem-based** (`--default-volumes-to-fs-backup`): Runs a Kopia or Restic sidecar that copies the actual files from the PVC. Works with any storage class, including NFS and local-path.
+2. **Filesystem-based** (`--default-volumes-to-fs-backup`): the Velero node-agent DaemonSet reads the files of each pod volume from the node and uploads them with Kopia (or Restic). Works with almost any storage, including NFS and local-path, as long as the volume is mounted by a running pod.
 
-My storage is NFS (`nfs-client` from a Proxmox LXC) and `local-path`. Neither has a CSI snapshot provider. Without filesystem backup, Velero has no way to capture PVC contents — it can only back up the Kubernetes resource definitions (the PV and PVC objects themselves, not the data inside them).
+My storage is NFS (`nfs-client` from a Proxmox LXC) and `local-path`. Neither has a snapshot provider. Without filesystem backup, Velero has no way to capture PVC contents. It can only back up the Kubernetes resource definitions: the PV and PVC objects, not the data inside them.
 
-The default is snapshot-based. If you don't explicitly tell Velero to use filesystem backup, it takes snapshots. If no snapshot provider exists, it takes no snapshot and the backup "succeeds" with only manifests.
+The default is snapshot-based. If you don't tell Velero to use filesystem backup, it tries snapshots. If no snapshot provider exists, it takes no snapshot and the backup "succeeds" with only manifests.
 
 ## The Discovery
 
@@ -50,7 +50,7 @@ spec:
 
 No `defaultVolumesToFsBackup`. No per-backup volume hooks. No snapshot provider configured. Every backup since the schedule was created had captured only Kubernetes manifests.
 
-The size of the backups was misleading. Manifests for 25+ applications, their Services, ConfigMaps, Secrets, and ExternalSecrets add up to a few MB — close enough to what I expected for a "metadata-only" backup that I didn't question it.
+The backup size was misleading. Manifests for 25+ applications, with their Services, ConfigMaps, Secrets, and ExternalSecrets, add up to a few MB, which looked plausible enough that I never questioned it.
 
 ## The Fix
 
@@ -62,32 +62,30 @@ spec:
     includedNamespaces: ["apps", "vault", "database", "argocd"]
 ```
 
-One line. `defaultVolumesToFsBackup: true` tells Velero to use Kopia for filesystem backup of every PVC in every included namespace. Kopia runs as a sidecar, mounts the PVC, and copies the files to the Garage S3 bucket.
+One line. `defaultVolumesToFsBackup: true` tells Velero to use filesystem backup for every pod volume in every included namespace. The node-agent on each node reads the volume data from the pod's volume directory on the host and Kopia uploads it to the Garage S3 bucket. That requires the node-agent DaemonSet to be deployed (`deployNodeAgent: true` in the Helm chart).
 
-After adding this flag, the next backup jumped from ~2 MB to ~4 GB — the actual data.
+After adding the flag, the next backup jumped from ~2 MB to ~4 GB: the actual data.
 
 ## Verification
 
-The real lesson: `velero backup describe` with `--details` is the only way to verify that PVC data was actually captured:
+`velero backup describe` is the way to verify that PVC data was captured. Without `--details` it prints a count per phase; with `--details` it lists every pod and volume instead:
 
 ```bash
-velero backup describe daily-backup-20260620050012 --details | grep -A5 "Pod Volume Backups"
-# Phase: Completed
-# Total items: 342
-# ...
-# Pod Volume Backups:
-#   Completed: 12
-#   Failed: 0
+velero backup describe daily-backup-20260620050012 | grep -A3 "Pod Volume Backups"
+#   Pod Volume Backups - kopia (specify --details for more information):
+#     Completed:  12
 ```
 
-If "Pod Volume Backups" is missing or shows 0 completed, no filesystem backup happened. The backup "completed" but only captured manifests. The `velero backup describe` output is the only place this distinction is visible — `velero backup get` just shows `Phase: Completed` regardless.
+If the section reads `Pod Volume Backups: <none included>` or shows no `Completed` line, no filesystem backup happened. The backup "completed" but only captured manifests. On the CLI, `describe` is where this distinction shows up; `velero backup get` shows `Completed` either way.
 
 For automated verification, I added a post-backup check:
 
 ```bash
-# After each backup completes
-COMPLETED=$(velero backup describe $BACKUP --details -o json | \
-  jq '.status.progress_podVolumeBackups | .completed // 0')
+# After each backup completes: count the PodVolumeBackup objects
+# Velero created for this backup that reached phase Completed
+COMPLETED=$(kubectl -n velero get podvolumebackups \
+  -l velero.io/backup-name="$BACKUP" -o json | \
+  jq '[.items[] | select(.status.phase == "Completed")] | length')
 if [ "$COMPLETED" -eq 0 ]; then
   echo "WARNING: No pod volume backups captured"
   # Alert via Discord webhook
@@ -96,21 +94,21 @@ fi
 
 ## The Broader Problem: Backup Circularity
 
-The discovery of the false-positive backup led to a deeper issue documented in `docs/garage-velero-design-2026-07-17.md`: Velero backs up to Garage S3, which runs inside the same cluster. If the cluster dies, both Velero and Garage are gone — the backup target is inside the thing being backed up.
+The false-positive backup led to a deeper issue, documented in `docs/garage-velero-design-2026-07-17.md`: Velero backs up to Garage S3, which runs inside the same cluster. If the cluster dies, Velero and Garage die with it. The backup target is inside the thing being backed up.
 
-This is the classic backup circularity problem:
+That's classic backup circularity:
 
 ```
 Velero (k8s) → Garage S3 (k8s) → same cluster
 ```
 
-The backup is only useful for recovering individual PVCs or namespaces within a running cluster. For full cluster recovery, you need the backup to exist *outside* the cluster — which is why the Cloudflare R2 offsite backup scaffolding exists but isn't active yet.
+The backup is only useful for recovering individual PVCs or namespaces within a running cluster. Full cluster recovery needs the backup to exist *outside* the cluster. That's what the Cloudflare R2 offsite backup scaffolding is for, and it isn't active yet.
 
-The secondary issue is "torn state" — Velero's metadata (manifests) and the PVC filesystem backups are stored separately. If one succeeds and the other fails, you can end up with manifests but no data, or data but no manifests to restore it into. The `defaultVolumesToFsBackup` flag doesn't solve torn state, but it at least ensures both parts of the backup are attempted.
+The secondary issue is "torn state": Velero's metadata (manifests) and the PVC filesystem backups are stored separately. If one succeeds and the other fails, you can end up with manifests but no data, or data with no manifests to restore it into. `defaultVolumesToFsBackup` doesn't solve torn state, but it at least makes sure both parts of the backup are attempted.
 
 ## What Would Have Caught This
 
-1. **A restore test.** Running `velero restore` against a test namespace monthly would have caught the empty PVCs within the first cycle. The backup "Completed" status gave false confidence.
+1. **A restore test.** Running `velero restore` into a test namespace monthly would have caught the empty PVCs in the first cycle.
 
 2. **Backup size monitoring.** A 2 MB backup for a cluster with 25+ apps and 4 GB of PVC data is obviously wrong. An alert on backup size below a threshold would have caught it.
 
@@ -118,8 +116,8 @@ The secondary issue is "torn state" — Velero's metadata (manifests) and the PV
 
 ---
 
-Backup verification is the same problem in Azure: Azure Backup reports "Completed" for VM snapshots, but a snapshot without the correct recovery point tier doesn't include disk contents. The verification step — actually restoring a test VM from backup — is the only way to confirm the backup contains what you think it contains. Compliance frameworks like ISO 27001 and NIS2 require documented restore testing for exactly this reason.
+Azure has the same problem. An Azure Backup job reporting "Completed" tells you a recovery point was created, not that a VM restored from it boots and its application data is consistent. Restoring a test VM is the only way to confirm the backup contains what you think it contains. ISO 27001 (Annex A 8.13) expects backups to be tested regularly, and NIS2 lists backup management under business continuity in Article 21(2)(c), for exactly this reason.
 
-[Designing Data-Intensive Applications\*](/go/4aUtkCs) is the best book I know on why "the operation returned success" and "the data is actually there" are separate claims that need separate verification.
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) is the best book I know on why "the operation returned success" and "the data is there" are separate claims that need separate verification.
 
 <ProductCTA variant="end" slug="hub-spoke-enterprise-vnet" />

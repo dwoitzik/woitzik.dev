@@ -1,6 +1,6 @@
 ---
-title: "Backup ohne Komplexität: Velero + Garage S3 auf Longhorn im K3s-Cluster"
-description: "Ein k3s-Cluster ohne Backup ist eine Zeitbombe - aber Velero mit einem machbaren S3-Storage braucht keinen Cloud-Vendor. So sieht die komplette Kette aus: Garage als S3-Backend im eigenen Cluster, Longhorn als Source, Velero via ArgoCD deployed, tägliche Backups per Schedule. Mit dem Praxis-Trick, der garantiert, dass dein Backup auch wirklich wiederherstellbar ist."
+title: "Backup ohne Komplexität: Velero + Garage S3 auf Longhorn im k3s-Cluster"
+description: "Garage statt MinIO als Backup-Ziel für Velero: ein einzelnes kleines Binary, tägliche Cluster-Backups inklusive Longhorn-Volumes, deployt per ArgoCD."
 lang: de
 translationOf: "velero-garage-k3s-backup"
 date: 2026-09-22
@@ -9,109 +9,272 @@ pinned: false
 tags: ["Kubernetes", "Backup", "Velero", "S3", "Longhorn"]
 ---
 
-Backup-Automatisierung auf Kubernetes klingt nach einer dieser Sachen, die man „irgendwann mal" macht, bis der erste Node stirbt. Dann merkst du, dass „irgendwann mal" ein Jahr zu spät ist.
+**Update (2026-09-05):** Der Cluster hat Garages Storage inzwischen von Longhorn auf ein statisches, Host-NFS-basiertes PV/PVC-Paar umgezogen. Den Umzug und die Gründe dafür beschreibt [ein eigener Artikel](/blog/longhorn-to-nfs-distributed-storage/) (Englisch). Am Velero/Garage-Setup unten (Architektur, `replication_factor = 1`, das Deployment selbst) ändert das nichts, nur die `storageClassName` der beiden PVCs ist eine andere.
 
-Die gute Nachricht: Mit **Velero + einem S3-kompatiblen Backend, das du selbst betreibst**, brauchst du weder AWS noch eine externe Cloud - und die Kette ist kürzer, als du denkst. Das ist die vollständige Anleitung aus meinem Betrieb.
+Jeder Kubernetes-Cluster braucht eine Backup-Strategie. In einem Homelab auf Bare Metal mit Longhorn als verteiltem Storage sind die Optionen überschaubar. `etcd`-Snapshots sichern den Cluster-Zustand, aber keine Persistent Volumes. MinIO ist das übliche S3-Ziel für Velero, für ein Single-Node-Homelab aber groß, eigenwillig und schlicht überdimensioniert.
+
+[Garage](https://garagehq.deuxfleurs.fr/) ist ein schlanker, quelloffener, S3-kompatibler Object Store in Rust. Er kommt als einzelnes Binary, die Konfiguration ist eine TOML-Datei, und er funktioniert mit jedem S3-Client, auch mit dem AWS-Plugin von Velero. Fürs Homelab passt das deutlich besser als MinIO.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Die Architektur
 
 > **🇬🇧 English:** Die englische Fassung dieses Artikels: [k3s Backup Without the Complexity: Velero + Garage S3 on Longhorn →](/blog/velero-garage-k3s-backup/).
 
-
 ```
-+-------------------+       +-------------------+
-|   Longhorn-RVs    |  ===> |   Velero Pulumi   |
-|  (deine Daten)    |       |  + Garage S3      |
-+-------------------+       +-------------------+
+Velero (tägliches Backup um 03:00)
+        │
+        ├── Cluster-Ressourcen → Garage-S3-Bucket (velero)
+        │   (Deployments, Services, ConfigMaps, Secrets, CRDs…)
+        │
+        └── Persistent Volumes → Volume-Daten
+                │
+                └── nach Garage S3 exportiert
 ```
 
-- **Longhorn** speichert die PersistentVolumes deines Clusters (etcd-Volumes, DB-Daten, Nextcloud-Daten, etc.).
-- **Garage** läuft als S3-Backend direkt im Cluster - object storage ohne Cloud-Anbieter, mit Replikation über die Cluster-Nodes.
-- **Velero** sichert die Longhorn-Volumes als Snapshots + Backups nach Garage (S3), mit täglichem Schedule.
-- **ArgoCD** managed den ganzen Velero-Stack via Git - Deklaration statt manuelle `kubectl`-Rufe.
+Sowohl die Kubernetes-API-Objekte als auch die eigentlichen Volume-Daten landen in Garage. Ein vollständiger Restore stellt den Cluster so wieder her, wie er war.
 
 ## Schritt 1: Garage auf k3s deployen
 
-Garage ist ein selbstgehosteter, S3-kompatibler Object-Store, der auf Ressourcen-Effizienz ausgelegt ist. Deploy via Helm in deinem GitOps-Repo:
+Garage braucht zwei Storage-Verzeichnisse: eins für Metadaten (klein, schnell) und eins für die Objektdaten (größer). Zwei getrennte Longhorn-PVCs halten sie auf verschiedenen Volumes.
 
 ```yaml
-# values-garage.yaml (gekürzt)
-replicas: 3
-backends:
-  - node: k3s-1
-  - node: k3s-2
-  - node: k3s-3
-storage: 20Gi
-```
-
-Wichtig beim Setup: Garage braucht ein eigenes DNS/subdomain (`garage.woitzik.dev`) und eine feste Node-Verteilung - es funktioniert am besten, wenn jede Replica auf einem anderen Cluster-Node liegt.
-
-## Schritt 2: Velero via ArgoCD
-
-Velero deployed man am saubersten über ArgoCD - nicht manuell:
-
-```yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
+# kubernetes/apps/garage/pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
 metadata:
-  name: velero
-  namespace: argocd
+  name: garage-data
+  namespace: apps
 spec:
-  destination:
-    namespace: velero
-    server: https://kubernetes.default.svc
-  source:
-    repoURL: https://github.com/dwoitzik/homelab-infrastructure
-    path: kubernetes/velero
-    targetRevision: main
-  syncPolicy:
-    automated:
-      selfHeal: true
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: garage-meta
+  namespace: apps
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
 ```
 
-## Schritt 3: Der Schedule-Schlüssel: täglich, nicht „wenn ich dran denke"
+Die Garage-Konfiguration liegt in einer ConfigMap:
 
 ```yaml
+# kubernetes/apps/garage/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-config
+  namespace: apps
+data:
+  config.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir     = "/var/lib/garage/data"
+    db_engine    = "lmdb"
+
+    replication_factor = 1    # single node, no replication
+
+    rpc_bind_addr   = "[::]:3901"
+    rpc_public_addr = "127.0.0.1:3901"
+    rpc_secret_file = "/etc/garage/secrets/rpc_secret"
+
+    [s3_api]
+    s3_region    = "homelab"
+    api_bind_addr = "[::]:3900"
+    root_domain  = ".s3.yourdomain.com"
+
+    [admin]
+    admin_bind_addr = "[::]:3903"
+    admin_token_file = "/etc/garage/secrets/admin_token"
+```
+
+`replication_factor = 1` ist für ein Single-Node-Setup richtig. Garage kann über mehrere Nodes replizieren, das braucht es hier aber nicht: Die Redundanz übernimmt Longhorn auf der Storage-Ebene.
+
+RPC-Secret und Admin-Token kommen aus einem Kubernetes-Secret:
+
+```yaml
+# kubernetes/apps/garage/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: garage-secrets
+  namespace: apps
+type: Opaque
+stringData:
+  rpc_secret: "<64-char-hex-string>"
+  admin_token: "<random-token>"
+```
+
+Erzeugen lassen sich beide mit `openssl rand -hex 32`. Deployment und Service sind in der [englischen Fassung](/blog/velero-garage-k3s-backup/) vollständig abgedruckt: eine Replica mit dem Image `dxflrs/garage:v2.3.0`, die Konfiguration per `subPath` nach `/etc/garage.toml` gemountet, die Secrets mit `defaultMode: 0600`, dazu ein Service für die Ports 3900 (S3) und 3903 (Admin).
+
+## Schritt 2: Den Garage-Cluster initialisieren
+
+Sobald der Pod läuft, braucht Garage eine einmalige Initialisierung. Zuerst die Node-ID holen:
+
+```bash
+kubectl exec -it -n apps deploy/garage -- /garage status
+```
+
+Dann das Layout zuweisen und anwenden:
+
+```bash
+# Replace <node-id> with the ID from the status output
+kubectl exec -it -n apps deploy/garage -- \
+  /garage layout assign -z homelab -c 1G <node-id>
+
+kubectl exec -it -n apps deploy/garage -- \
+  /garage layout apply --version 1
+```
+
+Bucket und Zugangsdaten für Velero anlegen:
+
+```bash
+kubectl exec -it -n apps deploy/garage -- \
+  /garage bucket create velero
+
+kubectl exec -it -n apps deploy/garage -- \
+  /garage key create velero-key
+
+# Grant the key access to the bucket
+kubectl exec -it -n apps deploy/garage -- \
+  /garage bucket allow velero --read --write --owner --key velero-key
+```
+
+`Key ID` und `Secret key` aus der Ausgabe notieren, Velero braucht beide.
+
+## Schritt 3: Velero per ArgoCD deployen
+
+Velero läuft als Helm-Chart, das AWS-Plugin zeigt auf den S3-Endpunkt von Garage. Die komplette ArgoCD-Application steht in der englischen Fassung, die entscheidenden Werte sind diese:
+
+```yaml
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: velero
+      default: true
+      config:
+        region: homelab
+        s3ForcePathStyle: true
+        s3Url: http://garage.apps.svc.cluster.local:3900
+credentials:
+  useSecret: true
+  existingSecret: velero-s3-credentials
+snapshotsEnabled: true
+deployNodeAgent: true
+```
+
+Zwei Einstellungen sind wichtig:
+
+**`s3ForcePathStyle: true`**: Velero spricht Garage mit Path-Style-URLs an (`http://endpoint/bucket/key`), nicht im Virtual-Hosted-Style (`http://bucket.endpoint/key`). Virtual-Hosted-Anfragen bedient Garage nur unter seiner `root_domain`, und der clusterinterne Service-Name `garage.apps.svc.cluster.local` hat kein DNS pro Bucket. Ohne das Flag baut das AWS-SDK Hostnamen wie `velero.garage.apps...`, die nie auflösen.
+
+**`deployNodeAgent: true`**: Der Node Agent läuft als DaemonSet und schiebt die PVC-Daten ins Backup-Ziel, entweder als File-System-Backup (Kopia) oder per CSI-Snapshot-Data-Movement. Ohne ihn sichert Velero zwar die Kubernetes-Objekte, aber nicht die Daten in den PVCs.
+
+Das Secret mit den Zugangsdaten:
+
+```yaml
+# kubernetes/system/velero/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: velero-s3-credentials
+  namespace: velero
+type: Opaque
+stringData:
+  cloud: |
+    [default]
+    aws_access_key_id = <your-garage-key-id>
+    aws_secret_access_key = <your-garage-secret-key>
+```
+
+## Schritt 4: Täglicher Backup-Schedule
+
+```yaml
+# kubernetes/system/velero/schedule.yaml
 apiVersion: velero.io/v1
 kind: Schedule
 metadata:
   name: daily-backup
   namespace: velero
 spec:
-  schedule: "0 1 * * *"
+  schedule: "0 3 * * *"        # 03:00 every night
   template:
+    ttl: 720h0m0s              # keep backups for 30 days
     includedNamespaces:
-      - nextcloud
-      - paperless
-      - vault
-    ttl: 720h
+      - "*"
+    excludedNamespaces:
+      - kube-system
+      - kube-public
+      - kube-node-lease
+    storageLocation: default
+    volumeSnapshotLocations:
+      - default
 ```
 
-Die Kette läuft seit Monaten. Der Punkt, der Backups zu **Trugbildern** macht, ist nicht der Schedule - es ist der Moment, an dem jemand die Sicherung testet. Dazu unten mehr.
+Das ergibt 30 Tage tägliche Backups. Über die TTL löscht Velero Backups, die älter als 720 Stunden sind, selbst. Manuelles Aufräumen entfällt.
 
-## Das Backup, das keiner geprüft hat
+## Backups prüfen
 
-Der größte Fehler, den ich selbst gemacht habe: Jeden Tag „erfolgreiche" Backups in Velero sehen, die Details nie geprüft, und den Restore erst dann versucht, als eine Datenbank weg war.
+Landen die Backups wirklich in Garage?
 
-```
-$ velero backup describe daily-backup-20260922
-...
-Phase: Completed           # Komfort-Lüge
-  Errors:  3               # die Wahrheit
-  Warnings: 1
-```
+```bash
+# List backups
+kubectl get backups -n velero
 
-`Completed` mit detail versteckten Fehlern - ein Restore aus einem solchen Backup versagt an genau der Stelle, an der du ihn brauchst. Mein Fix: Ein zweiter Velero-Schedule, der **wöchentlich einen echten Restore anstößt** (in eine Wegwerf-Namespace), damit die Wiederherstellbarkeit getestet ist, bevor sie gefordert wird.
+# Describe a specific backup
+kubectl describe backup -n velero daily-backup-<timestamp>
 
-```yaml
-spec:
-  schedule: "0 3 * * 0"
-  template:
-    …
-    hooks:
-      resources:
-        - name: verify-restore
-          ...
+# Trigger a manual backup
+velero backup create manual-test --include-namespaces apps
 ```
 
-**Fazit:** Die Architektur (Garage + Velero + ArgoCD) ist der kleinere Teil. Der wichtigere Teil ist der regelmäßige Restore-Test - ohne den ist dein „ich mache Backups" nur eine Art, Daten zu lagern, die du nie zurückbekommst.
+Ob Garage die Daten tatsächlich bekommt, zeigt die Bucket-Größe:
+
+```bash
+kubectl exec -it -n apps deploy/garage -- \
+  /garage bucket info velero
+```
+
+## Restore
+
+```bash
+# List available backups
+velero backup get
+
+# Restore everything
+velero restore create --from-backup daily-backup-<timestamp>
+
+# Restore a single namespace
+velero restore create --from-backup daily-backup-<timestamp> \
+  --include-namespaces apps
+```
+
+Velero legt PVCs und PVs neu an, der Node Agent spielt die Daten zurück, und die Workloads starten mit den wiederhergestellten PVCs.
+
+## Warum Garage statt MinIO
+
+| | Garage | MinIO |
+|---|---|---|
+| Binary-Größe | ~50MB | ~400MB |
+| Speicher (idle) | ~20MB | ~200MB+ |
+| Konfiguration | Eine TOML-Datei | Env-Variablen + Web-UI |
+| S3-Kompatibilität | Voll (Path-Style) | Voll |
+| Cluster-Modus | Optional | Erfordert verteiltes Setup |
+
+Als Velero-Ziel im Homelab kann Garage alles, was MinIO kann, bei einem Bruchteil des Ressourcenbedarfs. Verzichten muss man nur auf die MinIO-Webkonsole, und `garage bucket info` plus `garage key list` decken auf der CLI alles Nötige ab.
+
+---
+
+Mit diesem Setup dauert ein kompletter Neuaufbau des Clusters (frische k3s-Installation, ArgoCD, dann `velero restore`) unter 30 Minuten. Erst dieser Neuaufbau zeigt, ob die Backup-Strategie funktioniert. Ich habe [genau diesen Test](/blog/backup-restore-test-never-verified-network-conflict/) (Englisch) auf einer Wegwerf-VM durchgespielt und dabei einen Netzwerkkonflikt gefunden, den keine Dokumentation erwähnt.
+
+Ein „Completed" in `velero backup get` beweist dabei noch nichts. Wie mein tägliches Backup wochenlang erfolgreich meldete, ohne je PVC-Daten zu enthalten, steht in [Velero Said Backups Succeeded. The Data Was Never There.](/blog/velero-backup-false-positive-no-data/) (Englisch).

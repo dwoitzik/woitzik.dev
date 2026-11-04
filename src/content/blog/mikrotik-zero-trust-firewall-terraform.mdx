@@ -1,25 +1,26 @@
 ---
 title: "Implementing a Zero-Trust MikroTik Firewall with Terraform"
-description: "Learn how to enforce strict VLAN isolation, fast-track traffic, and build a default-deny firewall for MikroTik RouterOS using Infrastructure as Code."
+description: "How I enforce strict VLAN isolation, FastTrack established traffic, and run a default-deny firewall on MikroTik RouterOS with Terraform as Infrastructure as Code."
 date: "2026-05-03"
 tags: ["MikroTik", "Terraform", "Security", "Networking"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-MikroTik routers are incredibly powerful, but configuring them manually via WinBox or the CLI often leads to configuration drift and security loopholes. This setup runs on the [RB5009\*](/go/4w08b21): its switch chip handles hardware offloading for VLAN-tagged traffic, which matters once you're carrying multiple VLANs across a Proxmox trunk. If you are building a segmented edge network or a home lab with multiple VLANs, you need an architecture that is version-controlled, reproducible, and strictly "Default-Deny".
+MikroTik routers are powerful, but configuring them by hand in WinBox or the CLI leads to configuration drift and security holes. This setup runs on the [RB5009\*](/go/4w08b21): its switch chip handles hardware offloading for VLAN-tagged traffic, which matters once you're carrying multiple VLANs across a Proxmox trunk. If you are building a segmented edge network or a home lab with multiple VLANs, you need a firewall that is version-controlled, reproducible, and strictly default-deny.
 
-In this post, I will break down how to build a robust, Zero-Trust firewall for RouterOS using the `terraform-routeros` provider.
+Here's how I build that Zero-Trust firewall for RouterOS with the `terraform-routeros` provider.
 
 **[View the complete MikroTik IaC source code on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Core Philosophy: Default-Deny
 
-A standard home router allows everything outbound and blocks everything inbound. A Zero-Trust edge device blocks *everything* by default-even traffic between internal VLANs-unless explicitly permitted.
+A standard home router allows everything outbound and blocks everything inbound. A Zero-Trust edge device blocks *everything* by default, including traffic between internal VLANs, unless explicitly permitted.
 
-We enforce this by anchoring our `input` (traffic to the router) and `forward` (traffic through the router) chains with absolute drop rules.
+We enforce this by anchoring the `input` (traffic to the router) and `forward` (traffic through the router) chains with final drop rules:
+
 ```hcl
 # ===============================================
 # ANCHOR RULES
@@ -40,11 +41,12 @@ resource "routeros_ip_firewall_filter" "fwd_99_drop_all" {
 }
 ```
 
-By placing these rules at the very end of their respective chains, anything that isn't explicitly caught by an `accept` rule will be discarded and logged.
+With these rules at the very end of their chains, anything that no `accept` rule catches is dropped, and in the forward chain logged.
 
 ## 1. Securing the Router (The Input Chain)
 
-The `input` chain protects the MikroTik device itself. We only want established connections, our [WireGuard VPN handshakes](/blog/mikrotik-wireguard-vpn-terraform/), and strict management access to reach the router's CPU.
+The `input` chain protects the MikroTik device itself. We only want established connections, our [WireGuard VPN handshakes](/blog/mikrotik-wireguard-vpn-terraform/), and tightly scoped management access to reach the router's CPU:
+
 ```hcl
 resource "routeros_ip_firewall_filter" "in_01_established" {
   action           = "accept"
@@ -64,13 +66,14 @@ resource "routeros_ip_firewall_filter" "in_03_mgmt" {
 }
 ```
 
-*Note the `place_before` argument.* This is the magic of using Terraform for firewall rules. Instead of relying on fragile manual sequencing, we explicitly tell Terraform to always place these allow rules *above* our default drop anchor.
+*Note the `place_before` argument.* It's the main reason to manage firewall rules with Terraform. Instead of relying on fragile manual ordering, we tell Terraform explicitly to place these allow rules *above* the default drop anchor.
 
 ## 2. Segmenting the Network (The Forward Chain)
 
-This is where the actual routing happens. In my setup, I have dedicated VLANs for Management (`vlan10`), Servers (`vlan20`), and a DMZ (`vlan30`). The underlying L2 VLAN matrix — bridge ports, tagged/untagged assignments, and the Proxmox trunk — is [automated separately with Terraform](/blog/mikrotik-vlan-filtering-terraform-proxmox/).
+This is where the actual routing happens. In my setup, I have dedicated VLANs for Management (`vlan10`), Servers (`vlan20`), and a DMZ (`vlan30`). The underlying L2 VLAN matrix (bridge ports, tagged/untagged assignments, and the Proxmox trunk) is [automated separately with Terraform](/blog/mikrotik-vlan-filtering-terraform-proxmox/).
 
-Because of our `fwd_99_drop_all` rule, a compromised Docker container in `vlan20` cannot blindly scan the management interface of the Proxmox node in `vlan10`. We must explicitly drill micro-segmentation holes for required traffic.
+Because of our `fwd_99_drop_all` rule, a compromised Docker container in `vlan20` cannot blindly scan the management interface of the Proxmox node in `vlan10`. Every flow that is actually needed gets its own explicit accept rule:
+
 ```hcl
 # FastTrack for CPU Efficiency (Crucial for Gigabit speeds on MikroTik)
 resource "routeros_ip_firewall_filter" "fwd_00_fasttrack" {
@@ -107,11 +110,14 @@ resource "routeros_ip_firewall_filter" "fwd_05_srv_to_dmz_metrics" {
 }
 ```
 
-By locking down the source to a specific IP (`10.0.20.252`), we ensure that only our Prometheus monitoring instance can query the DMZ metrics. 
+FastTrack needs a companion rule. `fasttrack-connection` only marks connections for the fast path; packets that haven't been fasttracked yet, or never can be, keep walking the chain. Right after it you need an `accept` for `connection_state = "established,related,untracked"`, exactly as in MikroTik's default configuration. Without that rule, the final drop catches return traffic. My live config has it as `fwd_01_established`.
+
+By pinning the source to a single IP (`10.0.20.252`), only the Docker LXC that runs Prometheus can query the DMZ metrics.
 
 ## 3. Handling Public Exposure (NAT & WAN)
 
-If you host services like a Minecraft server in your DMZ, you need Destination NAT (Port Forwarding). However, the NAT rule alone isn't enough; the firewall must also permit the traffic to cross from the WAN into the DMZ.
+If you host a service like a Minecraft server in your DMZ, you need destination NAT (port forwarding). The NAT rule alone isn't enough: the firewall must also let the traffic cross from the WAN into the DMZ.
+
 ```hcl
 # Port Forwarding
 resource "routeros_ip_firewall_nat" "dnat_minecraft" {
@@ -140,8 +146,8 @@ resource "routeros_ip_firewall_filter" "fwd_13_wan_to_dmz_minecraft" {
 
 ## Moving Beyond the Edge
 
-Automating your edge router is just the first step in building a resilient, code-driven infrastructure. When you transition from homelabs to enterprise cloud environments, these same Zero-Trust principles apply, but the complexity scales exponentially.
+Automating the edge router is the first step toward code-driven infrastructure. The same Zero-Trust principles apply in enterprise cloud environments, with far more rules and owners.
 
-Nothing about default-deny changes when you scale from a RouterOS edge router to Azure: the same drop-by-default forward chain becomes NSG deny rules, Azure Firewall policies, and Private Link access control — the primitives are different, the posture is identical.
+Nothing about default-deny changes when you move from a RouterOS edge router to Azure. The drop-by-default forward chain becomes NSG deny rules, Azure Firewall policies, and Private Link access control. The primitives are different; the posture is identical.
 
 <NewsletterCTA />

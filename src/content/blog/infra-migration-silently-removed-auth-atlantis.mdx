@@ -1,27 +1,27 @@
 ---
 title: "Migrating Atlantis to an LXC Accidentally Made It Fully Public"
-description: "Moving Atlantis from Kubernetes to a dedicated LXC involved repointing the Cloudflare Tunnel. The new tunnel pointed straight at the LXC's IP, bypassing Traefik and Authelia entirely. Atlantis has no auth of its own. For roughly 18 hours, anyone with the URL had full plan/apply access to the infrastructure repo."
+description: "Moving Atlantis from Kubernetes to an LXC meant repointing the Cloudflare Tunnel, which then skipped Traefik and Authelia. For about 18 hours the UI was open to anyone."
 date: "2026-07-14"
 tags: ["Security", "Kubernetes", "Homelab"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-SEC-008 was a finding from an earlier security audit: Atlantis was accessible without authentication. The fix was straightforward - put an Authelia `ForwardAuth` middleware in front of the Traefik `IngressRoute`, gating the UI and all endpoints except the GitHub webhook path (which uses its own HMAC-based authentication).
+SEC-008 was a finding from an earlier security audit: Atlantis was accessible without authentication. The fix was straightforward: an Authelia `ForwardAuth` middleware on the Traefik `IngressRoute`, gating the UI and every endpoint except the GitHub webhook path, which has its own HMAC-based authentication.
 
-That fix held for months. It was reopened by a completely unrelated infrastructure migration that nobody checked against the auth model.
+That fix held for months. An unrelated infrastructure migration that nobody checked against the auth model reopened it.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Migration That Re-Opened the Exposure
 
-Atlantis moved from a Kubernetes deployment to a dedicated LXC container (ADR-012). The Kubernetes deployment had a `Service`, an `IngressRoute`, and Traefik middleware handling the routing - including the Authelia gate. The LXC had none of that; it was a bare server running the Atlantis binary directly.
+Atlantis moved from a Kubernetes deployment to a dedicated LXC container (ADR-012). The Kubernetes deployment had a `Service`, an `IngressRoute` and Traefik middleware handling the routing, including the Authelia gate. The LXC had none of that: a bare server running the Atlantis binary directly.
 
-The Cloudflare Tunnel configuration for `atlantis.woitzik.dev` was updated to point at the LXC's IP and port instead of the old Kubernetes Service. This was the only change anyone thought about. It worked - `atlantis.woitzik.dev` resolved and served the Atlantis UI.
+The Cloudflare Tunnel configuration for `atlantis.woitzik.dev` was updated to point at the LXC's IP and port instead of the old Kubernetes Service. This was the only change anyone thought about. It worked: `atlantis.woitzik.dev` resolved and served the Atlantis UI.
 
-What it didn't have: Traefik. Which meant it didn't have the Authelia middleware. Which meant it didn't have authentication.
+The new path had no Traefik, so no Authelia middleware, so no authentication.
 
 ```
 Old path:
@@ -31,20 +31,20 @@ New path (broken):
 Cloudflare Tunnel → LXC:4141 (direct, no auth)
 ```
 
-Atlantis ships with no authentication mechanism of its own - it's designed to run behind a reverse proxy that handles auth. The project's own documentation says this explicitly. Without the proxy, the UI is fully open.
+Atlantis's only built-in protection for the UI is optional HTTP basic auth (`--web-basic-auth` with `--web-username`/`--web-password`), and it is off by default. It wasn't enabled here, because Authelia was supposed to do that job. Without the proxy, the UI was fully open.
 
 ## What "Fully Open" Meant
 
 The Atlantis UI at `atlantis.woitzik.dev` showed:
 
 - Full list of PR plans and apply history
-- Lock/unlock controls for Terraform workspace locks
+- Unlock controls for Terraform workspace locks, plus the global apply lock
 - Apply status for every pending plan
 - Enough context to infer the entire infrastructure topology
 
-More critically: while the GitHub webhook endpoint (`/events`) uses HMAC verification that would block arbitrary forged webhook calls, the UI controls themselves - lock, unlock, approve - were unauthenticated. Anyone who found the URL during that window could have interfered with in-flight Terraform operations.
+Worse: the GitHub webhook endpoint (`/events`) verifies an HMAC signature, so forged webhook calls would have been rejected, but the UI controls themselves (discarding locks, toggling the global apply lock) were unauthenticated. Plans and applies are still triggered through PR comments, but anyone who found the URL during that window could have interfered with in-flight Terraform operations.
 
-The exposure was confirmed by making an unauthenticated GET request to the live URL from an external network and receiving the full Atlantis UI with a 200 response. No credentials, no redirect to Authelia.
+I confirmed the exposure with an unauthenticated GET to the live URL from an external network: the full Atlantis UI with a 200 response. No credentials, no redirect to Authelia.
 
 ```bash
 # Confirmed live during audit
@@ -54,7 +54,7 @@ curl -s -o /dev/null -w "%{http_code}" https://atlantis.woitzik.dev/
 
 ## The Fix: Restore the Traefik/Authelia Pattern
 
-The same external-host routing pattern already used for Proxmox (`pve-final`) and PBS (`pbs-final`) - services that also run outside Kubernetes but still need to be gated - was the correct model. An `IngressRoute` with the Authelia middleware, backed by an `ExternalName` Service or direct-IP Endpoints pointing at the LXC:
+The right model already existed: the external-host routing pattern used for Proxmox (`pve-final`) and PBS (`pbs-final`), which also run outside Kubernetes but still need to be gated. An `IngressRoute` with the Authelia middleware, backed by an `ExternalName` Service or direct-IP Endpoints pointing at the LXC:
 
 ```yaml
 # kubernetes/ingress/atlantis-ingress.yml
@@ -90,21 +90,21 @@ The Cloudflare Tunnel was repointed from the LXC's direct IP back to Traefik's H
 
 ## The Migration Checklist Gap
 
-The thing that failed here wasn't the Kubernetes config or the LXC setup - it was the checklist for the migration itself. Moving a service between infrastructure layers (Kubernetes pod → LXC) involves implicit assumptions about what each layer provides. Traefik and Authelia aren't just routing - they're security controls. Any migration that removes a service from the Kubernetes stack needs an explicit step: "identify what security controls the Kubernetes layer was providing and verify they're replicated in the destination."
+What failed here was the migration checklist, not the Kubernetes config or the LXC setup. Moving a service between infrastructure layers (Kubernetes pod → LXC) carries implicit assumptions about what each layer provides. Traefik and Authelia do routing, and they are also security controls. Any migration that removes a service from the Kubernetes stack needs an explicit step: "identify what security controls the Kubernetes layer was providing and verify they're replicated in the destination."
 
 For this homelab, that means:
-1. TLS termination (handled by Cloudflare Tunnel in the LXC case - OK)
-2. Authentication / SSO gate (was Traefik/Authelia - **not replicated, missed**)
+1. TLS termination (handled by Cloudflare Tunnel in the LXC case: OK)
+2. Authentication / SSO gate (was Traefik/Authelia: **not replicated, missed**)
 3. Network policy (not applicable here, no Kubernetes NetworkPolicy in use for this service)
 
-The post-migration security audit found it. But "audit after the fact" is a worse control than "check during migration." The recurring pattern across several incidents in this homelab - SEC-008 original, the ArgoCD `selfHeal` trap, the gitleaks baseline suppression - is that the security control worked correctly until something unrelated changed, and nobody thought to re-verify the control after the change.
+The post-migration security audit found it, but an audit after the fact is a weaker control than a check during the migration. Several incidents in this homelab share the pattern (the original SEC-008, the ArgoCD `selfHeal` trap, the gitleaks baseline suppression): the security control worked until something unrelated changed, and nobody re-verified it afterward.
 
-That's the property worth building a habit around: after any infrastructure migration that touches routing, check whether the auth model survived.
+The habit worth building: after any infrastructure migration that touches routing, check whether the auth model survived.
 
 ---
 
-The same failure mode applies directly to Azure. Migrating a workload from AKS to a VM (or from a VMSS behind an Application Gateway to a standalone VM) can silently remove WAF rules, identity-based authentication, or Private Endpoint network restrictions that were provided by the original deployment layer. The migration itself succeeds. The traffic flows. The security controls evaporate quietly. The right time to check is during the migration, not after a security review flags it.
+The same failure mode applies directly to Azure. Migrating a workload from AKS to a VM (or from a VMSS behind an Application Gateway to a standalone VM) can silently remove WAF rules, identity-based authentication or Private Endpoint network restrictions that the original deployment layer provided. The migration succeeds, traffic flows, and the security controls are gone without an error anywhere. The right time to check is during the migration, not after a security review flags it.
 
-This is the same class of failure [The Phoenix Project\*](/go/4f4RHQf) spends a lot of pages on: the handoff between teams is where invariants quietly stop being true.
+This is the same class of failure [The Phoenix Project\*](/go/4f4RHQf) spends a lot of pages on: the handoff between teams is where invariants stop being true without anyone noticing.
 
 <NewsletterCTA />

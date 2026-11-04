@@ -1,6 +1,6 @@
 ---
 title: "k3s Backup Without the Complexity: Velero + Garage S3 on Longhorn"
-description: "Replace MinIO with Garage - a single 50MB binary - as the Velero backup target. Full daily cluster backups with Longhorn volume snapshots, deployed via ArgoCD."
+description: "Replace MinIO with Garage, a single small binary, as the Velero backup target. Full daily cluster backups with Longhorn volume snapshots, deployed via ArgoCD."
 date: "2026-06-20"
 updated: "2026-09-05"
 tags: ["Kubernetes", "Homelab"]
@@ -8,18 +8,18 @@ tags: ["Kubernetes", "Homelab"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
 **Update (2026-09-05):** this cluster has since moved Garage's storage off Longhorn onto a
-static host-NFS-backed PV/PVC pair — a separate post covers that migration and the reasoning
-behind it. The Velero/Garage setup described below (architecture, `replication_factor = 1`,
-the Deployment itself) is unaffected either way; only the two PVCs' `storageClassName` changed.
-Left as-is below since it was accurate for the Longhorn-based setup this cluster ran at the
-time and the backup logic itself didn't change.
+static host-NFS-backed PV/PVC pair. [A separate post](/blog/longhorn-to-nfs-distributed-storage/)
+covers that migration and the reasoning behind it. The Velero/Garage setup below (architecture,
+`replication_factor = 1`, the Deployment itself) is unaffected; only the two PVCs'
+`storageClassName` changed. I left the article as written because it was accurate for the
+Longhorn-based setup the cluster ran at the time, and the backup logic didn't change.
 
-Every Kubernetes cluster needs a backup strategy. For a homelab running on bare metal, a [BMAX Mini PC\*](/go/4bv3yF1) with Longhorn for distributed storage, the options are limited: `etcd` snapshots cover cluster state but not persistent volumes, and MinIO is the standard S3 target for Velero - but MinIO is large, opinionated, and overkill for a single-node homelab.
+Every Kubernetes cluster needs a backup strategy. For a homelab on bare metal, here a [BMAX Mini PC\*](/go/4bv3yF1) with Longhorn for distributed storage, the options are limited. `etcd` snapshots cover cluster state but not persistent volumes. MinIO is the standard S3 target for Velero, but it is large, opinionated, and overkill for a single-node homelab.
 
-[Garage](https://garagehq.deuxfleurs.fr/) is a lightweight, open-source S3-compatible object store written in Rust. The binary is ~50MB, the configuration is a single TOML file, and it works with any S3-compatible client including the Velero AWS plugin. It's a much better fit for a homelab than MinIO.
+[Garage](https://garagehq.deuxfleurs.fr/) is a lightweight, open-source S3-compatible object store written in Rust. It ships as a single binary, the configuration is one TOML file, and it works with any S3-compatible client, including the Velero AWS plugin. For a homelab it fits much better than MinIO.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -39,7 +39,7 @@ Velero (daily backup at 03:00)
                 └── Snapshots exported to Garage S3
 ```
 
-Both the Kubernetes API objects and the actual volume data land in Garage. A full restore gives you the cluster back exactly as it was.
+Both the Kubernetes API objects and the actual volume data land in Garage. A full restore brings the cluster back as it was.
 
 ## Step 1: Deploy Garage on k3s
 
@@ -105,7 +105,7 @@ data:
     admin_token_file = "/etc/garage/secrets/admin_token"
 ```
 
-`replication_factor = 1` is correct for a single-node setup. Garage supports multi-node replication but there's no need for it here - Longhorn handles data redundancy at the storage layer.
+`replication_factor = 1` is correct for a single-node setup. Garage supports multi-node replication, but there's no need for it here: Longhorn handles data redundancy at the storage layer.
 
 Secrets (RPC secret and admin token) come from a Kubernetes Secret:
 
@@ -139,6 +139,9 @@ spec:
     matchLabels:
       app: garage
   template:
+    metadata:
+      labels:
+        app: garage
     spec:
       containers:
         - name: garage
@@ -231,7 +234,7 @@ kubectl exec -it -n apps deploy/garage -- \
   /garage bucket allow velero --read --write --owner --key velero-key
 ```
 
-Note the `Key ID` and `Secret key` output - you need them for Velero.
+Note the `Key ID` and `Secret key` from the output. Velero needs both.
 
 ## Step 3: Deploy Velero via ArgoCD
 
@@ -291,11 +294,11 @@ spec:
       - ServerSideApply=true
 ```
 
-Two important settings here:
+Two settings matter here:
 
-**`s3ForcePathStyle: true`** - Garage uses path-style URLs (`http://endpoint/bucket/key`), not virtual-hosted style (`http://bucket.endpoint/key`). Without this flag, the AWS SDK generates requests that Garage rejects.
+**`s3ForcePathStyle: true`**: Velero talks to Garage with path-style URLs (`http://endpoint/bucket/key`), not virtual-hosted style (`http://bucket.endpoint/key`). Garage only serves virtual-hosted requests under its `root_domain`, and the in-cluster Service name `garage.apps.svc.cluster.local` has no per-bucket DNS. Without this flag, the AWS SDK builds `velero.garage.apps...` hostnames that never resolve.
 
-**`deployNodeAgent: true`** - The node agent runs as a DaemonSet and is required for Longhorn volume snapshots. Without it, Velero can back up Kubernetes objects but not the actual data in PVCs.
+**`deployNodeAgent: true`**: the node agent runs as a DaemonSet and moves PVC data into the backup storage location, either as file-system backup (Kopia) or as CSI snapshot data movement. Without it, Velero backs up Kubernetes objects but not the data in your PVCs.
 
 The credentials secret:
 
@@ -338,7 +341,7 @@ spec:
       - default
 ```
 
-30 days of daily backups. The TTL means Velero automatically deletes backups older than 720 hours - no manual cleanup.
+30 days of daily backups. With the TTL, Velero deletes backups older than 720 hours on its own. No manual cleanup.
 
 ## Verifying Backups
 
@@ -376,7 +379,7 @@ velero restore create --from-backup daily-backup-<timestamp> \
   --include-namespaces apps
 ```
 
-Velero restores Kubernetes objects first, then triggers volume snapshot restores through the node agent. Pods come up pointing to their restored PVCs automatically.
+Velero recreates the PVCs and PVs, the node agent restores their data, and the workloads come up bound to the restored PVCs.
 
 ## Why Garage Over MinIO
 
@@ -388,11 +391,11 @@ Velero restores Kubernetes objects first, then triggers volume snapshot restores
 | S3 compatibility | Full (path-style) | Full |
 | Cluster mode | Optional | Requires distributed setup |
 
-For a homelab Velero target, Garage does everything MinIO does at a fraction of the resource cost. The only thing you give up is the MinIO web console - but `garage bucket info` and `garage key list` give you everything you need from the CLI.
+For a homelab Velero target, Garage does everything MinIO does at a fraction of the resource cost. The only thing you give up is the MinIO web console, and `garage bucket info` plus `garage key list` cover what you need from the CLI.
 
 ---
 
-With this setup, a complete cluster rebuild from scratch - fresh k3s installation, ArgoCD, and a `velero restore` - takes under 30 minutes. That's the practical test for whether your backup strategy actually works. I [ran that exact test](/blog/backup-restore-test-never-verified-network-conflict/) against a scratch VM and found a network conflict the documentation never mentioned.
+With this setup, a complete cluster rebuild from scratch (fresh k3s install, ArgoCD, then `velero restore`) takes under 30 minutes. That rebuild is the practical test of whether your backup strategy works. I [ran that exact test](/blog/backup-restore-test-never-verified-network-conflict/) against a scratch VM and found a network conflict the documentation never mentioned. A `Completed` status in `velero backup get` proves nothing on its own either: [my daily backup reported success for weeks without ever containing PVC data](/blog/velero-backup-false-positive-no-data/).
 
 Backup-first is the default posture on Azure too: Azure Backup, geo-redundant storage, and immutable blob policies exist because the same failure modes you see in a homelab scale to enterprise data.
 

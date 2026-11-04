@@ -1,6 +1,6 @@
 ---
 title: "Acmebot härten für ISO 27001 & NIS2: Zero-Trust-Zertifikate in Azure"
-description: "Der Standard-Acmebot-Deploy hat drei öffentliche Angriffsflächen. Für ISO 27001, KRITIS oder NIS2 reicht das nie. So baust du Let's-Encrypt-Automatisierung mit Private Link, VNet Integration und Private DNS - komplett mit Terraform."
+description: "Der Standard-Deploy von Acmebot hat drei öffentliche Angriffsflächen. So isolierst du die Let's-Encrypt-Automatisierung mit Private Link, VNet Integration und Private DNS, komplett in Terraform."
 lang: de
 translationOf: "hardening-azure-acmebot-iso27001"
 date: 2026-09-22
@@ -9,127 +9,173 @@ pinned: false
 tags: ["Azure", "Terraform", "Security", "NIS2", "Compliance"]
 ---
 
-_Basierend auf einem realen Betrieb: der Übergang eines Acmebot-Deploys zu einer vollständig netzwerkisolierten Zero-Trust-Architektur, mitgebaut für ISO 27001 und NIS2-Anforderungen._
+Let's-Encrypt-Zertifikate mit Azure Key Vault zu automatisieren ist ein gelöstes Problem. [Azure Acmebot](https://github.com/shibayan/keyvault-acmebot) macht den Deploy sehr einfach.
 
-Let's-Encrypt-Zertifikate mit Azure Key Vault zu automatisieren ist ein gelöstes Problem. Tools wie [Azure Acmebot](https://github.com/shibayan/keyvault-acmebot) machen den Deploy lächerlich einfach.
+In Unternehmensumgebungen, die **ISO 27001, KRITIS oder NIS2** erfüllen müssen, reicht einfach aber selten aus. Der Standard-Deploy von Acmebot setzt auf öffentliche Endpoints, und in einer gehärteten Umgebung erzeugt ein aus dem Internet erreichbarer Storage Account oder Key Vault Audit-Findings, egal wie stark die Authentifizierung ist.
 
-Das Problem: Der Standard-Deploy ist auf **Erreichbarkeit** optimiert, nicht auf Isolation. Drei Komponenten öffnen eine öffentliche Angriffsfläche - und sobald du ein Audit gegen **ISO 27001, KRITIS oder NIS2** fährst, klickst du dir genau damit die Findings zusammen, egal wie stark deine Auth am Ende ist.
+Dieser Artikel beschreibt den Umbau vom Standard-Deploy zu einer netzwerkisolierten Zero-Trust-Architektur, vollständig mit Terraform verwaltet.
 
-## Die drei offenen Flächen im Standard-Deploy
+> **Update (November 2026):** Upstream-Acmebot (das Repo liegt inzwischen unter [polymind-inc/acmebot](https://github.com/polymind-inc/acmebot)) deployt auf einen Flex-Consumption-Plan unter Linux. Das Terraform unten zielt auf eine Windows Function App (`azurerm_windows_function_app`) in einem Premium- oder Dedicated-App-Service-Plan; der Windows-Consumption-Plan kennt gar keine VNet Integration. Auf Flex Consumption bleibt das Muster gleich, aber die Function App ist dann `azurerm_function_app_flex_consumption`, und das Integrationssubnetz muss an `Microsoft.App/environments` delegiert werden statt an `Microsoft.Web/serverFarms`.
+
+**[View the standard deployment source code on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-acme-cert)**
+
+## Die Compliance-Lücke
 
 > **🇬🇧 English:** Die englische Fassung dieses Artikels: [Hardening Azure Acmebot for ISO 27001 & NIS2 Compliance →](/blog/hardening-azure-acmebot-iso27001/).
 
+Die Standard-Architektur ist auf bequemen Zugriff ausgelegt, nicht auf Isolation. Drei Komponenten bieten ab Werk eine öffentliche Angriffsfläche:
 
-1. **Storage Account:** Die Function App braucht einen Storage Account für Zustand und WebJobs. Default: nimmt Verkehr aus allen Netzwerken an.
-2. **Key Vault:** Dein Zertifikatsspeicher hängt per Default am öffentlichen Endpoint.
-3. **Function App:** Das Acmebot-Dashboard und der ACME-Webhook sind ohne Netzwerk-Restriktion öffentlich erreichbar.
+1. **Storage Account:** Die Function App braucht einen Storage Account für Zustand und WebJobs. Standardmäßig nimmt er Verkehr aus allen Netzwerken an.
+2. **Key Vault:** Der Zertifikatsspeicher hat einen öffentlichen Endpoint, solange man ihn nicht ausdrücklich einschränkt.
+3. **Function App:** Das Acmebot-Dashboard und seine HTTP-API sind öffentlich erreichbar, geschützt durch App Service Authentication, aber ohne jede Einschränkung auf Netzwerkebene.
 
-Für jede ernsthafte Compliance-Liste muss dieses Modell komplett umgedreht werden. Das Zielprinzip: **Default-Deny auf Netzwerk-Ebene, nicht nur auf Identity-Ebene.**
+Jedes ernstzunehmende Compliance-Framework verlangt, dieses Modell umzudrehen. Das Zielprinzip: **Default-Deny auf Netzwerkebene, zusätzlich zur Identitätsebene.**
 
 ## Zielarchitektur
 
-Das öffentliche Internet-Routing ersetzen wir durch das interne Azure-Backbone, über drei Stellschrauben:
+Drei Bausteine ersetzen das Routing über das öffentliche Internet durch das interne Azure-Backbone:
 
-- **VNet Integration:** Die Function App wird in ein dediziertes, delegiertes Subnetz injiziert. Sämtlicher ausgehender Verkehr startet in deinem Virtual Network.
-- **Azure Private Link:** Storage Account und Key Vault bekommen private IPs in deinem VNet über Private Endpoints. Ihre öffentlichen Endpoints werden komplett abgeschaltet.
-- **Private DNS Zones:** Interne Auflösung sorgt dafür, dass die Function App `*.blob.core.windows.net` und `*.vaultcore.azure.net` über private IPs auflöst - nicht über öffentliche.
+- **VNet Integration:** Die Function App wird in ein eigenes, delegiertes Subnetz eingebunden. Der gesamte ausgehende Verkehr startet in deinem Virtual Network.
+- **Azure Private Link:** Storage Account und Key Vault bekommen über Private Endpoints private IP-Adressen im VNet. Ihre öffentlichen Endpoints werden komplett abgeschaltet.
+- **Private DNS Zones:** Mit dem VNet verknüpfte `privatelink.*`-Zonen sorgen dafür, dass die Function App `*.blob.core.windows.net` und `*.vault.azure.net` auf private IPs auflöst statt auf öffentliche.
+
+Diese Bausteine sichern den ausgehenden Verkehr und die Datenebene ab. Der eingehende Endpoint der Function App selbst (das Dashboard) braucht zusätzlich einen eigenen Private Endpoint oder Access Restrictions; diesen Teil deckt der Code unten nicht ab.
 
 ## Schritt 1: VNet Integration
 
-Die Function App braucht ein eigenes Subnetz mit Delegation zu `Microsoft.Web/serverFarms`. Ein `/27`-Präfix reicht für diese Workload und verschwendet keine Adressen.
+Die Function App braucht ein eigenes Subnetz mit Delegation an `Microsoft.Web/serverFarms`. Ein `/27` reicht für diese Workload und verschwendet keinen Adressraum.
 
 ```hcl
 resource "azurerm_subnet" "acmebot_integration" {
   name                 = "snet-acmebot-integration"
-  resource_group_name  = azurerm_resource_group.app.name
-  virtual_network_name = azurerm_virtual_network.core.name
-  address_prefixes     = ["10.0.4.0/27"]
+  resource_group_name  = var.existing_vnet_rg
+  virtual_network_name = var.existing_vnet_name
+  address_prefixes     = ["10.0.1.0/27"]
 
   delegation {
-    name = "acmebot-fn-delegation"
+    name = "delegation-acmebot"
     service_delegation {
       name    = "Microsoft.Web/serverFarms"
       actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
     }
   }
+
+  service_endpoints = ["Microsoft.Storage", "Microsoft.KeyVault"]
+}
+
+resource "azurerm_windows_function_app" "acmebot" {
+  # ... other configuration ...
+
+  virtual_network_subnet_id = azurerm_subnet.acmebot_integration.id
+
+  site_config {
+    vnet_route_all_enabled = true
+  }
+
+  app_settings = {
+    "WEBSITE_VNET_ROUTE_ALL"   = "1"
+    "WEBSITE_DNS_SERVER"       = "168.63.129.16" # Azure internal DNS - required
+    "WEBSITE_CONTENTOVERVNET"  = "1"
+  }
 }
 ```
 
-## Schritt 2: Private Endpoints
+Zwei Details kosten Stunden, wenn man sie übersieht. `vnet_route_all_enabled = true` zwingt den gesamten ausgehenden Verkehr durchs VNet; ohne die Einstellung nimmt ein Teil des Function-Verkehrs weiter den öffentlichen Weg und scheitert ohne klare Fehlermeldung, sobald der Storage abgeriegelt ist. `WEBSITE_DNS_SERVER = 168.63.129.16` legt die Namensauflösung auf den internen Azure-Resolver fest, der aus den mit dem VNet verknüpften Private DNS Zones antwortet. Eine integrierte App übernimmt ohnehin die DNS-Einstellungen des VNets. Wichtig wird die Einstellung vor allem dann, wenn das VNet auf eigene DNS-Server zeigt, die die `privatelink`-Zonen nicht weiterleiten.
 
-Jeder Endpoint braucht seinen eigenen Private Endpoint samt DNS-Zone-Verankerung. Das Pattern wiederholt sich dreimal - hier der Storage Account exemplarisch:
+## Schritt 2: Private Endpoints und DNS
+
+An dieser Stelle verlieren die meisten Zeit. Private Endpoints allein reichen nicht. Du brauchst zusätzlich Private DNS Zones, die mit dem VNet verknüpft sind; sonst löst die Function App weiterhin die öffentliche IP des Storage Accounts auf und wird von den Regeln aus Schritt 3 blockiert. Die Endpoints liegen in einem eigenen Subnetz (`acmebot_endpoints`), denn ein an `Microsoft.Web/serverFarms` delegiertes Subnetz kann keine Private Endpoints aufnehmen.
 
 ```hcl
-resource "azurerm_private_endpoint" "sa_blob" {
-  name                = "pe-sa-blob"
-  location            = azurerm_resource_group.app.location
-  resource_group_name = azurerm_resource_group.app.name
-  subnet_id           = azurerm_subnet.acmebot_integration.id
+# One Private Endpoint per Storage subresource
+resource "azurerm_private_endpoint" "storage_pe" {
+  for_each            = toset(["blob", "table", "queue", "file"])
+  name                = "pe-acmebot-st-${each.key}"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.rg.name
+  subnet_id           = azurerm_subnet.acmebot_endpoints.id
 
   private_service_connection {
-    name                           = "psc-sa-blob"
-    private_connection_resource_id = azurerm_storage_account.acmebot.id
+    name                           = "psc-acmebot-st-${each.key}"
+    private_connection_resource_id = azurerm_storage_account.acmebot_storage.id
+    subresource_names              = [each.key]
     is_manual_connection           = false
-    subresource_names              = ["blob"]
   }
 
   private_dns_zone_group {
-    name                 = "pdns-blob"
-    private_dns_zone_ids = [azurerm_private_dns_zone.blob.id]
+    name                 = "default"
+    private_dns_zone_ids = [var.private_dns_zone_ids[each.key]]
+  }
+}
+
+# Key Vault Private Endpoint
+resource "azurerm_private_endpoint" "kv_pe" {
+  name                = "pe-acmebot-kv"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.rg.name
+  subnet_id           = azurerm_subnet.acmebot_endpoints.id
+
+  private_service_connection {
+    name                           = "psc-acmebot-kv"
+    private_connection_resource_id = azurerm_key_vault.acmebot_kv.id
+    subresource_names              = ["vault"]
+    is_manual_connection           = false
+  }
+
+  private_dns_zone_group {
+    name                 = "default"
+    private_dns_zone_ids = [var.private_dns_zone_ids["vault"]]
   }
 }
 ```
 
-## Schritt 3: Öffentliche Endpoints abschalten
+Der Storage Account braucht vier getrennte Private Endpoints, je einen für `blob`, `table`, `queue` und `file`. Die Functions-Runtime von Acmebot nutzt alle vier Subressourcen. Fehlt einer, lässt sich die Function App problemlos deployen und scheitert dann zur Laufzeit mit kryptischen Storage-Fehlern.
 
-Der wichtigste Schritt ist der destruktive: Nachdem alle Private Endpoints stehen, wird der öffentliche Zugriff **aktiv** abgeschaltet - nicht nur per Firewall-Rule kaschiert, sondern im Terraform-Code verboten. Damit ist die Öffnung weg, nicht bloß versteckt:
+## Schritt 3: Default-Deny-Regeln
+
+Mit dem privaten Routing lässt sich die Isolation auf Netzwerkebene durchsetzen. Storage Account und Key Vault bekommen den öffentlichen Netzwerkzugriff abgeschaltet. Die Default-Deny-Netzwerkregeln mit einer engen Ausnahme für das Integrationssubnetz sind eine zweite Schicht, falls später jemand den öffentlichen Zugriff wieder einschaltet.
 
 ```hcl
-resource "azurerm_storage_account" "acmebot" {
-  ...
-  public_network_access_enabled = false
-  min_tls_version               = "TLS1_2"
+resource "azurerm_storage_account" "acmebot_storage" {
+  # ... other configuration ...
+
+  public_network_access_enabled   = false
+  allow_nested_items_to_be_public = false
+
+  network_rules {
+    default_action             = "Deny"
+    bypass                     = ["AzureServices"]
+    virtual_network_subnet_ids = [azurerm_subnet.acmebot_integration.id]
+  }
 }
-```
 
-Für den Key Vault gilt dasselbe, plus ein Härtungs-Panel, das öffentliche Zugriffe per Default ausschließt:
+resource "azurerm_key_vault" "acmebot_kv" {
+  # ... other configuration ...
 
-```hcl
-resource "azurerm_key_vault" "acmebot" {
-  ...
   public_network_access_enabled = false
   enable_rbac_authorization     = true
+
+  network_acls {
+    default_action             = "Deny"
+    bypass                     = "AzureServices"
+    virtual_network_subnet_ids = [azurerm_subnet.acmebot_integration.id]
+  }
 }
 ```
 
-## Schritt 4: Private DNS auf zusammenwachsen lassen
+`bypass = "AzureServices"` lässt vertrauenswürdige Microsoft-Dienste durch die Netzwerkregeln. Welche Plattformfunktionen davon abhängen, ist je nach Dienst verschieden. Teste Diagnoseeinstellungen und Backups nach der Umstellung, statt anzunehmen, dass sie weiter funktionieren.
 
-Damit die Function App die privaten IPs auch findet, braucht es die drei Zonen und ihre Verkettung ans Hub-VNet:
+Danach nimmt keine der beiden Ressourcen mehr Verkehr aus dem Internet an. Von außen lösen die öffentlichen FQDNs zwar weiterhin auf das gemeinsame Azure-Frontend auf, aber jede Anfrage wird mit 403 abgewiesen, weil der öffentliche Netzwerkzugriff abgeschaltet ist. Die Authentifizierung kommt gar nicht erst ins Spiel.
 
-```hcl
-resource "azurerm_private_dns_zone" "blob" {
-  name                = "privatelink.blob.core.windows.net"
-  resource_group_name = azurerm_resource_group.app.name
-}
+## Das Ergebnis
 
-resource "azurerm_private_dns_zone_virtual_network_link" "blob" {
-  name                  = "link-hub"
-  resource_group_name   = azurerm_resource_group.app.name
-  private_dns_zone_name = azurerm_private_dns_zone.blob.name
-  virtual_network_id    = azurerm_virtual_network.hub.id
-}
-```
+Nach dem Umbau deckt der Acmebot-Deploy die Netzwerkisolations-Controls ab, die Auditoren unter ISO 27001:2022 Anhang A (8.20 Netzwerksicherheit, 8.22 Trennung von Netzwerken), NIS2 Artikel 21 und den KRITIS-Grundanforderungen prüfen:
 
-Zonen, die du brauchst: `privatelink.blob.core.windows.net`, `privatelink.vaultcore.azure.net` und fürs App-Subnetze die Function-App-DNS-Platte.
+- Kein öffentlicher Zugriff auf irgendeine Ressource der Datenebene
+- Der gesamte Verkehr zwischen den Diensten bleibt im privaten Azure-Backbone
+- Identitätsbasierter Zugriff (Managed Identity + RBAC) zusätzlich zu den Netzwerk-Controls
+- Alles in Terraform: nachvollziehbar, wiederholbar, versioniert
 
-## Warum das fürs Audit zählt
+Wie sich diese Controls in die vollständigen Pflichten aus Artikel 21 einfügen, steht in [NIS2 Article 21 in Azure](/blog/nis2-article-21-azure-terraform/) (Englisch).
 
-Nach dem Umbau existiert für die Acmebot-Platte **kein öffentlicher Endpoint mehr im Landschaftsbild**. Ein Scanner (z.B. `nmap` oder ein Compliance-Scan wie bei einer ISO-27001-Begutachtung) findet schlicht nichts, das er attackieren könnte. Nicht „abgesichert", sondern **abwesend**.
-
-Zusammen mit den anderen NIS2-Säulen - Zero-Trust-Netzwerk, durchgängige Terraform-IaC (kein Click-Ops), Secrets via Key Vault statt in Code - erfüllst du genau die Netzwerk-Kontrollen, die in der NIS2-Artikel-21-Rechnung und in ISO-27001-Annex-A gefragt sind:
-
-- Privates Netz statt öffentlicher Endpoints → A.13/Netzwerksegmentierung
-- IaC statt manueller Änderungen → A.8/Configuration Management
-- Secrets im Vault, nie im Repo → A.10/Kryptographie
-
-**Verwandt:** Wie du die vollständigen NIS2-Artikel-21-Pflichten mit Terraform baust, steht bereits im Blog - der Praxisteil ist in [„NIS2 Artikel 21 in Azure implementieren"](/blog/nis2-article-21-azure-terraform) nachzulesen.
+Diese Checkliste gehe ich bei jedem Härtungsdurchlauf durch. [Hol dir die ISO 27001 Auditor Checklist als PDF](/downloads/iso27001-auditor-checklist.pdf), wenn du sie für deine eigenen Audits brauchst.

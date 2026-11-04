@@ -1,29 +1,29 @@
 ---
 title: "NIS2 Article 21 in Azure: Implementing Network Security Controls with Terraform"
-description: "A technical deep-dive into the network security requirements of NIS2 Article 21 and how to implement them in Azure using Terraform - with concrete code, not legal theory."
+description: "How the network security measures of NIS2 Article 21 map to Azure resources, implemented with Terraform. Concrete code, not legal theory."
 date: "2026-05-17"
 tags: ["Azure", "Terraform", "Compliance", "Security"]
 ---
 
 import ProductCTA from "@components/ProductCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Most NIS2 content on the internet is written by lawyers for lawyers. It explains what the directive requires in broad strokes, references recitals and annexes, and leaves engineers staring at a wall of legal text wondering what to actually build.
+Most NIS2 content on the internet is written by lawyers for lawyers. It explains the directive in broad strokes, cites recitals and annexes, and leaves engineers staring at legal text wondering what to build.
 
-This article is different. It focuses specifically on the **network security controls** required by NIS2 Article 21 and maps each requirement to concrete Azure resources - managed with Terraform.
+This article covers only the **network security controls** relevant to NIS2 Article 21 and maps each one to concrete Azure resources, managed with Terraform.
 
 > **Disclaimer:** This article covers the technical network infrastructure controls relevant to NIS2 Article 21. Full NIS2 compliance requires organizational measures, incident response procedures, supply chain controls, and additional technical layers beyond what infrastructure code alone can provide. Nothing here constitutes legal advice.
 
 ## What NIS2 Article 21 Actually Requires
 
-NIS2 Article 21 mandates that essential and important entities implement "appropriate and proportionate technical and organisational measures" to manage cybersecurity risks. For network infrastructure, the relevant requirements break down into four concrete areas:
+Article 21(1) of Directive (EU) 2022/2555 requires essential and important entities to take "appropriate and proportionate technical, operational and organisational measures" to manage the risks to their network and information systems. Article 21(2) lists ten areas those measures must at least cover, points (a) to (j). The directive doesn't prescribe specific network controls. For network infrastructure, the measures translate into four engineering areas:
 
 **1. Network Segmentation**
 Systems must be isolated based on criticality and function. Unrestricted lateral movement between workloads is not acceptable.
 
 **2. Access Control**
-Access to systems must be strictly controlled. Default-allow is not acceptable - both at the network layer and the identity layer.
+Access to systems must be strictly controlled. Default-allow is not acceptable, at either the network layer or the identity layer.
 
 **3. Minimizing Attack Surface**
 Public exposure of internal systems must be eliminated where possible. Every publicly reachable endpoint that doesn't need to be public is a finding.
@@ -31,7 +31,7 @@ Public exposure of internal systems must be eliminated where possible. Every pub
 **4. Monitoring and Auditability**
 Infrastructure must be auditable. Changes must be traceable. Ad-hoc ClickOps does not produce an audit trail.
 
-The good news: a well-architected Azure Hub & Spoke environment with Terraform addresses all four - if you implement it correctly.
+A well-built Azure Hub & Spoke environment managed with Terraform addresses all four, if you implement it correctly.
 
 ## Mapping NIS2 Requirements to Azure Architecture
 
@@ -50,11 +50,26 @@ Auditability                   →    Terraform IaC (version-controlled)
                                     Azure Policy compliance reporting
 ```
 
+How those controls line up with the actual points of Article 21(2):
+
+| Article 21(2) point | Directive wording (short) | Controls in this article |
+|---|---|---|
+| (a) | Risk analysis and information system security policies | Supports it; the policy itself is organizational |
+| (b) | Incident handling | Firewall and NSG logs as detection and investigation data |
+| (c) | Business continuity, backup, disaster recovery | Not covered here |
+| (d) | Supply chain security | Not covered here |
+| (e) | Security in acquisition, development and maintenance | Version-controlled, reviewed IaC changes |
+| (f) | Assessing effectiveness of risk-management measures | Azure Policy compliance reporting |
+| (g) | Cyber hygiene and training | Not covered here |
+| (h) | Cryptography and encryption | TLS to Private Endpoints; key management is out of scope |
+| (i) | HR security, access control policies, asset management | Segmentation, Default-Deny NSGs, RBAC, Terraform state as inventory |
+| (j) | MFA, secured communications | Entra ID side, not covered here |
+
 ## Control 1: Network Segmentation via Hub & Spoke
 
 NIS2 requires that critical systems are isolated from each other. A flat VNet where all workloads can communicate freely fails this requirement immediately.
 
-The Hub & Spoke topology enforces segmentation by design - Spokes cannot communicate with each other directly, all traffic routes through the Hub:
+The Hub & Spoke topology enforces segmentation by design. Spokes cannot reach each other directly; all traffic routes through the Hub:
 
 ```hcl
 # Hub VNet - centralized shared services
@@ -78,11 +93,11 @@ resource "azurerm_virtual_network_peering" "hub_to_spoke1" {
 }
 ```
 
-Spoke-to-Spoke traffic is blocked by default - the peerings only connect each Spoke to the Hub, not to each other. Any cross-Spoke communication must be explicitly routed through the Hub and inspected by the Azure Firewall.
+Spoke-to-Spoke traffic is blocked by default because VNet peering is not transitive: each Spoke peers with the Hub, not with the other Spokes. Any cross-Spoke communication must be explicitly routed through the Hub and inspected by the Azure Firewall.
 
 ## Control 2: Default-Deny at the Subnet Level
 
-Network segmentation without enforcement at the subnet level is incomplete. An NSG with explicit Default-Deny on all Spoke subnets ensures no unexpected internet traffic reaches workloads:
+Network segmentation without enforcement at the subnet level is incomplete. An NSG with an explicit deny rule on every Spoke subnet keeps unexpected internet traffic away from workloads. Azure's built-in `DenyAllInBound` rule at priority 65500 already does this implicitly; the explicit rule makes the intent visible in code and in audit exports:
 
 ```hcl
 resource "azurerm_network_security_group" "zero_trust" {
@@ -124,13 +139,13 @@ resource "azurerm_subnet_network_security_group_association" "spoke1_nsg" {
 }
 ```
 
-The priority gap (100 → 4096) leaves room for application-specific rules without touching the baseline. Your security team can add rules for specific ports and protocols without restructuring the NSG.
+The priority gap (100 to 4096) leaves room for application-specific rules without touching the baseline, so your security team can add rules for specific ports and protocols without restructuring the NSG.
 
 <ProductCTA variant="inline" slug="azure-firewall-enterprise" />
 
 ## Control 3: Egress Control via Azure Firewall
 
-Blocking inbound traffic is necessary but not sufficient. NIS2 also requires controlling what leaves your network - to detect data exfiltration, prevent C2 callbacks, and enforce least-privilege egress.
+Blocking inbound traffic is necessary but not sufficient. Controlling what leaves your network matters just as much: it is how you detect data exfiltration, block C2 callbacks, and enforce least-privilege egress.
 
 Azure Firewall with Forced Tunneling routes all outbound Spoke traffic through a central inspection point:
 
@@ -165,11 +180,13 @@ resource "azurerm_route_table" "spoke_udr" {
 }
 ```
 
-The Firewall then enforces FQDN-based Application Rules - only explicitly allowed destinations can be reached. Everything else is dropped and logged. That log is your audit trail for NIS2 Article 21(2)(b) - monitoring and incident detection.
+The Firewall then enforces FQDN-based Application Rules: only explicitly allowed destinations can be reached, and everything else is dropped and logged. Those logs feed incident handling under Article 21(2)(b).
+
+The KMS route above covers the classic `kms.core.windows.net` address. Microsoft has since added newer KMS endpoints (`azkms.core.windows.net`), so check the current list in the Azure Windows activation docs before relying on a single /32.
 
 ## Control 4: Eliminating Public PaaS Endpoints
 
-Every PaaS service deployed with a public endpoint is an attack surface. NIS2 requires minimizing exposure - for Azure PaaS services, this means Private Endpoints with public access explicitly disabled:
+Every PaaS service deployed with a public endpoint is attack surface. For Azure PaaS services, minimizing exposure means Private Endpoints with public access explicitly disabled:
 
 ```hcl
 resource "azurerm_key_vault" "kv" {
@@ -201,11 +218,11 @@ resource "azurerm_private_endpoint" "kv_pe" {
 }
 ```
 
-An external scanner will not even receive a TCP connection - the endpoint simply does not resolve to a public IP. This directly satisfies NIS2 Article 21(2)(h) - securing network and information systems.
+From the internet, the vault's public FQDN still resolves, but with public network access disabled the service rejects every request that doesn't arrive through the Private Endpoint. Inside the VNet, the Private DNS zone resolves the same name to the endpoint's private IP. This is access control at the network layer, which falls under Article 21(2)(i).
 
-## Control 5: Identity - Eliminating Static Credentials
+## Control 5: Identity Without Static Credentials
 
-Access keys and connection strings are an audit finding under any serious compliance framework. NIS2 Article 21 requires proper access control - which means cryptographic identity, not shared secrets.
+Access keys and connection strings are an audit finding under any serious compliance framework. Article 21(2)(i) requires access control policies, and in Azure the cleanest way to meet that is identity issued by the platform, not shared secrets.
 
 The Azure pattern: Managed Identities with scoped RBAC assignments, local authentication disabled:
 
@@ -225,42 +242,31 @@ resource "azurerm_role_assignment" "app_kv_secrets" {
 }
 ```
 
-When the resource is deleted, the identity and all its permissions are automatically destroyed. No credential rotation. No secret management. No leaked keys in Git history.
+When the resource is deleted, its system-assigned identity is deleted with it. Azure leaves the role assignments behind as orphaned "Identity not found" entries, but Terraform removes them in the same destroy when they live in the same configuration. There are no credentials for you to rotate and no keys to leak into Git history.
 
 ## Control 6: Auditability via Infrastructure as Code
 
-NIS2 requires that changes to network and information systems are traceable. This is where Terraform provides compliance value beyond just automation.
+Article 21(2)(e) covers security in the maintenance of network and information systems, which in practice means changes must be traceable. This is where Terraform adds compliance value beyond automation.
 
 Every resource in this architecture is:
-- **Version-controlled** - every change is a Git commit with author, timestamp, and diff
-- **Reviewable** - pull requests enforce four-eyes review before changes reach production
-- **Reproducible** - `terraform apply` produces the same result every time, documented in state
+- **Version-controlled:** every change is a Git commit with author, timestamp, and diff
+- **Reviewable:** pull requests enforce four-eyes review before changes reach production
+- **Reproducible:** the same code and inputs produce the same infrastructure, recorded in state
 
-A `terraform plan` output is an audit artifact. It shows exactly what will change, why, and what the current state is. No ClickOps, no undocumented manual changes, no "someone did something in the Portal last Tuesday."
+A `terraform plan` output is an audit artifact. It shows exactly what will change and what the current state is. No ClickOps, no undocumented manual changes, no "someone did something in the Portal last Tuesday."
 
-## What This Covers - and What It Doesn't
+## What This Covers and What It Doesn't
 
 This architecture addresses the technical network security controls of NIS2 Article 21. For full compliance, your organization also needs:
 
-- **Incident response procedures** - documented playbooks for security events
-- **Supply chain risk management** - vendor assessments, third-party controls
-- **Business continuity measures** - backup, recovery, resilience testing
-- **Organizational measures** - security awareness, governance, reporting chains
+- **Incident handling procedures (b):** documented playbooks for security events, plus the reporting obligations in Article 23
+- **Supply chain security (d):** vendor assessments, third-party controls
+- **Business continuity (c):** backup, recovery, resilience testing
+- **Organizational measures (a, f, g):** policies, effectiveness reviews, cyber hygiene and training, governance
 
-Infrastructure code is the foundation. Compliance is the full building.
+Infrastructure code is the foundation, not the whole building.
 
-## The Result
-
-Implementing NIS2 Article 21 network controls in Azure with Terraform gives you:
-
-- Network segmentation via Hub & Spoke topology - Spoke-to-Spoke isolation by default
-- Default-Deny at the subnet level - no unexpected internet traffic
-- Centralized egress inspection via Azure Firewall - logged, auditable, FQDN-controlled
-- Zero public PaaS endpoints - Private Link for every data-plane service
-- Zero static credentials - Managed Identity and RBAC throughout
-- Full audit trail - every change version-controlled and reviewable
-
-The modules that implement this architecture are available on the templates page - each one tested against these controls and documented for audit purposes.
+The modules that implement this architecture (Hub & Spoke segmentation, Default-Deny NSGs, forced-tunneled egress through Azure Firewall, Private Endpoints for every data-plane service, Managed Identity instead of static credentials) are available on the templates page. Each one is tested against these controls and documented for audit purposes.
 
 If the network-segmentation concepts behind Article 21 are the unfamiliar part, [Netzwerke: Verstehen, Einrichten, Administrieren\*](/go/4f3kTar) is the reference I still reach for.
 

@@ -1,15 +1,15 @@
 ---
 title: "Why a Cloud Backup Sync Was Failing Daily for Six Weeks"
-description: "A daily offsite backup cron job had a 99% failure rate for over a month. It looked like a credential or network problem. It was neither - Google Drive's API throttles hard on exactly the storage format Proxmox Backup Server uses, and a 24-hour cron window was never going to be enough."
+description: "A daily offsite backup to Google Drive failed for six weeks. Not credentials, not network: Drive throttles the small-chunk format Proxmox Backup Server uses."
 date: "2026-07-23"
 tags: ["Backup", "Homelab", "Ansible"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-A systematic `ansible-playbook --check --diff` sweep across every host group turned up a stale Vault credential and a cron job that appeared to have simply stopped running. The initial read was a straightforward drift problem: fix the credential, restore the cron schedule, move on. That read was wrong on both the diagnosis and, as it turned out one PR later, the intended fix.
+A systematic `ansible-playbook --check --diff` sweep across every host group turned up a stale Vault credential and a cron job that appeared to have simply stopped running. The initial read was plain drift: fix the credential, restore the cron schedule, move on. That read was wrong on the diagnosis and, as it turned out one PR later, on the fix too.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -17,7 +17,7 @@ A systematic `ansible-playbook --check --diff` sweep across every host group tur
 
 Two issues on the PBS management host, both real:
 
-**1. A stale Vault credential that would have clobbered a working live token.** The `pbs_rclone_gdrive_token` stored in Vault was from April; the live `rclone.conf` on the host had a June token - rclone had refreshed it itself as OAuth tokens do, and Vault had never been updated to match. Running the Ansible role for real (not just `--check`) would have overwritten the working, self-refreshed credential with a four-month-stale one, breaking authentication.
+**1. A stale Vault credential that would have clobbered a working live token.** The `pbs_rclone_gdrive_token` stored in Vault was from April; the live `rclone.conf` on the host had a June token. rclone had refreshed the OAuth token itself, and Vault had never been updated to match. Running the Ansible role for real (not just `--check`) would have overwritten the working, self-refreshed credential with the stale April one and broken authentication.
 
 ```bash
 # Confirmed: live rclone.conf token newer than Vault's stored value
@@ -27,29 +27,31 @@ diff <(rclone config show pbs-gdrive | grep token) \
 vault kv patch secret/pbs pbs_rclone_gdrive_token="$(rclone config show pbs-gdrive | grep token)"
 ```
 
-**2. The offsite sync cron job simply wasn't on the host.** Its own log file, `pbs-to-gdrive.log`, showed it running - mostly failing - from May 4 through June 14, then nothing. No entries at all after that date. Something had stopped the schedule.
+**2. The offsite sync cron job wasn't on the host.** Its own log file, `pbs-to-gdrive.log`, showed it running (and mostly failing) from May 4 through June 14, then nothing. No entries at all after that date. Something had stopped the schedule.
 
 ## The Wrong First Conclusion
 
-The natural read of "cron job disappeared, logs show it was mostly failing before that" is: something broke it, and the failures were probably why. Re-enable the schedule, fix whatever was causing the failures, done.
+The natural read of "cron job disappeared, logs show it was mostly failing before that" is that something broke it, and the failures were probably why. Re-enable the schedule, fix whatever was causing the failures, done.
 
-Actually diagnosing the failures required running a real, bounded manual sync rather than reasoning from the log lines alone:
+Diagnosing the failures properly meant running a real, bounded manual sync instead of reasoning from the log lines:
 
 ```bash
-rclone sync /mnt/pbs-datastore gdrive:pbs-backup --transfers 4 --checkers 8 \
+rclone sync /mnt/backups gdrive:Backup-Homelab/PBS \
+  --config /root/.config/rclone/pbs-offsite.conf \
+  --transfers 8 --checkers 16 \
   --stats 30s --stats-one-line --max-duration 30m
-# Transferred: 3.2 MiB / ~2.1 TiB, 0%, 1.6 KiB/s, ETA 12 weeks
+# throughput settled around 1.6 KiB/s, rclone's ETA around 12 weeks
 ```
 
-**1.6 KiB/s.** Not a credential failure, not a network failure - Google Drive's API was throttling the sync hard, and the reason became clear from what PBS actually stores on disk: not a handful of large archive files, but tens of thousands of small deduplicated chunk files. Google Drive's API rate-limits per-file operations aggressively, and a chunk-based datastore is close to the worst-case access pattern for that limit.
+**1.6 KiB/s.** The credentials and the network were fine. Google Drive's API was throttling the sync, and the reason is what PBS stores on disk: tens of thousands of small deduplicated chunk files instead of a handful of large archives. Drive rate-limits per-file operations; the [rclone Drive docs](https://rclone.org/drive/) put the practical ceiling at about two files per second, plus an undocumented 750 GiB per day upload cap. A chunk-based datastore is close to the worst-case access pattern for both.
 
-At an observed throughput of ~1.6 KiB/s against a multi-terabyte datastore, the estimated time for just the *initial* full sync was on the order of 12 weeks. The daily cron job, scoped to a 24-hour window, could never have completed a first full sync - every single run for six weeks was doomed from the start, not by a bug in the job but by a structural mismatch between the storage format and the destination's API characteristics.
+rclone's own ETA for just the *initial* full sync of the datastore was around 12 weeks. A daily cron job scoped to a 24-hour window could never complete a first full sync. Every run for six weeks was going to fail, not because of a bug in the job but because the storage format and the destination's API limits do not fit together.
 
 ## The Fix That Turned Out to Be Wrong
 
-The first PR treated the missing cron job as accidental drift and restored it - re-added the scheduled task, assuming it had been silently dropped by some unrelated config change and needed putting back.
+The first PR treated the missing cron job as accidental drift and re-added the scheduled task, assuming some unrelated config change had dropped it.
 
-It hadn't been silently dropped. Checking with the account owner surfaced the actual story: the cron job had been turned off *deliberately*, because the destination Google Drive account doesn't have enough free storage quota for the PBS datastore's full size. Turning the schedule back on wasn't fixing drift - it was un-doing an intentional decision that the earlier PR had mistaken for an accident.
+It hadn't been dropped. Checking with the account owner surfaced the real story: the cron job had been turned off *deliberately*, because the destination Google Drive account doesn't have enough free storage quota for the full PBS datastore. Turning the schedule back on didn't fix drift. It undid an intentional decision that the earlier PR had mistaken for an accident.
 
 ```yaml
 # What the first PR did (wrong - re-enables a deliberately-disabled job)
@@ -65,29 +67,29 @@ It hadn't been silently dropped. Checking with the account owner surfaced the ac
     state: absent
 ```
 
-The correction PR also removed the live crontab entry that the first "fix" had reintroduced, and rewrote the documentation to describe the situation accurately: not "broken, needs re-enabling" but "deliberately deferred pending a decision about storage quota or a different offsite strategy."
+The correction PR also removed the live crontab entry that the first "fix" had reintroduced, and rewrote the documentation to describe the situation accurately: "deliberately deferred pending a decision about storage quota or a different offsite strategy" instead of "broken, needs re-enabling."
 
 ## The Same Log Pattern, Two Opposite Conclusions
 
-The interesting part isn't the throttling finding by itself - it's that the same evidence (`pbs-to-gdrive.log` showing failures, then silence) supported two completely different, mutually exclusive conclusions:
+The more interesting part is that the same evidence (`pbs-to-gdrive.log` showing failures, then silence) supported two mutually exclusive conclusions:
 
-1. "This is drift - something broke, restore the intended state."
-2. "This is intentional - a human made a deliberate decision that the automation shouldn't override."
+1. "This is drift. Something broke; restore the intended state."
+2. "This is intentional. A human made a deliberate decision that the automation shouldn't override."
 
-Ansible's entire idea of "correct state" assumes the desired state is knowable from the playbook. It has no way to distinguish "this differs from the playbook because of an accident" from "this differs from the playbook because a human changed their mind after the playbook was written." Both look identical in a `--diff` output. The only way to tell them apart is to ask.
+Ansible's idea of "correct state" assumes the desired state is knowable from the playbook. It has no way to distinguish "this differs from the playbook because of an accident" from "this differs from the playbook because a human changed their mind after the playbook was written." Both look identical in a `--diff` output. The only way to tell them apart is to ask.
 
-This is also, notably, the same false-positive class that closed out a side finding in the same PR: an AdGuard admin-password "drift" flagged by the same sweep turned out to be bcrypt's per-render random salt making two hashes of the *same* password look different in a diff - not a real config drift either. Two findings from one audit sweep, both initially read as drift, both actually non-issues once verified against ground truth rather than assumed from the diff output.
+The same false-positive class closed out a side finding in the same PR. An AdGuard admin-password "drift" flagged by the sweep turned out to be bcrypt's random salt, generated fresh on every template render, making two hashes of the *same* password look different in a diff. Two findings from one audit sweep, both initially read as drift, both non-issues once checked against ground truth instead of the diff output.
 
 ## What This Argues For
 
-**Any Ansible task that can toggle a schedule, feature flag, or setting on or off needs a documented reason when it's off** - not just an inferred one from "the playbook says it should be on." A short comment (`# disabled 2026-06-XX: destination quota insufficient, see docs/backup-strategy.md`) turns a future `--diff` output from "ambiguous, ask the owner" into "documented, already explained."
+**Any Ansible task that can toggle a schedule, feature flag, or setting on or off needs a documented reason when it's off**, not one inferred from "the playbook says it should be on." A short comment (`# disabled 2026-06-XX: destination quota insufficient, see docs/backup-strategy.md`) turns a future `--diff` output from "ambiguous, ask the owner" into "documented, already explained."
 
-And more broadly: a drift-detection sweep is good at finding *that* something differs from the intended state. It says nothing about *why* it differs, and treating every diff as an accident to be corrected is exactly as wrong as treating every diff as intentional and ignoring it. Both directions of this mistake happened in the same PR chain here, within hours of each other.
+More broadly, a drift-detection sweep is good at finding *that* something differs from the intended state. It says nothing about *why*, and treating every diff as an accident to correct is as wrong as treating every diff as intentional and ignoring it. Both directions of this mistake happened in the same PR chain here, within hours of each other.
 
 For the deeper theory on why "the state looks wrong" and "the state is wrong" are different questions in any distributed system, [Designing Data-Intensive Applications\*](/go/4aUtkCs) is the book I keep coming back to.
 
 ---
 
-The direct Azure parallel: Azure Policy remediation tasks that "fix" a resource back to policy-compliant state can just as easily undo a deliberate, documented exception a team made for a legitimate reason. Policy exemptions exist for exactly this - but only if someone actually creates the exemption object instead of leaving the deviation undocumented and hoping nobody re-applies the policy. An undocumented intentional deviation and an actual accidental drift look identical to any automated compliance sweep.
+The direct Azure parallel: Azure Policy remediation tasks that "fix" a resource back to policy-compliant state can just as easily undo a deliberate, documented exception a team made for a legitimate reason. Policy exemptions exist for exactly this, but only help if someone creates the exemption object instead of leaving the deviation undocumented and hoping nobody re-runs remediation. An undocumented intentional deviation and an actual accidental drift look identical to any automated compliance sweep.
 
 <NewsletterCTA />

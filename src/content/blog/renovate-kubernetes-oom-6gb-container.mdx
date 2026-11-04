@@ -1,17 +1,17 @@
 ---
-title: "Renovate in Kubernetes: OOM, Hashicorp Downloads, and the 6GB Container"
-description: "Renovate's Kubernetes CronJob OOM'd three times, silently failing every run while looking healthy. The fix wasn't just more memory — it was understanding why Renovate downloads every Terraform provider binary during a config validation."
+title: "Renovate in Kubernetes: OOM, HashiCorp Downloads, and the 6GB Container"
+description: "Renovate's CronJob failed silently, then OOM'd at every limit up to 4Gi. The cause: hashing 14 platform builds of a Terraform provider, 16 downloads at a time."
 date: "2026-10-01"
 tags: ["Kubernetes", "GitOps", "Homelab", "Debugging"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
 Renovate is the dependency update bot that keeps my k3s cluster current, and it's the "auto-update" half of [the operating model](/blog/operating-model-auto-update-human/) that decides what gets merged automatically vs. what waits for a human. It runs as a Kubernetes CronJob every 2 hours, checks for new container images, Helm chart versions, and Terraform provider releases, and opens PRs on GitHub.
 
-For two weeks, it was failing silently on every run. The CronJob reported "Completed." The GitHub commits showed no new PRs. The logs showed nothing — because Renovate exits cleanly on config validation errors, and the CronJob's `successfulJobsHistoryLimit` kept only the last successful run.
+For two weeks, it was failing silently on every run. The CronJob reported "Completed." The GitHub commits showed no new PRs. Nothing looked wrong, because Renovate exits cleanly on a repository config validation error, so every run landed in the CronJob's history as a success.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -25,7 +25,7 @@ The first failure was a config error. The `renovate.json` file referenced an inv
 }
 ```
 
-`:enableHelpfulPre-commit` is not a real Renovate preset. Renovate's config validation caught the error and exited with a zero exit code — because config validation errors are treated as "nothing to do," not "something broke."
+`:enableHelpfulPre-commit` is not a real Renovate preset. Renovate's config validation caught the error, skipped the repository, and exited with code 0. A repository config error doesn't fail the process.
 
 The CronJob's exit code was 0. Kubernetes considered the job successful. No alert fired. Renovate did nothing on every run.
 
@@ -39,11 +39,7 @@ The fix: remove the invalid preset and replace the deprecated `config:base` with
 
 ## Failure 2: OOM at 512Mi
 
-After fixing the config, Renovate started running — and immediately OOM'd.
-
-The container limit was 512Mi. Renovate's Node.js runtime, plus the GitHub API client, plus the Terraform provider registry client, plus the container image metadata parser, consumed more than 512Mi during a full scan.
-
-The symptom: the Pod restarted with `OOMKilled` status. Kubernetes restarted it. The next run OOM'd again. After 3 failures, the CronJob marked the job as failed — but `failedJobsHistoryLimit: 3` meant only the last 3 failures were visible, and they were being garbage-collected faster than I checked.
+With the preset fixed, Renovate got past config validation and immediately ran out of memory. The container limit was 512Mi, and every run died with `JavaScript heap out of memory` during the scan. Each failed Job looked like any other entry in the history:
 
 ```bash
 kubectl get jobs -n apps -l app=renovate
@@ -53,7 +49,9 @@ kubectl get jobs -n apps -l app=renovate
 # renovate-28195    0/1           ...        4h
 ```
 
-The fix: raise the memory limit to 1Gi and set `NODE_OPTIONS` to limit the V8 heap:
+With `failedJobsHistoryLimit: 3`, only the last three failures stay visible, and at one run every two hours they rotated out faster than I was checking.
+
+The fix: raise the memory limit to 1Gi and cap the V8 heap below it with `NODE_OPTIONS`:
 
 ```yaml
 env:
@@ -61,68 +59,64 @@ env:
     value: "--max-old-space-size=896"
 resources:
   limits:
-    memory: 6Gi
-  requests:
     memory: 1Gi
 ```
 
-The `NODE_OPTIONS` limit of 896MB (leaving ~100MB for native code and runtime overhead) prevents V8 from consuming the entire container memory during garbage collection cycles. Without it, V8 allocates memory up to the container limit and gets OOMKilled before the next GC cycle.
+`--max-old-space-size` caps V8's own heap. The container's RSS also includes git clone and worktree data and non-heap buffers, so the heap cap has to stay well under the container limit, not equal to it. Exceed the heap cap and Node throws a heap error you can read in the logs. Exceed the container limit first and the kernel sends SIGKILL, which leaves no log line at all.
 
-## Failure 3: Terraform Provider Downloads
+## Failure 3: 1Gi, 2Gi, 4Gi, All OOMKilled
 
-The third failure was the most subtle. Renovate was consuming 6GB of memory during Terraform provider update checks. The reason: Renovate downloads Terraform provider binaries to verify version compatibility.
+1Gi held until the repo grew. New Terraform stacks and ExternalSecrets took Renovate from about 190 dependencies to 217, and from 2026-07-08 every run ended in `exitCode: 137, reason: OOMKilled` for more than 16 hours. The log cut off mid-extraction with no exit message, which is the OOMKill signature. I raised the limit to 2Gi with a 1536Mi heap, keeping about 25% headroom.
 
-For each Terraform provider in the repo (`routeros`, `proxmox`, `cloudflare`, `garage`), Renovate:
-1. Queries the Terraform Registry API for available versions
-2. Downloads the provider binary for the current and latest versions
-3. Compares binary compatibility (provider schema, API version)
-4. Opens a PR if a newer version is available
+On 2026-07-09 it OOM'd again at 2Gi. The kernel's oom-kill records on the node showed all 20 kills at an anon-rss of about 2054–2064Mi, only 6–16Mi over the 2048Mi cap. That data is censored: the kernel kills the moment the cgroup limit is crossed, so it proves the limit is too small, not what the real peak is. I raised it to 4Gi. That was also OOMKilled, again just over the cap (anon-rss about 4.12–4.15Gi), and the retry loop's CPU and memory pressure on a node that also runs one of the two etcd members contributed to a cluster-wide apiserver outage that afternoon.
 
-Step 2 is the memory problem. Terraform provider binaries are 50-200MB compressed. With 4 providers, plus their dependencies, Renovate downloads ~500MB of provider binaries during a full scan. The decompressed binaries and their metadata consume 2-3x that in memory.
+At that point I stopped guessing. I ran Renovate uncapped on a separate non-k3s LXC with 12Gi of headroom, the real GitHub token and the real branches. It wasn't a leak. The true peak was about 3.99Gi: one transient spike of about 30 seconds, after which GC reclaimed the memory and the run exited 0.
 
-The fix was two-part:
+The spike came from a major `hashicorp/aws` provider bump (5.x to 6.53.0). To keep `.terraform.lock.hcl` valid, Renovate's Terraform manager downloads every platform build of the new release from `releases.hashicorp.com` and SHA256-hashes each one. That release has 14 platform builds. With Renovate's default `concurrentRequestLimit` of 16, all 14 zips could be in flight and buffered in memory at once.
 
-1. **Raise the memory limit to 6Gi** — enough for the full scan including provider downloads
-2. **Limit concurrent requests** to the Terraform Registry:
+The fix had two parts. First, cap concurrency for that host in `renovate.json`, which flattens the peak at the source:
 
 ```json
 {
-  "terraform": {
-    "concurrentRequestLimit": 2
-  }
+  "hostRules": [
+    {
+      "matchHost": "releases.hashicorp.com",
+      "concurrentRequestLimit": 2
+    }
+  ]
 }
 ```
 
-With `concurrentRequestLimit: 2`, Renovate downloads at most 2 provider binaries simultaneously, reducing peak memory usage from ~6GB to ~3GB. The scan takes longer, but it completes within the 6Gi limit.
+Second, size the container from the measured peak instead of a multiplier guess: a 6Gi limit with a 4608Mi heap, about 1.5x the 3.99Gi peak. Terraform provider majors also stopped auto-merging. They now always need a human look, because they're the bump class that pulls a whole release's platform builds through that hashing path.
 
 ## The Silent Failure Pattern
 
-The common thread across all three failures: Renovate exited cleanly. The CronJob reported success. No alert fired. The only evidence of failure was the absence of new PRs on GitHub.
+Each failure was quiet in its own way. The invalid preset exited 0 and looked successful. The OOMs produced failed Jobs that nobody was alerted on, and SIGKILL left nothing in the logs. The only consistent symptom was the absence of new PRs on GitHub.
 
-This is the silent failure pattern:
-1. The application fails internally but exits with code 0
-2. Kubernetes considers the job successful
-3. The `successfulJobsHistoryLimit` preserves the "successful" job
-4. Nobody checks because the job "succeeded"
-
-The fix: add a post-run check that verifies Renovate actually did something:
+Two PrometheusRule alerts now cover the cases that leave a trace in kube-state-metrics:
 
 ```yaml
-# Post-run check: verify PRs were opened
-- name: Verify Renovate activity
-  script: |
-    PR_COUNT=$(gh pr list --repo dwoitzik/homelab-infrastructure \
-      --author "app/renovate" --state open --json number --jq 'length')
-    if [ "$PR_COUNT" -eq 0 ] && [ "$(date +%u)" -le 5 ]; then
-      echo "WARNING: No open Renovate PRs on a weekday"
-      # Alert via Discord webhook
-    fi
+- alert: RenovateCronJobStale
+  expr: |
+    time() - kube_cronjob_status_last_schedule_time{namespace="apps", cronjob="renovate"} > 21600
+  for: 5m
+  labels:
+    severity: critical
+
+- alert: RenovateJobFailing
+  expr: |
+    kube_job_status_failed{namespace="apps", job_name=~"renovate-[0-9]+"} > 0
+  for: 10m
+  labels:
+    severity: warning
 ```
+
+`RenovateCronJobStale` fires when the CronJob hasn't been scheduled in six hours (three missed runs): suspended, stuck controller, or something cluster-wide blocking scheduling. `RenovateJobFailing` catches every OOMKill and crash. Neither catches Failure 1: a run that exits 0 without doing anything still passes both rules. That case needs a check on the outcome itself, and I haven't built it yet.
 
 ## The Current Configuration
 
 ```yaml
-# kubernetes/apps/renovate/renovate.yml
+# kubernetes/apps/renovate/renovate.yml (trimmed)
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -130,44 +124,46 @@ metadata:
   namespace: apps
 spec:
   schedule: "0 */2 * * *"  # every 2 hours
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
       template:
         spec:
+          restartPolicy: Never
           containers:
             - name: renovate
-              image: ghcr.io/renovatebot/renovate:43.245.0
+              image: ghcr.io/renovatebot/renovate:43.253.2
               env:
                 - name: RENOVATE_TOKEN
                   valueFrom:
                     secretKeyRef:
                       name: renovate-token
-                      key: github-pat
+                      key: token
                 - name: NODE_OPTIONS
-                  value: "--max-old-space-size=896"
+                  value: "--max-old-space-size=4608"
               resources:
-                limits:
-                  memory: 6Gi
-                  cpu: 2000m
                 requests:
-                  memory: 1Gi
                   cpu: 100m
-          restartPolicy: Never
-      backoffLimit: 2
+                  memory: 1Gi
+                limits:
+                  cpu: 500m
+                  memory: 6Gi
 ```
 
-The `restartPolicy: Never` with `backoffLimit: 2` means the CronJob retries twice on failure, then gives up. Combined with the memory limit and heap size cap, Renovate completes its scan within resource bounds.
+`concurrencyPolicy: Forbid` keeps a slow run from overlapping the next schedule tick. `restartPolicy: Never` means every retry is a fresh pod, so each OOMKill shows up as its own failed pod with its own exit code.
 
 ## The Lesson
 
-Silent failures in CronJobs are the most dangerous failure mode in a Kubernetes cluster — the same "reports success but did nothing real" pattern as ArgoCD showing `Synced/Healthy` on an Application that never actually applied. The job "succeeds," the operator doesn't check, and the dependency update pipeline silently stops working. Weeks pass without updates, security patches don't apply, and nobody notices until a vulnerability is disclosed for a package that Renovate would have updated.
+Silent CronJob failures are the same "reports success but did nothing" pattern as ArgoCD showing `Synced/Healthy` on an Application that never applied. The job "succeeds", nobody checks, and dependency updates stop. Security patches don't land, and nobody notices until a vulnerability is disclosed for a package Renovate would have bumped.
 
-The fix isn't just more memory — it's observability on the pipeline itself. Every CronJob that performs a critical function should have a post-run verification that confirms it actually did its job, not just that it exited cleanly.
+More memory alone fixed nothing here. Measuring the real peak found the cause, and alerting on the pipeline itself makes the next failure visible. Every CronJob that does something important needs a check that it did the job, not only that it exited.
 
 ---
 
-CronJob observability is the same problem in Azure DevOps: a pipeline that succeeds but produces no artifact is indistinguishable from a pipeline that didn't run. Azure Monitor's Pipeline Analytics tracks success rate, not "did the pipeline produce meaningful output." The fix in both cases is the same: add a verification step that checks for the expected outcome (PRs opened, artifacts published, deployments completed) and alerts on absence.
+The same problem exists in Azure DevOps: a pipeline that succeeds but produces nothing looks the same as one that did its work. Azure DevOps pipeline analytics report pass rate and duration, not whether a run produced meaningful output. The fix is the same in both places: add a step that checks for the expected outcome (PRs opened, artifacts published, deployments completed) and alert when it's missing.
 
-[The Phoenix Project\*](/go/4f4RHQf) tells the same story from the human side of this exact failure mode - the automated system that everyone assumes is working, until someone finally checks.
+[The Phoenix Project\*](/go/4f4RHQf) tells the same story from the human side: the automated system everyone assumes is working, until someone finally checks.
 
 <NewsletterCTA />

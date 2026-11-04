@@ -1,17 +1,17 @@
 ---
 title: "NFS vs local-path: The SQLite Trap That Corrupted My S3 Metadata"
-description: "Garage S3's SQLite database corrupted because NFS file-locking semantics don't work with SQLite's WAL mode. The lesson: embedded databases and NFS are incompatible, and the fix is local-path for anything with a .db file."
+description: "Garage S3's SQLite metadata corrupted on an NFS volume. SQLite's WAL mode does not work over network filesystems. The fix: local-path for anything with a .db file."
 date: "2026-09-10"
 tags: ["Kubernetes", "Storage", "Homelab", "Debugging"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-[Garage S3](/blog/velero-garage-k3s-backup/), my self-hosted S3-compatible object store, uses SQLite for its metadata database. One morning, Terraform state operations started failing with `SQLITE_CORRUPT`. The bucket metadata was gone. The `terraform-state` bucket, the Atlantis lock table, the Velero backup index — all of it stored in a SQLite file that was now corrupted.
+[Garage S3](/blog/velero-garage-k3s-backup/), my self-hosted S3-compatible object store, uses SQLite for its metadata database. One morning, Terraform state operations started failing with `SQLITE_CORRUPT`. The bucket metadata was gone. The `terraform-state` bucket, the Atlantis lock table and the Velero backup index all lived in that one SQLite file.
 
-The root cause: Garage was running on an NFS-backed PersistentVolume. NFS doesn't support the file-locking primitives that SQLite's WAL (Write-Ahead Logging) mode requires. Under concurrent access — Garage's metadata writer and a Velero backup reading the same database — the NFS lock delegation failed silently, and SQLite wrote to overlapping pages.
+The root cause: Garage's metadata volume was an NFS-backed PersistentVolume, and SQLite's WAL (write-ahead logging) mode does not work over a network filesystem. The SQLite docs say so explicitly. The corruption showed up while a Velero backup and a Terraform state write were hitting Garage at the same time. The fix was moving every embedded database to `local-path`.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -20,43 +20,51 @@ The root cause: Garage was running on an NFS-backed PersistentVolume. NFS doesn'
 My k3s cluster has two StorageClasses:
 
 ```yaml
-# NFS — for most workloads
+# NFS - for most workloads (rendered by the nfs-subdir-external-provisioner Helm chart)
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: nfs-client
-provisioner: nfs-subdir-external-provisioner
-parameters:
-  server: 10.0.20.100
-  path: /archive
+provisioner: cluster.local/nfs-provisioner-nfs-subdir-external-provisioner
 reclaimPolicy: Retain
-
-# Local-path — for embedded databases
+volumeBindingMode: Immediate
+parameters:
+  archiveOnDelete: "true"
+  pathPattern: "${.PVC.namespace}/${.PVC.name}"
+  onDelete: "retain"
+mountOptions:
+  - nfsvers=4.1
+  - hard
+  - timeo=600
+  - retrans=3
+---
+# Local-path - for embedded databases (k3s built-in)
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: local-path
 provisioner: rancher.io/local-path
-reclaimPolicy: Retain
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
 ```
 
-NFS (`nfs-client`) is the default. It's backed by a dedicated LXC running an NFS server on ZFS, providing storage that survives pod rescheduling — a pod on k3s-12 can access the same PVC as a pod on k3s-13 because the NFS server is independent of any specific node.
+The NFS server address and export are not StorageClass parameters. nfs-subdir-external-provisioner takes them as Helm values (`nfs.server: 10.0.20.100`, `nfs.path: /nfs-data/k8s-general`), mounts that export into its own pod, and creates one subdirectory per PVC. The chart derives the provisioner name from the release (`cluster.local/<release>-nfs-subdir-external-provisioner`); the plain manifests from the project's `deploy/` directory use `k8s-sigs.io/nfs-subdir-external-provisioner` instead. Whatever `kubectl get storageclass` shows is the one that counts.
 
-Local-path (`local-path`) pins the PV to whichever node created it. If the pod reschedules to a different node, the PVC is inaccessible until the pod returns to the original node. This is a limitation, but it's the right trade-off for certain workloads.
+NFS (`nfs-client`) is the default. It's backed by a dedicated LXC running an NFS server on ZFS, so the storage survives pod rescheduling: a pod on k3s-12 can mount the same PVC as a pod on k3s-13 because the NFS server is independent of any cluster node.
+
+Local-path (`local-path`) pins the PV to whichever node created it through node affinity. The pod can only be scheduled on that node; if the node is down, the pod stays `Pending` until it comes back. That's a real limitation, and for some workloads it's the right trade-off.
 
 ## Why SQLite and NFS Don't Work
 
-SQLite's WAL mode requires `fcntl()` file locks — specifically, `F_SETLK` (non-blocking lock) and `F_SETLKW` (blocking lock). These locks coordinate access between concurrent processes writing to the same database file.
+SQLite coordinates concurrent access with POSIX advisory locks (`fcntl()` with `F_SETLK`/`F_SETLKW`). On a local filesystem the kernel enforces those locks. On NFS, the lock has to travel over the network, and how it does depends on the protocol version:
 
-NFS handles file locks differently:
+1. **NFSv3** has no locking in the protocol itself. Locks go through the separate Network Lock Manager (NLM) sideband protocol, served by `rpc.lockd` and `rpc.statd` on client and server. If those daemons aren't running or reachable, or a client mounts with `nolock`, `fcntl()` locks only apply on the local client. Two clients can then both hold an "exclusive" lock on the same file.
 
-1. **NFSv3**: No native lock support. `fcntl()` calls return success but locks are local to the client — two NFS clients can both acquire an "exclusive" lock on the same file simultaneously.
+2. **NFSv4** builds locking into the protocol (`LOCK`/`LOCKU` operations with lease-based state), so there is no `lockd`. Locks are leases: if a client can't renew in time, the server can drop its state, and lock behavior depends on the server and client implementations getting lease expiry and recovery right.
 
-2. **NFSv4**: Has `LOCK` operations, but the lock delegation model introduces latency and failure modes that SQLite's tight locking loop doesn't tolerate. If the NFS server is slow to respond to a lock request, SQLite's default 5-second busy timeout can expire, causing the application to retry — and the retry can conflict with the lock held by another client.
+3. **WAL mode adds a harder problem.** Even with correct locks, WAL keeps a wal-index in a `-shm` file that every connection memory-maps as shared memory. From [sqlite.org/wal.html](https://www.sqlite.org/wal.html): "All processes using a database must be on the same host computer; WAL does not work over a network filesystem." Memory-mapped pages of a file on NFS are not kept coherent between clients, and NFS client-side caching gives only close-to-open consistency.
 
-3. **Kubernetes NFS provisioner**: The `nfs-subdir-external-provisioner` uses NFSv4, but the lock delegation is handled by the NFS server's `rpc.lockd` daemon, which runs in a separate process space. Under concurrent load, `lockd` can lose track of which client holds which lock.
-
-The result: SQLite thinks it has an exclusive lock, but another process (or the same process on a different connection) also has a lock. Both write to the database file. Pages overlap. The database corrupts.
+SQLite's own [How To Corrupt An SQLite Database File](https://www.sqlite.org/howtocorrupt.html) lists broken or missing lock implementations on network filesystems, "and NFS in particular", as a known corruption cause. When the locking or the shared wal-index breaks down, two writers can believe they own the database at the same time, and pages get overwritten.
 
 ## The Garage Incident
 
@@ -67,15 +75,15 @@ Garage runs with two storage mounts:
 volumes:
   - name: data
     persistentVolumeClaim:
-      claimName: garage-data      # NFS — bucket objects
+      claimName: garage-data      # NFS - bucket objects
   - name: meta
     persistentVolumeClaim:
-      claimName: garage-meta      # local-path — SQLite metadata
+      claimName: garage-meta      # local-path - SQLite metadata
 ```
 
-The `data` volume (bucket objects) is on NFS — fine, because S3 object storage doesn't use file locks for individual files. The `meta` volume (SQLite database) was *also* on NFS initially. This worked until a Velero backup and a Terraform state write happened simultaneously.
+The `data` volume (bucket objects) is on NFS. That's fine: Garage writes objects as plain files and doesn't rely on file locks for them. The `meta` volume (the SQLite database) was *also* on NFS initially. That worked until a Velero backup and a Terraform state write happened at the same time.
 
-Velero reads Garage's S3 API to enumerate backup objects. Terraform reads the same database to verify state file existence. Both hit SQLite through Garage's metadata layer. Under NFS, the concurrent reads triggered the lock delegation failure, and SQLite corrupted pages 169–184 of `db.sqlite`.
+Velero calls Garage's S3 API to enumerate backup objects. Terraform calls it to read and write the state file. Both requests end up in SQLite through Garage's metadata layer. Under that concurrent load on an NFS-backed WAL database, pages 169–184 of `db.sqlite` were corrupted.
 
 ## The Recovery
 
@@ -89,9 +97,9 @@ sqlite3 db.sqlite ".recover" > recovered.sql
 sqlite3 db_clean.sqlite < recovered.sql
 ```
 
-The `.recover` command scanned every page of the corrupted file and extracted whatever data it could read. For pages 169–184 (the corrupted range), it found partial data — enough to reconstruct the bucket and key metadata, but not enough to guarantee referential integrity.
+The `.recover` command scanned every page of the corrupted file and extracted whatever data it could read. For pages 169–184 (the corrupted range), it found partial data: enough to reconstruct the bucket and key metadata, but not enough to guarantee referential integrity.
 
-After recovery, the missing objects (terraform-state bucket and Atlantis lock key) had to be re-inserted manually via Python:
+After recovery, the missing objects (the `terraform-state` bucket and the Atlantis lock key) had to be re-inserted manually with Python:
 
 ```python
 import sqlite3
@@ -104,14 +112,14 @@ conn.execute("INSERT INTO buckets (name, ...) VALUES (...)")
 conn.commit()
 ```
 
-The data was restored, but the trust was gone. The database could corrupt again under the same conditions.
+The data was back, but nothing had changed about the conditions that corrupted it. It would happen again.
 
 ## The Fix
 
 Move every embedded database to `local-path`:
 
 ```yaml
-# Garage — meta volume moved to local-path
+# Garage - meta volume moved to local-path
 volumes:
   - name: meta
     persistentVolumeClaim:
@@ -122,25 +130,25 @@ The apps that need `local-path`:
 
 | App | Database | Why local-path |
 |---|---|---|
-| Garage S3 | SQLite (metadata) | File-locking requirements |
-| Mealie | SQLite (recipes) | WAL mode + concurrent access |
-| Home Assistant | SQLite (state) | Inotify-based DB writes |
+| Garage S3 | SQLite (metadata) | File locks + WAL shared memory |
+| Mealie | SQLite (recipes) | SQLite file locks |
+| Home Assistant | SQLite (recorder) | SQLite file locks |
 | Authelia | PostgreSQL (CNPG) | CNPG manages its own PV |
 
-PostgreSQL (via CNPG) doesn't have the SQLite lock problem because it uses its own file locking, but CNPG requires `local-path` or a CSI driver that supports `ReadWriteOnce` — NFS's `ReadWriteMany` semantics can confuse CNPG's WAL archiving.
+PostgreSQL (via CNPG) doesn't have the SQLite problem in the same form. One server process owns the data directory and clients connect over TCP, so no file lock ever has to cross hosts. CNPG replicates at the PostgreSQL level, so each instance only needs its own `ReadWriteOnce` volume, and the [CNPG storage docs](https://cloudnative-pg.io/docs/current/storage) recommend local storage for predictable performance.
 
 ## The Trade-off
 
-`local-path` means the PVC is pinned to one node. If the pod reschedules, it loses access to the data. For Garage, this is acceptable: Garage runs on a single node, and if that node goes down, the S3 data is unavailable regardless (it's on the same host).
+`local-path` means the PVC is pinned to one node. If the pod reschedules, it loses access to the data. For Garage, this is acceptable: Garage runs as a single instance, and without its metadata it can't serve anything anyway. If that node goes down, the objects on NFS survive, but S3 is unavailable until Garage is back.
 
-For databases that need HA (Postgres, Redis), the solution isn't `local-path` or NFS — it's a managed operator (CNPG for Postgres) that handles replication and failover independently of the storage layer.
+For databases that need HA (Postgres, Redis), neither `local-path` nor NFS is the answer. Use an operator (CNPG for Postgres) that handles replication and failover above the storage layer.
 
-The principle: **if the application uses file-level locking (SQLite, BoltDB, LMDB), it goes on local-path. If it uses network-level locking (PostgreSQL, MySQL), it goes on NFS or a managed operator.**
+The principle: **if the application is an embedded database that relies on file locks or shared memory (SQLite, BoltDB, LMDB), it goes on local-path. If it's a client-server database (PostgreSQL, MySQL), the server gets its own block or local volume and replication comes from an operator.**
 
 ---
 
-SQLite on NFS is the same failure mode as running SQLite on an SMB share in a Windows domain: the file-locking semantics are fundamentally incompatible. In Azure, this maps to Azure Files (SMB-backed) vs. Azure Disk (block storage). Azure Files supports SMB locks but has the same delegation latency issues under concurrent access — any application that needs tight file-level locking should use Azure Disks, not Azure Files. The principle is identical: embedded databases need local, low-latency storage with native file-locking support.
+SQLite on an SMB share in a Windows domain is the same failure class: SQLite's warnings apply to network filesystems in general, not only NFS. In Azure, this maps to Azure Files (SMB or NFS file shares) vs. Azure Disk (block storage). An embedded database belongs on an Azure Disk, not an Azure Files share. Same principle: embedded databases need local block storage with kernel-enforced locking and real shared memory.
 
-[Designing Data-Intensive Applications\*](/go/4aUtkCs) covers exactly this class of correctness assumption — what a storage layer actually guarantees about concurrent access versus what an application silently assumes it guarantees — in far more depth than a corrupted `db.sqlite` file teaches you in the moment.
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) covers this class of correctness assumption (what a storage layer guarantees about concurrent access versus what an application assumes it guarantees) in far more depth than a corrupted `db.sqlite` teaches you in the moment.
 
 <NewsletterCTA />

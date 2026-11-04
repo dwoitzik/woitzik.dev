@@ -7,13 +7,13 @@ tags: ["Homelab", "Proxmox", "Networking", "Self-Hosted"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). If you buy through them, I earn a small commission at no extra cost to you. I only link gear I actually own and use daily.</em>
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-My media acquisition stack — SABnzbd for Usenet downloads, Sonarr for TV, Radarr for movies, Bazarr for subtitles, NZBHydra2 for indexer search — used to run as k3s Deployments. It worked, but three problems made it a bad fit for Kubernetes: GPU passthrough for Jellyfin transcoding, per-flow traffic isolation for indexer queries versus the actual download path, and the NFS file-locking trap for media libraries.
+My media acquisition stack (SABnzbd for Usenet downloads, Sonarr for TV, Radarr for movies, Bazarr for subtitles, NZBHydra2 for indexer search) used to run as k3s Deployments. It worked, but three problems made it a bad fit for Kubernetes: GPU access for Jellyfin transcoding, per-flow traffic isolation for indexer queries versus the actual download path, and the NFS file-locking trap for the apps' SQLite databases.
 
-The solution: move the media stack out of k3s entirely. Jellyfin runs in its own GPU-passthrough LXC. The acquisition stack runs in a second LXC with Docker Compose. A Python CronJob in k3s bridges the two via Traefik Service+Endpoints.
+So I moved the media stack out of k3s entirely. Jellyfin runs in its own GPU-passthrough LXC. The acquisition stack runs in a second LXC with Docker Compose. A Python CronJob in k3s bridges the two via Traefik Service+Endpoints.
 
-**Update:** the first version of this stack wrapped the whole acquisition LXC in a Mullvad WireGuard tunnel via [gluetun](https://github.com/qdm12/gluetun), on the assumption that every flow out of that box needed VPN protection equally. Two days later I tore that back out — see "The Traffic-Isolation Rethink" below for why a single blanket tunnel was the wrong model for what these five apps actually do.
+**Update:** the first version of this stack wrapped the whole acquisition LXC in a Mullvad WireGuard tunnel via [gluetun](https://github.com/qdm12/gluetun), on the assumption that every flow out of that box needed VPN protection equally. Two days later I tore that back out. "The Traffic-Isolation Rethink" below explains why a single blanket tunnel was the wrong model for what these five apps do.
 
 **[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -21,9 +21,9 @@ The solution: move the media stack out of k3s entirely. Jellyfin runs in its own
 
 ### GPU Passthrough
 
-Jellyfin needs GPU access for hardware video transcoding. The [BMAX Mini PC\*](/go/4bv3yF1) has an AMD Radeon Vega iGPU that supports VAAPI hardware transcoding. Proxmox GPU passthrough requires IOMMU group isolation — the GPU is passed to a single container or VM exclusively.
+Jellyfin needs GPU access for hardware video transcoding. The [BMAX Mini PC\*](/go/4bv3yF1) has an AMD Radeon Vega iGPU that supports VAAPI hardware transcoding. On Proxmox there are two ways to hand it to a workload: full PCI passthrough to a VM (which needs clean IOMMU group isolation and gives that one VM the GPU exclusively), or mapping the host's `/dev/dri/renderD128` device node into an LXC.
 
-Kubernetes doesn't natively support GPU passthrough for LXCs. The `nvidia-device-plugin` works for NVIDIA GPUs on specific cloud providers, but for AMD iGPU passthrough on bare-metal Proxmox, you need a dedicated LXC with `/dev/dri/renderD128` mapped directly.
+Kubernetes has no built-in answer for either. Device plugins such as NVIDIA's `k8s-device-plugin` only advertise GPUs the node's kernel can already see, so for an AMD iGPU on bare-metal Proxmox the practical route is a dedicated LXC with `/dev/dri/renderD128` mapped directly.
 
 Jellyfin runs in `ct-srv-jellyfin-01` with:
 
@@ -35,30 +35,30 @@ lxc_conf {
 }
 ```
 
-k3s's own nodes here (`vm-srv-k3s-11/12/13`) are Proxmox **VMs**, not LXCs — a VM doesn't share the host kernel, so there's no "just bind-mount the device node" path the way there is for an LXC. Getting a k3s pod real GPU access on this hardware would mean classic VFIO passthrough of the iGPU to one specific VM: unbinding `amdgpu` from the Proxmox host and handing the whole device to `vfio-pci` instead. I looked at this seriously before ruling it out, because "GPU-in-Kubernetes" device plugins exist and I wanted to know if they'd apply.
+k3s's own nodes here (`vm-srv-k3s-11/12/13`) are Proxmox **VMs**, not LXCs. A VM doesn't share the host kernel, so there's no "just bind-mount the device node" path the way there is for an LXC. Getting a k3s pod real GPU access on this hardware would mean classic VFIO passthrough of the iGPU to one specific VM: unbinding `amdgpu` from the Proxmox host and handing the whole device to `vfio-pci` instead. I looked at this seriously before ruling it out, because "GPU-in-Kubernetes" device plugins exist and I wanted to know if they'd apply.
 
-They don't, for this hardware. AMD's own `rocm/k8s-device-plugin` targets ROCm compute (HIP/OpenCL) — a materially heavier stack than what VAAPI hardware transcoding actually needs, which is just `/dev/dri` visibility. And a Kubernetes device plugin can't manufacture GPU access a node's kernel doesn't already have — for a VM, that access only exists after real hypervisor-level VFIO passthrough, which a plugin doesn't do. Worse, this is a single consumer Ryzen APU, not a data-center part with SR-IOV or mediated-device support for splitting one GPU across VMs — passthrough would hand the *entire* GPU to exactly one of the three k3s VMs, and the Proxmox host itself (which uses `amdgpu` for its own display/telemetry) would permanently lose access to it. There's also no portability payoff to offset that cost: k3s's scheduler can't move a pod needing a passed-through device to a *different* node than the one VFIO was bound to, so the usual "GPU follows the pod" reason people move transcoding into Kubernetes never materializes on a single-host, single-iGPU homelab. It would just be Jellyfin running on a VM instead of an LXC, at the permanent cost of the GPU being unavailable to anything else on the host.
+They don't, for this hardware. AMD's own `ROCm/k8s-device-plugin` targets ROCm compute (HIP/OpenCL), a much heavier stack than VAAPI transcoding needs, which is just `/dev/dri` visibility. And a Kubernetes device plugin can't create GPU access a node's kernel doesn't already have. For a VM, that access only exists after hypervisor-level VFIO passthrough, which a plugin doesn't do. Worse, this is a single consumer Ryzen APU, not a data-center part with SR-IOV or mediated-device support for splitting one GPU across VMs. Passthrough would hand the *entire* GPU to exactly one of the three k3s VMs, and the Proxmox host itself (which uses `amdgpu` for its own display/telemetry) would lose access to it for as long as that binding stands. There's also no portability payoff to offset that cost: k3s's scheduler can't move a pod needing a passed-through device to a *different* node than the one VFIO was bound to, so the usual "GPU follows the pod" reason people move transcoding into Kubernetes never materializes on a single-host, single-iGPU homelab. It would just be Jellyfin running on a VM instead of an LXC, at the permanent cost of the GPU being unavailable to anything else on the host.
 
-The LXC path avoids all of that: an LXC shares the host's kernel, so the host keeps the `amdgpu` driver bound and simply grants the container access to the resulting `/dev/dri/renderD128` device node. Non-exclusive from the host's perspective, already proven working, no PCI device binding to get wrong. If this box ever gets a GPU with real SR-IOV support, this is worth revisiting — the constraint here is the specific hardware, not a principled objection to GPU workloads in Kubernetes.
+The LXC path avoids all of that: an LXC shares the host's kernel, so the host keeps the `amdgpu` driver bound and grants the container access to the resulting `/dev/dri/renderD128` device node. It's non-exclusive from the host's perspective, already proven working, and has no PCI device binding to get wrong. If this box ever gets a GPU with real SR-IOV support, I'll revisit it. The constraint is this specific hardware, not a principled objection to GPU workloads in Kubernetes.
 
 ### The Traffic-Isolation Rethink
 
-The acquisition LXC has two genuinely different outbound flows, and my first pass treated them as one problem. SABnzbd connects to Eweka (my Usenet provider) over NNTPS on port 563 — already encrypted end-to-end, and Usenet copyright enforcement works exclusively via BitTorrent peer-list monitoring, so there's no mechanism by which an ISP or rights-holder observes or reports Usenet downloads in the first place. NZBHydra2's indexer search queries are a completely different flow: plain HTTP/HTTPS lookups against third-party indexer sites, which *does* expose the home IP to whoever's on the other end, the same as browsing any site directly.
+The acquisition LXC has two different outbound flows, and my first pass treated them as one problem. SABnzbd connects to Eweka (my Usenet provider) over NNTPS on port 563, which is already TLS-encrypted between my box and Eweka's servers. The usual copyright-notice pipeline works by rights-holders joining BitTorrent swarms and logging peer IPs; a Usenet download has no swarm and no peers, so there is nothing for that monitoring to observe. NZBHydra2's indexer search queries are a different flow entirely: HTTP/HTTPS lookups against third-party indexer sites, which *does* expose the home IP to whoever runs the other end, the same as browsing any site directly.
 
-Wrapping the whole LXC in gluetun/Mullvad "solved" both at once, but it was the wrong tool for either: VPN on the download path halves throughput for no privacy benefit Eweka's own SSL doesn't already provide, and it risks Eweka flagging the account for apparent multi-subscriber IP sharing. I tore gluetun out two days after standing it up and replaced it with a model that actually matches the two flows:
+Wrapping the whole LXC in gluetun/Mullvad "solved" both at once, but it was the wrong tool for either. A VPN on the download path costs throughput for no privacy benefit beyond what Eweka's own TLS already provides, and a shared VPN exit IP risks Eweka flagging the account for apparent account sharing. I tore gluetun out two days after standing it up and replaced it with a model that matches the two flows:
 
-- **SABnzbd → Eweka, direct, over SSL.** No VPN. The ISP sees "connected to news.eweka.nl," never content — that's the whole job done by NNTPS alone.
-- **NZBHydra2 → indexers, through a Tor SOCKS5 proxy**, `tor` container at `172.28.1.10:9050`, configured with **no direct-connection fallback**. Search queries are small and latency-tolerant, a good fit for Tor's limited bandwidth, and Tor is a better fit than a commercial VPN for metadata-only queries — no single operator to trust, no throughput to throttle. If Tor is down, indexer queries fail outright instead of silently leaking the home IP.
+- **SABnzbd → Eweka, direct, over SSL.** No VPN. The ISP sees "connected to news.eweka.nl," never content. NNTPS alone does that job.
+- **NZBHydra2 → indexers, through a Tor SOCKS5 proxy**, `tor` container at `172.28.1.10:9050`, configured with **no direct-connection fallback**. Search queries are small and latency-tolerant, a good fit for Tor's limited bandwidth, and for metadata-only queries Tor beats a commercial VPN: no single operator to trust. If Tor is down, indexer queries fail outright instead of silently leaking the home IP.
 
-I verified this configuration directly rather than trusting the design intent on paper: `sabnzbd.ini` shows `socks5_proxy_url = ""` (empty — SABnzbd was never routed through Tor) with `ssl = 1`, `ssl_verify = 2` confirming the direct-to-Eweka SSL path is real; `nzbhydra.yml` shows `proxyType: SOCKS` pointed at the Tor container with no fallback option enabled. One live exception I noticed and haven't chased down yet: one specific indexer bypasses Tor and connects directly (`proxyIgnoreDomains`) — possibly a site that blocks Tor exit nodes, possibly a leftover exception from before I understood this stack properly. Worth revisiting.
+I verified this configuration on the box rather than trusting the design on paper: `sabnzbd.ini` shows `socks5_proxy_url = ""` (empty, so SABnzbd was never routed through Tor) with `ssl = 1`, `ssl_verify = 2` confirming the direct-to-Eweka SSL path is real; `nzbhydra.yml` shows `proxyType: SOCKS` pointed at the Tor container with no fallback option enabled. One live exception I noticed and haven't chased down yet: one specific indexer bypasses Tor and connects directly (`proxyIgnoreDomains`). It's either a site that blocks Tor exit nodes or a leftover exception from before I understood this stack properly. That one is still on my list.
 
-Tor's bandwidth genuinely can't handle bulk transfers, and routing downloads through it would be abusive to a network that exists for people who need anonymity for safety — never route the actual download path through Tor, only small metadata lookups.
+Tor's bandwidth can't handle bulk transfers, and routing downloads through it would abuse a network that exists for people who need anonymity for their safety. Only small metadata lookups go through Tor, never the download path.
 
-The acquisition LXC (`ct-srv-media-acq-01`) runs all five apps this way — no blanket tunnel, no kill-switch sidecar to maintain, no shared failure mode between "is Eweka's SSL up" and "is the VPN provider's WireGuard endpoint reachable today."
+The acquisition LXC (`ct-srv-media-acq-01`) runs all five apps this way: no blanket tunnel, no kill-switch sidecar to maintain, no shared failure mode between "is Eweka's SSL up" and "is the VPN provider's WireGuard endpoint reachable today."
 
 ### NFS File Locking
 
-Media libraries (downloaded files, metadata databases) live on NFS. As I wrote about in [the SQLite trap article](/blog/nfs-vs-local-path-sqlite-trap/), NFS file-locking semantics don't work with embedded databases. Sonarr and Radarr use SQLite internally for their media databases — and those databases corrupt on NFS under concurrent access.
+In the k3s setup, both the media files and the apps' config directories lived on NFS. As I wrote in [the SQLite trap article](/blog/nfs-vs-local-path-sqlite-trap/), NFS file-locking semantics don't play well with embedded databases. Sonarr and Radarr keep their state in SQLite, and those databases corrupt on NFS under concurrent access.
 
 Moving the acquisition stack to a local LXC with local storage eliminates the NFS lock problem. The media files themselves (downloaded episodes, movies) still live on NFS for sharing, but the application databases stay local.
 
@@ -103,7 +103,7 @@ Moving the acquisition stack to a local LXC with local storage eliminates the NF
 
 ## The Traefik Bridge
 
-k3s Traefik routes external traffic to services inside the cluster. But the media stack isn't in the cluster — it's in LXCs. The bridge: Traefik IngressRoutes point at Kubernetes Services, which use `Endpoints` objects with hardcoded IP addresses pointing at the LXC containers.
+k3s Traefik routes external traffic to services inside the cluster. The media stack isn't in the cluster, though; it's in LXCs. The bridge is a Kubernetes Service per app, backed by a manually written `Endpoints` object with the LXC's hardcoded IP. Traefik IngressRoutes point at those Services.
 
 ```yaml
 # kubernetes/apps/jellyfin/jellyfin.yml
@@ -129,7 +129,7 @@ subsets:
       - port: 8096
 ```
 
-This is the same pattern for all external services. The Service has no `selector` — it's a "headless" Service where the Endpoints are manually maintained. Traefik doesn't know or care that the backend is an LXC instead of a pod.
+Every external service uses this pattern. The Service has no `selector`, so Kubernetes doesn't manage its Endpoints and uses the ones I wrote by hand. (That's a selectorless Service, not a headless one; it still gets a normal ClusterIP.) Traefik doesn't know or care that the backend is an LXC instead of a pod.
 
 The IngressRoute for Jellyfin:
 
@@ -152,11 +152,11 @@ spec:
     secretName: wildcard-woitzik-dev-tls
 ```
 
-The media stack gets [Authelia](/blog/k3s-authelia-proxmox-homelab/) protection, wildcard TLS, and [Cloudflare Tunnel](/blog/cloudflare-tunnel-zero-inbound-ports/) external access — the same as every in-cluster service. The only difference is the backend IP.
+The media stack gets [Authelia](/blog/k3s-authelia-proxmox-homelab/) protection, wildcard TLS, and [Cloudflare Tunnel](/blog/cloudflare-tunnel-zero-inbound-ports/) external access, the same as every in-cluster service. The only difference is the backend IP.
 
 ## The Python CronJob
 
-A Python CronJob runs every 10 minutes inside k3s, bridging the gap between the media stack and the cluster:
+A Python CronJob runs every 10 minutes inside k3s and watches the media stack from the cluster side:
 
 ```yaml
 # CronJob that monitors media acquisition
@@ -179,16 +179,16 @@ The script:
 3. Checks Jellyfin's library scan status
 4. Posts status to Discord via webhook
 
-Without this CronJob, stuck downloads sit indefinitely. Sonarr and Radarr don't have built-in queue monitoring — they trust the download client to report status, and SABnzbd sometimes silently fails without notifying the *arr stack.
+Without this CronJob, stuck downloads sit indefinitely. Sonarr and Radarr only act on what the download client reports: their failed-download handling kicks in when SABnzbd marks a job as failed. When SABnzbd stalls without reporting a failure, the *arr apps keep waiting.
 
 ## What I'd Change
 
-1. **Use a proper service mesh for cross-boundary traffic.** The manual Endpoints pattern works but is fragile — if the LXC IP changes, the Endpoints must be updated manually. A DNS-based service discovery (Headscale DNS entries, for example) would be more resilient.
+1. **Replace hardcoded Endpoints with DNS.** The manual Endpoints pattern works but is fragile: if an LXC's IP changes, I have to update the Endpoints by hand. An `ExternalName` Service pointing at a DNS name (Headscale MagicDNS entries, for example) would survive IP changes (Traefik's Kubernetes CRD provider needs `allowExternalNameServices` enabled for that). The core `Endpoints` API is also deprecated since Kubernetes 1.33 in favor of `EndpointSlice`, so the hand-written objects need migrating anyway.
 
 2. **Move the CronJob to a native LXC cron.** The Python script runs in a k3s Pod but talks to LXC-hosted services. It has no business being in the cluster. A systemd timer on the media acquisition LXC would be simpler.
 
 ---
 
-The media stack's departure from Kubernetes is the same pattern as running stateful workloads outside AKS: GPU workloads go to dedicated VMs with GPU passthrough, traffic-sensitive workloads get network-level isolation instead of a sidecar, and file-locking workloads go to local SSDs. Kubernetes excels at stateless, horizontally-scalable workloads. Media transcoding and acquisition are neither — they're stateful, single-instance, and hardware-dependent. The right platform for them is the bare metal underneath, not the orchestration layer on top.
+Moving the media stack out of Kubernetes follows the same logic as running stateful workloads outside AKS: GPU workloads go where the device is directly accessible, traffic-sensitive workloads get per-flow routing instead of a blanket tunnel, and SQLite-backed apps get local disk. Kubernetes is best at stateless, horizontally scalable workloads. Media transcoding and acquisition are stateful, single-instance, and hardware-dependent, so they run on the Proxmox host underneath, not in the orchestration layer on top.
 
 <NewsletterCTA />
