@@ -1,0 +1,210 @@
+---
+title: "Enshrouded 1.0 Server on Linux: SteamCMD Deleted My Server Binary"
+description: "After Enshrouded 1.0, a plain SteamCMD update on Linux deleted the server exe and still reported success. Windows depot, Steamworks path, buildid checks."
+date: "2027-02-15"
+tags: ["Homelab", "Debugging", "Ansible", "Networking"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+After Enshrouded 1.0, my Linux-hosted dedicated server went down because of its own updater. `steamcmd +app_update 2278520 validate` reported success, deleted 24 game files including `enshrouded_server.exe`, and left systemd crash-looping on a binary that no longer existed. The fix has three parts: always request the Windows depot, give Steamworks a client install directory, and only update when Steam's public buildid has actually changed.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Setup: A Windows Server Under Wine, in the DMZ
+
+The Enshrouded dedicated server is a free SteamCMD app (`2278520`). Keen Games only ships a Windows build. I run it on the same DMZ LXC as my Minecraft server (`ct-dmz-games-01`, VLAN 30), natively under Wine, managed by an Ansible role. I considered the `mornedhels/enshrouded-server` Docker image, which bundles SteamCMD and auto-updates, and decided against it. For a stateful game server I prefer a systemd unit I can read over an image I can't.
+
+The unit is short, but every environment line in it is there because something broke without it:
+
+```ini
+[Service]
+Type=simple
+User=enshrouded
+WorkingDirectory=/home/enshrouded/enshroudedserver
+Environment=WINEDEBUG=-all
+Environment=WINEPREFIX=/home/enshrouded/.wine
+Environment=STEAM_COMPAT_CLIENT_INSTALL_PATH=/home/enshrouded/.steam/steam
+Environment=WINEFSYNC=1
+Environment=WINEESYNC=1
+ExecStart=/usr/bin/xvfb-run -a /usr/bin/wine /home/enshrouded/enshroudedserver/enshrouded_server.exe
+ExecStop=/usr/bin/wineserver -k
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=15
+```
+
+`xvfb-run` is there because the binary expects a display even when headless, and Wine aborts without one. `ExecStop=wineserver -k` is there because the Wine session ignores SIGTERM: before I added it, every deploy sat in `deactivating` for the full 90 seconds until systemd sent SIGKILL. `WINEFSYNC=1`/`WINEESYNC=1` fixed a tick problem I'll get to below.
+
+Reachability follows the same pattern as Minecraft. The MikroTik forward chain ends in `fwd_99_drop_all`, so LAN players get two explicit UDP accept rules placed in front of it, managed in Terraform like the rest of the [zero-trust firewall](/blog/mikrotik-zero-trust-firewall-terraform/):
+
+```hcl
+resource "routeros_ip_firewall_filter" "fwd_internal_to_dmz_enshrouded" {
+  action       = "accept"
+  chain        = "forward"
+  protocol     = "udp"
+  src_address  = "10.0.0.0/8"
+  dst_address  = "10.0.30.0/24"
+  dst_port     = "15636,15637"
+  place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
+  comment      = "22: Internal - Enshrouded to DMZ (game LXC)"
+}
+```
+
+Remote players come in through a playit.gg relay tunnel. No WAN port is forwarded. That is the same reasoning as in [my Cloudflare Tunnel setup](/blog/cloudflare-tunnel-zero-inbound-ports/), except that Cloudflare's HTTP proxy can't carry raw UDP game traffic, so the relay is playit instead of `cloudflared`.
+
+The current server version writes only `queryPort` (15637) into its config and drops the `gamePort` field older guides mention. I allow both 15636 and 15637 anyway, because which one a given client build uses has varied.
+
+## What the Update Actually Did
+
+Enshrouded 1.0 shipped on 2026-10-15, and clients on the new version refused to talk to a server on the old build. So I updated. SteamCMD printed its usual success message and the server never came back. The journal showed the unit crash-looping on:
+
+```text
+wine: failed to open "/home/enshrouded/enshroudedserver/enshrouded_server.exe": c0000135
+```
+
+The real story was in Steam's content log. On 2026-10-21 the depot configuration for app `2278520` changed:
+
+```text
+AppID 2278520 config changed : added depots 1006
+AppID 2278520 config changed : removed depots 1004,2278521
+```
+
+Before the change, my Linux SteamCMD mounted depot `1004` (the Windows redistributable) and `2278521` (the game content). After it, a Linux client mounts exactly one depot: `1006`, the 111 MB Linux Steamworks redistributable. SteamCMD then "updated" the install to match that depot list:
+
+```text
+AppID 2278520 starting commit from ".../steamapps/downloading/2278520" to
+"/home/enshrouded/enshroudedserver" : 4 updated, 0 moved, 24 deleted files
+```
+
+Four runtime files updated, 24 game files deleted, exit status success.
+
+I checked the current depot list against Steam's public app info (via the steamcmd.net API, since SteamDB blocks scripted requests). It matches what my log recorded. The app's `oslist` is `windows`. Depot `2278521` is flagged `oslist: windows` and is 8,047,349,315 bytes for the current public build. Depot `1006` is flagged `linux`, is 111,284,048 bytes, and comes from the Steamworks SDK redistributable app, not from Enshrouded itself. There is no Linux content depot. What I could not confirm from a public source is when the content depot's OS flag changed. My evidence for 2026-10-21 is the content log on my own server.
+
+Two things made this harder to see than it should have been:
+
+- **The savegame was never touched.** `savegame/world0.ksd` and `enshrouded_server.json` (including the password) survived. Only the executable and the 32 `.dat` containers were gone, and those can be downloaded again. The failure was loud in systemd and silent in SteamCMD.
+- **The three-argument depot form did nothing.** `+app_update <appid> <depot> <manifest>`, which I tried in order to ask for the content depot explicitly, was ignored by the current SteamCMD client. It fetched zero bytes and reported success.
+
+## Fix 1: Always Request the Windows Depot
+
+The only variant that mounts the content depot from a Linux host is forcing the platform type before `app_update`. It's also what most Linux hosting guides for this server use. My role already did this for the initial install. The scheduled update path didn't, and that was the bug.
+
+```bash
+runuser -u "$user" -- "$steamcmd" \
+  +@sSteamCmdForcePlatformType windows \
+  +force_install_dir "$install_dir" \
+  +login anonymous \
+  +app_update "$app_id" validate \
+  +quit
+```
+
+The Ansible install path also asserts that the binary exists after the download, so a run that gets the wrong depot fails instead of reporting `changed`:
+
+```yaml
+- name: Fail when the server binary is missing after download
+  ansible.builtin.assert:
+    that:
+      - enshrouded_exe.stat.exists
+    fail_msg: >-
+      enshrouded_server.exe missing -- SteamCMD fetched the ~100MB Linux
+      depot instead of the Windows one
+```
+
+I also looked at `DepotDownloader` as a fallback for fetching the content depot directly, and rejected it. The old Linux manifest is no longer served to anonymous accounts (HTTP 401), and the platform override solves the problem properly anyway.
+
+## Fix 2: Give Steamworks a Client Directory
+
+With the content back, the server started and then died again, before it reached `HostOnline`:
+
+```text
+Could not determine Steam client install directory
+```
+
+The 1.0 binary initializes Steamworks before it does anything else. Under Wine on a box with no Steam client, there was nothing for it to find. The unit now exports `STEAM_COMPAT_CLIENT_INSTALL_PATH=~/.steam/steam`, and the role links the `steamclient.so` that ships with the server into the directories Steamworks searches:
+
+```yaml
+- name: Link the Steam client library where Steamworks looks for it
+  ansible.builtin.file:
+    src: "{{ enshrouded_install_dir }}/steamclient.so"
+    dest: "{{ item }}"
+    state: link
+    force: true
+  loop:
+    - "{{ enshrouded_home }}/.steam/sdk64/steamclient.so"
+    - "{{ enshrouded_home }}/.steam/sdk32/steamclient.so"
+    - "{{ enshrouded_home }}/.steam/steam/steamclient.so"
+```
+
+This mirrors what the upstream Proton image does with its own SDK links. I didn't switch to Proton, which is upstream's recommended path for 1.0. Native Wine reaches `HostOnline` with the same content once Steamworks finds its directory, and changing the runtime would throw away the fsync tuning that fixed my tick stalls. If the native build starts rejecting client versions, I'll revisit that.
+
+## Fix 3: Update on Buildid Change, Not on a Timer
+
+The original role ran a weekly cron with `+app_update ... validate` and a restart. That gave a week-long window in which Steam could update the clients before the server caught up, and it bounced connected players even when nothing had changed.
+
+The replacement is a systemd timer that compares Steam's public buildid with the one installed. Version one of this was broken in an instructive way. It compared the appmanifest against a recorded buildid file, but both values only change when SteamCMD runs, so the check could never detect a new build. The server sat on build 26083076 while Steam moved on. The current script asks Steam directly:
+
+```bash
+latest_buildid() {
+  runuser -u "$user" -- "$steamcmd" \
+    +@sSteamCmdForcePlatformType windows \
+    +login anonymous \
+    +app_info_update 1 \
+    +app_info_print "$app_id" \
+    +quit 2>/dev/null \
+  | awk '
+      /^[[:space:]]*"branches"/ { in_branches = 1; next }
+      in_branches && /^[[:space:]]*"public"/ { in_public = 1; next }
+      in_public && /"buildid"/ { gsub(/[^0-9]/, ""); print; exit }
+    '
+}
+```
+
+If the two buildids match, the script logs `buildid <n> is current -- no action` and exits. If they differ, it runs the Windows-depot update, re-reads the appmanifest, and refuses to restart if the manifest is gone afterwards:
+
+```bash
+new_buildid="$(installed_buildid)"
+if [ -z "$new_buildid" ]; then
+  echo "ERROR: appmanifest missing after update -- the server binary is gone" >&2
+  exit 1
+fi
+```
+
+The interval started out hourly and is now 15 minutes:
+
+```ini
+[Timer]
+OnCalendar=*:02/15
+RandomizedDelaySec=60
+Persistent=true
+```
+
+The hourly version missed by eight minutes. Build 26430253 was uploaded at 12:37 and promoted to `public` at 15:18. The hourly check had run at 15:10, so players who updated through Steam hit a version mismatch for up to an hour. Steam's public app info shows that build on the `public` branch with matching timestamps (11:37 and 14:18 UTC; my times are CET). A no-op check is cheap: one anonymous appinfo query (about 5 seconds, about 140 MB peak memory) and a file read. Four per hour cost nothing, and the worst-case lag is now about 16 minutes.
+
+## The Wine Tick Problem
+
+This is separate from the depot story, but anyone running this server under Wine will run into it. `enshrouded_server.exe` holds 1 to 2 cores and `wineserver64` another 0.3, and the server log prints this every few seconds:
+
+```text
+[server] Bad Performance ~20,000 us
+```
+
+That residual line is a known property of the Wine layer (upstream `mornedhels/enshrouded-server` issue #202). What was not intrinsic: without a fast sync primitive, Wine serializes every thread wait through the single wineserver socket. With two players that produced 130 ms tick peaks and packet loss, while the host CPU sat half idle. `WINEFSYNC=1` and `WINEESYNC=1` on the unit removed the stalls. To verify they're actually set on the running process:
+
+```bash
+tr '\0' '\n' < /proc/$(systemctl show -p MainPID --value enshrouded)/environ
+```
+
+The LXC is deliberately not CPU-capped. Host CPU pressure `full` sits at 0, so a cap would only cost game quality.
+
+## What I Check Now
+
+- **SteamCMD's exit status means nothing on its own.** Success here meant "the install matches the depot list Steam gave me," and that list was empty of game content. I assert the binary exists and the appmanifest survives after every run.
+- **The content log is the first place to look.** The two `config changed` lines explained the outage completely. The SteamCMD console output didn't mention it.
+- **A change detector has to read the source that changes.** Comparing two local values that only SteamCMD updates is a check that can never fire. The remote buildid is the only real input.
+- **Poll faster than the client update window.** Clients update through Steam within minutes of a promotion, so a server that checks hourly is wrong for up to an hour after every release.
+- **The server owns its config.** `enshrouded_server.json` is rewritten on every start and stop, and the server generates a random password if the expected one is missing. The role only seeds the file when it's absent, and the password lives in Ansible Vault. An earlier version that templated the file on every deploy locked players out.
+
+The update path is the same autonomy trade-off I wrote about in [what should auto-update and what needs a human](/blog/operating-model-auto-update-human/). Here the answer is to auto-update, because a server on an old build is useless to players on the new one, as long as the updater fails loudly when its result doesn't look like a working server.
+
+<NewsletterCTA />

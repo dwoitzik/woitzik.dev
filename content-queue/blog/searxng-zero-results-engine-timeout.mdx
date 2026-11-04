@@ -1,0 +1,167 @@
+---
+title: "SearXNG Zero Results: How an Engine Timeout Ate My Results"
+description: "SearXNG rendered an empty page with no error. The cause was a 2.0s request_timeout sitting exactly on the engine's latency, so late results were dropped."
+date: "2026-12-20"
+tags: ["Homelab", "Kubernetes", "Debugging", "Performance"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
+
+My self-hosted SearXNG returned a normal-looking results page with zero hits. No error banner, no timeout message, HTTP 200. The pod was Ready, `/stats/errors` showed no failing engines, and the same queries sent straight to the pod returned 20 results each. The cause was `outgoing.request_timeout: 2.0`: the one engine doing the real work answered just after the deadline, and SearXNG threw its answer away. Raising the timeout fixed the empty pages. Getting back to more than one working engine took another two and a half weeks and a detour through `cse.google.com`.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Two failures that looked like one
+
+The first symptom was 404s, and that turned out to be a separate bug. One Traefik replica had failed to load its CrowdSec plugin at startup (the GitHub download failed, `/plugins-storage/archives` was empty). Traefik disabled 38 of its 53 routers, the search route among them, and the Service balanced 50/50 between the healthy pod and the broken one. Restarting the broken pod fixed the 404s.
+
+What was left after that were the empty result pages. Because both problems showed up close together, I treated them as one incident at first. That cost time.
+
+## The measurement that gave it away
+
+The Traefik access log for the real user requests:
+
+```text
+09:22:32  /search?q=rthth    DownstreamStatus=200  Duration=2143ms
+09:25:26  /search?q=wiso+steuer  DownstreamStatus=200  Duration=2020ms
+```
+
+Both requests took just over two seconds, which matched the configured cap of 2.0s. The SearXNG log for the same requests:
+
+```text
+ERROR:searx.engines.google cse: engine timeout
+ERROR:searx: call to ResultContainer.add_unresponsive_engine after ResultContainer.close
+ERROR:searx: call to ResultContainer.add_timing after ResultContainer.close
+```
+
+The same queries sent straight to the pod:
+
+```text
+wiso steuerung    -> 20 Treffer  524 / 251 / 1020 ms
+rthth             -> 20 Treffer  318 / 364 /  202 ms
+kubernetes        -> 20 Treffer  253 / 363 /  239 ms
+proxmox backup    -> 20 Treffer 1027 / 342 /  250 ms
+```
+
+Between 200 and 1027 ms, 20 results every time. The service worked. It just had no margin when the engine slowed down, and the host was having a bad week: iowait spikes up to 84%, the same kind of NVMe pressure behind the [boot storm that pushed this Proxmox host to a load average of 147](/blog/staggered-vm-boot-load-average-147/). That was enough to push `google cse` past the deadline often enough to empty the page.
+
+## Why a timeout looks like "no results"
+
+The SearXNG source makes the mechanism clear. In `searx/search/__init__.py`, every engine request runs in its own thread, and the search waits for each one until the remaining time runs out:
+
+```python
+remaining_time = max(0.0, self.actual_timeout - (default_timer() - self.start_time))
+th.join(remaining_time)
+if th.is_alive():
+    th._timeout = True
+    self.result_container.add_unresponsive_engine(th._engine_name, 'timeout')
+    PROCESSORS[th._engine_name].logger.error('engine timeout')
+```
+
+After that the `ResultContainer` is closed and the page renders. When the slow engine finally returns, `searx/results.py` drops what it brings:
+
+```python
+if self._closed:
+    log.debug("container is closed, ignoring results: %s", results)
+    return
+```
+
+That line logs at debug level, so with normal logging you never see the results being thrown away. What you do see are the two `after ResultContainer.close` errors, which come from the late engine thread trying to report its timing and its unresponsive state to a container that no longer accepts anything. In the end that was the clue that mattered.
+
+With many engines, one late engine costs you some results. With effectively one general-web engine, it costs you all of them, and the UI shows the same empty page it would show for a query that really has no matches. The page reads as "nothing found" when it should say "the engine was too slow".
+
+## Where the 2.0s came from
+
+The cap was older than the problem. An earlier change (REL-033 in my repo) set it to bound worst-case page latency. With `use_default_settings: true`, SearXNG fans every query out to roughly 70 default engines, and one slow engine drags out the whole response. A tight `request_timeout` was the right call for that setup.
+
+Then ADR-041 happened. Search engines started CAPTCHA'ing or silently failing SearXNG's requests, and I disabled brave, duckduckgo, startpage, wikidata, bing, qwant, mojeek and yahoo one batch after another. The detection keyed on SearXNG's request fingerprint, not on my IP, since my own browser on the same connection had no issues. By the end of September, `google cse` was the engine carrying general-web results, and the cap meant to limit fan-out across 70 engines was sitting exactly on the real latency of one.
+
+There was a second surprise in there. I had never enabled `google cse` myself. It ships enabled in SearXNG's default `settings.yml`, with no `disabled:` key:
+
+```yaml
+  - name: google cse
+    engine: google_cse
+    shortcut: goc
+```
+
+With `use_default_settings: true`, every default engine you don't mention stays as upstream ships it. My own engine list didn't show which engines were actually running.
+
+## The fix (ADR-045, #801)
+
+```yaml
+    outgoing:
+-      request_timeout: 2.0
+-      max_request_timeout: 4.0
++      request_timeout: 4.0
++      max_request_timeout: 6.0
+       pool_connections: 100
+       pool_maxsize: 20
+```
+
+The [outgoing settings docs](https://docs.searxng.org/admin/settings/settings_outgoing.html) describe `request_timeout` as the "Global timeout of the requests made to others engines in seconds" and warn that a bigger value "will slow SearXNG reactivity (the result page may take the time specified in the timeout to load)". That is the trade REL-033 was protecting, and it still holds: 4.0s still bounds the worst case, now with headroom over the observed latency.
+
+`max_request_timeout` does less than its name suggests. The docs only call it "the maximum timeout in seconds". In the source, the search deadline is the largest timeout of any engine in the query, and `max_request_timeout` only caps that value (or a client's `timeout_limit` parameter). The effective deadline in my setup came from `request_timeout`.
+
+I considered a per-engine `timeout:` on `google cse` instead. The [engine settings docs](https://docs.searxng.org/admin/settings/settings_engines.html) say it "Overwrites `request_timeout`" and add: "Be careful, it will modify the global timeout of SearXNG." The code above explains why: the deadline is the maximum across all engines, so one slow engine with a long timeout holds the whole page that long. I also didn't trust the merge order between `use_default_settings` and my long list of explicitly disabled engines, so I raised the global value.
+
+## Two weeks of engine roulette
+
+The timeout fix held, but the engine problem from ADR-041 kept coming back. `google cse` was disabled on 2026-10-10 in #872 because of timeouts. #880 raised the cap to 8.0s/10.0s the next day, but the engine stayed disabled for another week.
+
+Then came a run of PRs (#873 to #906) cycling through engine combinations. #894 tried to enable startpage, duckduckgo, bing, yahoo and qwant by deleting their `disabled: true` lines:
+
+```yaml
+      - name: bing
+-        disabled: true
+      - name: qwant
+-        disabled: true
+```
+
+For bing that did nothing. Upstream ships `bing` with `disabled: true`, and deleting the key from my override just leaves the default in place. #906 fixed it with an explicit `disabled: false`, which is exactly what the [settings docs](https://docs.searxng.org/admin/settings/settings.html) show in their own example: the `engines` section "is merged according to the engine `name`", and the example enables bing with `disabled: false`. In the same week Google started rendering results client-side, so the scraped `google` engine returned HTTP 200 with zero parseable results, and bing became the only engine that still parsed (#905).
+
+## Getting google cse back (ADR-060, #923, #924)
+
+`google cse` is not a scraped HTML engine. It fetches a token from `https://www.google.com/cse/cse.js` and then queries the JSON endpoint `https://cse.google.com/cse/element/v1`. That is a different host from the blocked `google.com/search`, which I probed directly from the cluster egress:
+
+```text
+GET https://www.google.com/search?q=...        (Nokia/Symbian UA)  -> HTTP/1.1 403 Forbidden
+GET https://www.google.com/wml/search?q=...    (Nokia/Symbian UA)  -> HTTP/1.1 403 Forbidden
+GET https://www.google.com/cse/cse.js?cx=...                       -> 200, 9076 bytes
+GET https://cse.google.com/cse/element/v1?...                      -> 200, 70096 bytes, 20 results
+```
+
+To verify it through SearXNG's own API I needed JSON output, and the image default is HTML only. Per the [search API docs](https://docs.searxng.org/dev/search_api.html), formats have to be enabled in `settings.yml`, so #923 added:
+
+```yaml
+    search:
+      formats:
+        - html
+        - json
+```
+
+That was also what Open WebUI and other LLM clients needed, so it would have been worth doing anyway. #924 then flipped the engine:
+
+```yaml
+      # google cse queries the cse.google.com JSON API, a different host from
+      # the JS-rendered google.com/search -- see ADR-060.
+      - name: google cse
+        disabled: false
+```
+
+After deployment, a `format=json` query returned results attributed to both `bing` and `google cse`. I probed `yandex` the same way. It returned HTTP 200 with no parseable result markers, so it stays disabled.
+
+## What I check now
+
+- **A 200 with zero results is not success.** I compare request duration against `request_timeout`. If an empty page took exactly as long as the cap, it's a timeout and not a real empty result. The readiness probe on this pod only checks that `/` returns the search page, the same kind of [green probe that proves very little](/blog/kubernetes-health-probes-host-header-trap/).
+- **`after ResultContainer.close` in the log means results were dropped.** The drop itself is logged at debug level, so these errors are the only trace at default verbosity.
+- **Re-size timeouts when the engine count changes.** A cap sized for 70 parallel engines is wrong for one or two. Every time I disable engines, I re-check the latency of the ones left.
+- **With `use_default_settings: true`, state every engine you care about explicitly.** Deleting a `disabled: true` line doesn't enable anything if upstream ships the engine disabled, and engines you never mention stay on.
+- **Keep comments in sync with values.** The comment above `outgoing:` in my manifest still explains "4.0s/6.0s, not 2.0s/4.0s" while the values are 8.0/10.0. It describes ADR-045, not the current config. A status label that says one thing while the system does another is how I've been burned before, like the [Velero backups that reported Completed with no data in them](/blog/velero-backup-false-positive-no-data/).
+
+The long-term fix is still SearXNG's official `braveapi` engine, a real API instead of scraping. It needs a paid Brave Search API key, and that isn't wired up. Until then, two independent general-web engines mean one engine's bad day no longer empties the page.
+
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) has the best explanation I know of why a timeout can't tell you whether the other side failed or was just slow. A metasearch engine makes that choice on every query, and the empty page is what it looks like when it gets it wrong.
+
+<NewsletterCTA />

@@ -1,0 +1,153 @@
+---
+title: "Unable to mkstemp /tmp/apt.sig: How /tmp 0755 Broke apt"
+description: "A /tmp at mode 0755 left apt on my Proxmox host unable to verify signatures for two months. A week later, unattended-upgrades skipped 69 Pi updates."
+date: "2026-11-08"
+tags: ["Proxmox", "Homelab", "Debugging", "Ansible", "Security"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
+
+For about two months, apt on my Proxmox host could not refresh a single repository. `/tmp` had drifted from mode 1777 to 0755, apt's unprivileged `_apt` sandbox user could no longer create its signature temp files, and every `apt-get update` quietly fell back to stale index files. The fix was one `chmod`, plus a watchdog check so the next drift raises an alert instead of waiting for me to trip over it.
+
+A week later I found a second version of the same problem on the Raspberry Pi nodes: `unattended-upgrades` ran every day, logged success, and left 69 updates untouched, including Docker Engine and containerd. Both failures share a shape. The update machinery was running, and nothing was getting updated.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## How it surfaced: not through an alert
+
+No alert caught the `/tmp` problem. I was rolling out a change to the host watchdog on `pve-mgmt-01`, the single Proxmox box everything else in the homelab runs on, and the Ansible playbook died on its very first task:
+
+```text
+Failed to update apt cache: unknown reason
+```
+
+"Unknown reason" is the Ansible apt module passing on that apt did not exit cleanly, without saying why. Running `apt-get update` by hand on the host showed the real error:
+
+```text
+Unable to mkstemp /tmp/apt.sig.<XXX> - GetTempFile (13: Permission denied)
+```
+
+followed by the warning that matters most and gets read least:
+
+```text
+The repository is not updated and the previous index files will be used
+```
+
+That warning came up for every repository. `apt-get update` still completed and printed only `W:` lines, so a quick glance looked like a noisy but successful run. In reality the host had not accepted a fresh package index since the problem began, and any update or install went against outdated metadata.
+
+## Root cause: /tmp at 0755, and who apt runs as
+
+`stat` on `/tmp` showed the problem immediately:
+
+```bash
+$ stat -c %A /tmp
+drwxr-xr-x
+```
+
+That is `root:root 0755`. A normal `/tmp` is `drwxrwxrwt`, mode 1777: world-writable, with the sticky bit so users can only delete their own files.
+
+The reason this only broke apt is privilege separation. apt does not do its downloading and signature checking as root. It drops to a sandbox user, `_apt`, configured by `APT::Sandbox::User`, and that user writes temporary signature files to `/tmp` while verifying repository metadata. With `/tmp` at 0755, only root can create files there. `_apt` gets `Permission denied`, signature verification fails for every source, and apt keeps the old indexes.
+
+Root, meanwhile, can still write to `/tmp` without complaint. Every root-run cron job, every script, every Proxmox service I touched kept working. Nothing else on the host needed a non-root user to write a temp file, so nothing else complained. That is why this went unnoticed for two months.
+
+## How long, and why I can't say what did it
+
+`/tmp` on this host is a tmpfs from the stock systemd unit `tmp.mount`, with these options:
+
+```ini
+Options=mode=1777,strictatime,nosuid,nodev,size=50%,nr_inodes=1m
+```
+
+The running mount matched the unit on `size` and `nr_inodes`, but `mode` and `strictatime` were missing from its effective options. The mount had been active since `2026-08-23 12:29:28 CEST`, which puts the broken state at roughly two months by the time I found it on October 16.
+
+I could not reconstruct the trigger. Nothing in the repository and nothing on the host (scripts, cron, shell history) runs `chmod` on `/tmp`. The most plausible explanation is a single manual `chmod 0755`, or a `remount` issued without `mode=`. I'd rather write "unknown" in the incident record than invent a cause that fits.
+
+## The fix
+
+The live fix was one command:
+
+```bash
+chmod 1777 /tmp
+```
+
+After that, `stat -c %A /tmp` showed `drwxrwxrwt` again, and `apt-get update` fetched 898 kB with no signature errors.
+
+Persistence needed no change. `tmp.mount` sets `mode=1777` on every boot, so a reboot would have repaired it as well. The drift was a runtime state, not a broken boot configuration. That is also the uncomfortable part: if I don't know what changed the mode, I can't stop it from happening again. I can only make sure I hear about it.
+
+## Detection: one more check in the host watchdog
+
+The Proxmox host already runs a watchdog script every five minutes that checks thin-pool usage, CPU temperature, load, stale snapshots and NVMe kernel errors, and sends everything it finds through ntfy with escalating backoff. Adding `/tmp` there costs seven lines in `ansible/roles/pve_power/templates/pve-watchdog.sh.j2`:
+
+```bash
+# /tmp must be world-writable + sticky (1777). A chmod to 0755 broke apt's
+# _apt sandbox user for ~2 months (mkstemp: permission denied) with no other
+# symptom; tmp.mount owns the mode at boot, this catches runtime drift.
+TMP_MODE=$(stat -c %a /tmp 2>/dev/null)
+[ "$TMP_MODE" != "1777" ] && \
+  ALERT="${ALERT}/tmp mode is ${TMP_MODE} (want 1777). "
+```
+
+It appends to the same `ALERT` string as every other check, so it inherits the existing ntfy topic, the maintenance-mode suppression and the backoff without any new plumbing. The check detects a repeat. It does not prevent one, and the incident record says so in those words.
+
+## A week later: unattended-upgrades running, nothing upgrading
+
+On October 22 the pending-update counts across the hosts told two different stories. The Debian hosts looked fine: 0 to 6 pending upgrades on the k3s nodes, the NFS server and Atlantis. The two Raspberry Pi 4B nodes that run [AdGuard and Unbound behind keepalived](/blog/unbound-adguard-keepalived-homelab/) had 69 pending updates, and that number wasn't moving.
+
+`unattended-upgrades` was installed and enabled there too, and its log showed it running daily. The log line that explained everything was the one listing what it was allowed to touch:
+
+```text
+INFO Allowed origins are: origin=Debian,codename=trixie,label=Debian,
+     origin=Debian,codename=trixie,label=Debian-Security,
+     origin=Debian,codename=trixie-security,label=Debian-Security
+```
+
+Only Debian. The Pi nodes also carry repositories from the Raspberry Pi Foundation, Docker CE, Tailscale and AZlux, and packages from those were never candidates. The backlog included `docker-ce` (29.5.0 installed, 29.9.2 available), `containerd.io` (2.2.3 installed, 2.4.2 available), `libc6`, `openssl` and the Raspberry Pi firmware packages. The installed containerd was affected by five published CVEs, the worst rated 9.9 critical, all fixed in the 2.4.2 that sat in the repository.
+
+## Matching third-party origins is fiddly
+
+The fix lives in the `common` Ansible role, which runs on every managed host:
+
+```yaml
+- name: Let unattended-upgrades cover the third-party repositories
+  ansible.builtin.blockinfile:
+    path: /etc/apt/apt.conf.d/50unattended-upgrades
+    marker: "# {mark} ANSIBLE MANAGED ORIGINS"
+    block: |
+      Unattended-Upgrade::Origins-Pattern {
+          "origin=Debian,codename=${distro_codename},label=Debian";
+          "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+          "origin=Debian,codename=${distro_codename}-updates,label=Debian";
+          "origin=Raspberry Pi Foundation,codename=${distro_codename},label=Raspberry Pi Foundation,c=main";
+          "origin=Docker,label=Docker CE,c=stable";
+          "origin=Tailscale,codename=bookworm,label=Tailscale,c=main";
+      };
+```
+
+Each third-party line uses different fields because the repositories publish different metadata. Docker CE has no codename at all, so a `codename=` match finds nothing. Tailscale has no suite but does publish codename `bookworm`, even on these trixie hosts. My first two attempts failed on exactly this: matching Docker on `codename=` matched nothing, and matching it on `n=` matched nothing either, because `n=` is the codename field, not the suite.
+
+What worked was not guessing. `apt-get indextargets` prints origin, label, suite, codename and component for every index the host knows, so the right field combination for each repository can be read off directly. `unattended-upgrade --dry-run --debug` then shows the allowed origins and the package list they produce, which confirms the pattern before it runs for real.
+
+Applied live, unattended-upgrades installed 74 packages on both Pi nodes: Docker 29.5.0 to 29.9.2, containerd 2.2.3 to 2.4.2, Tailscale 1.98.4 to 1.104.2, kernel 6.18.29 to 6.18.50, and all containers came back up.
+
+## The trade-offs I accepted
+
+Letting unattended-upgrades touch Docker has a cost. A Docker Engine or containerd update restarts the daemon, which stops every container on that node, including AdGuard and Unbound. The keepalived VIP moves to the other Pi, so DNS stays up, but the containers on the updating node still restart. I accept that over a container runtime that sits behind on published security fixes.
+
+Kernel and firmware updates still need a reboot. unattended-upgrades installs them and writes `/var/run/reboot-required`, but `Automatic-Reboot` stays off. An unattended reboot of the DNS and proxy nodes is not something I want, so reboots remain a deliberate, announced step. That fits the split I described in [what auto-updates and what needs a human](/blog/operating-model-auto-update-human/).
+
+The k3s cluster is not covered by any of this. k3s ships its own containerd inside the binary, so the packaged `containerd.io` version says nothing about it. Its containerd is fixed only by a k3s upgrade, which is a separate job with a larger blast radius than a package update.
+
+## What I check now
+
+- **apt warnings are failures.** `The repository is not updated and the previous index files will be used` means the update did not happen, whatever the exit status says. A `W:` line from `apt-get update` deserves the same attention as an `E:` line.
+- **Test as the user that does the work.** Root writing to `/tmp` proved nothing. The failing write came from `_apt`. When something only breaks for an unprivileged service user, a root shell will tell you everything is fine.
+- **"unattended-upgrades ran" is not "the host is patched".** The log line to read is `Allowed origins are:`, and the number to watch is pending updates per host over time. A count that doesn't go down is the alert.
+- **Detection when the cause is unknown.** I couldn't find what changed `/tmp`, so the honest fix is a check that pages me within five minutes of a repeat, not a guess at a root cause.
+
+This is the same lesson as the [Pi edge hardening work](/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables/): an unattended box needs a check for each way it can fail quietly, because nobody is watching its console.
+
+If file modes, the sticky bit and what `stat -c %a` actually prints are still a bit hazy, [The Linux Command Line\*](/go/4gEAhv9) covers permissions and special modes more clearly than most man pages.
+
+<NewsletterCTA />

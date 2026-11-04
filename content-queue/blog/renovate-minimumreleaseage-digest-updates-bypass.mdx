@@ -1,0 +1,115 @@
+---
+title: "Renovate minimumReleaseAge: Why Digest PRs Never Automerge"
+description: "A global minimumReleaseAge left every Renovate digest PR stuck on a pending renovate/stability-days check for two weeks. Root cause and the one-rule fix."
+date: "2026-12-17"
+tags: ["GitOps", "Homelab", "Kubernetes", "Debugging"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+For two weeks, every digest-pinned image in my homelab stopped updating, and nothing alerted. Renovate kept opening PRs, but each one sat on a `renovate/stability-days` check stuck at pending, so automerge never fired. The cause was a global `minimumReleaseAge: "3 days"` combined with how Renovate 42+ handles updates that carry no release timestamp, and the fix was a single package rule setting `minimumReleaseAgeBehaviour: "timestamp-optional"` for digest updates.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## How I Found It
+
+A cluster-wide sweep showed the whole media-acquisition stack running stale images: Jellyseerr 2.7.3 plus old builds of Radarr, Sonarr, SABnzbd, NZBHydra2, Bazarr and Autoheal. That shouldn't happen. Those containers run on an LXC that converges to git `main` every 5 minutes, and Renovate is supposed to keep `main` current. It's the auto-merge half of [the operating model](/blog/operating-model-auto-update-human/) that decides what updates itself and what waits for me.
+
+Renovate was doing its part of the job. It had opened a PR for every one of them, and they had been piling up for two weeks: #901 jellyseerr, #889 radarr, #868 sonarr, #859 sabnzbd, #858 nzbhydra2, #854 bazarr, #855 autoheal, and #856 for a digest-pinned GitHub Action. Around ten in total once the pinned k8s digests were counted. Every one carried the same pending check:
+
+```text
+renovate/stability-days: Updates have not met minimum release age requirement
+```
+
+The images behind those PRs were weeks old. A five-day-old image cannot fail a three-day soak, so the check wasn't saying "too young". It was saying "I don't know how old this is", and treating unknown as not yet.
+
+The silence had a second cause. Renovate couldn't PATCH its Dependency Dashboard issue (HTTP 403 on the issue edit), so the dashboard, which would have listed these as pending, was stale. That's the same class of quiet failure as [the Renovate CronJob that reported Completed while doing nothing](/blog/renovate-kubernetes-oom-6gb-container/): the automation looked healthy because nothing complained.
+
+## The Config That Triggered It
+
+The relevant parts of `renovate.json` looked like this:
+
+```json
+{
+  "extends": ["config:recommended", "docker:pinDigests", "helpers:pinGitHubActionDigests"],
+  "docker-compose": {
+    "fileMatch": ["ansible/files/media-acquisition/docker-compose.yml$"]
+  },
+  "minimumReleaseAge": "3 days",
+  "packageRules": [
+    {
+      "matchManagers": ["docker-compose"],
+      "matchUpdateTypes": ["patch", "minor", "digest", "pin"],
+      "automerge": true,
+      "platformAutomerge": true
+    }
+  ]
+}
+```
+
+And the images it manages are floating tags pinned to a digest:
+
+```yaml
+    image: lscr.io/linuxserver/radarr:latest@sha256:ade5937813c6ae415b29db729386e53fea3ecf067a019849bafbe2d2a6ec02ba
+```
+
+Nothing exotic. `docker:pinDigests` plus a global soak plus automerge is a common setup, which is why this isn't specific to my repo. Any repository with a global `minimumReleaseAge` and digest-pinned images hits the same wall.
+
+## Why the Check Never Turns Green
+
+Three Renovate behaviors stack up here.
+
+**1. Renovate 42 flipped the default for missing timestamps.** `minimumReleaseAgeBehaviour` controls what happens when an update has no release timestamp. The upstream docs on [minimum release age](https://docs.renovatebot.com/key-concepts/minimum-release-age/) are explicit: since Renovate 42, "the absence of a release timestamp will be treated as if the release is not yet past the timestamp". Before 42, a missing timestamp counted as passed. The default is now `timestamp-required`.
+
+**2. The age check runs twice, and the two stages disagree.** This is the part documented in [renovatebot/renovate#45236](https://github.com/renovatebot/renovate/issues/45236). At the lookup stage, a digest update is aged against the release timestamp of the newest version matching the current value, so it passes and Renovate creates the branch and PR. That's also why the default `internalChecksFilter=strict`, which keeps branches from being created while the stability check is pending, didn't stop these PRs from appearing. At the branch stage, Renovate reads `releaseTimestamp` straight from each upgrade. Digest upgrades never populate it. With `timestamp-required`, no timestamp means pending, and `renovate/stability-days` gets set yellow on every single run.
+
+For `:latest@sha256:` images it's worse than a disagreement. The docs say unversioned tags like `latest` have no matching version to age against at all, and registries that don't return release timestamps (GHCR, Quay, ECR) can't be aged either. Under the default behavior those digest updates "are held indefinitely".
+
+**3. A pending internal check blocks automerge, silently.** `internalChecksAsSuccess` defaults to `false`, and the docs note that internal checks "will always be counted/considered if they are in pending or failed states". So the PR has green CI and one yellow Renovate check that will never change. Automerge waits forever and logs nothing you'd notice.
+
+## The Fix
+
+One package rule, the workaround the upstream issue recommends:
+
+```json
+{
+  "description": "Digest and first-time-pin updates carry no release timestamp at Renovate's branch stage (renovatebot/renovate#45236). With the global minimumReleaseAge set, the renovate/stability-days check then stays pending indefinitely and automerge silently never fires -- freezing every :latest@sha256: image (media-acq stack, k8s digests, GitHub Actions). timestamp-optional lifts the branch-stage block; the age gate still applies wherever the registry exposes a push timestamp (Docker Hub tag_last_pushed).",
+  "matchUpdateTypes": ["digest", "pin"],
+  "minimumReleaseAgeBehaviour": "timestamp-optional"
+}
+```
+
+With `timestamp-optional`, the docs say "Renovate will treat a release without a releaseTimestamp as stable". I kept the global `minimumReleaseAge` exactly as it was. It's recorded as ADR-063 and landed in commit `8f3ef95`, a Renovate-config-only change with no live resources touched. Rollback is reverting the commit.
+
+## Why This Doesn't Gut the Soak
+
+My first worry was that I'd just switched off supply-chain protection for half my images. Looking at what the block was actually holding back, it wasn't protecting anything:
+
+- Where the registry exposes a push timestamp, the lookup-stage age check still applies. On Docker Hub that timestamp is the tag's `tag_last_pushed`, so a re-pushed tag restarts the delay.
+- Digest re-points of a floating `latest` are exactly the updates Renovate cannot age. The branch-stage block only ever suppressed updates it had no timestamp for. It never held one back because it knew it was too new.
+- Ordinary patch, minor and major version updates still have a real release timestamp and still wait the full 3 days. The soak's intent stays intact for the update class that carries version semantics.
+
+The residual risk is a digest re-point with no registry timestamp that now merges without a soak. That's bounded by the controls that always applied: CI (kubeconform, Trivy, the disclosure and comment guards), and for the media stack, a 5-minute converge with a health-gated rollback to the last good image set.
+
+## Verifying It Actually Worked
+
+A config change that looks right is not the same as updates flowing again, so I checked the git history of the compose file. Before the fix, between the converge change on 2026-10-06 and the fix on 2026-10-18, it received zero Renovate commits. The stuck radarr PR #889 merged the same day the fix went in. After that the digest updates landed steadily:
+
+```text
+4d425cb 2026-10-19 chore(deps): update lscr.io/linuxserver/radarr:latest docker digest to ff4430f (#939)
+5536799 2026-10-19 chore(deps): update willfarrell/autoheal:latest docker digest to 8a79b7f (#940)
+8ed0399 2026-10-21 chore(deps): update lscr.io/linuxserver/sonarr:latest docker digest to 889dcc5 (#951)
+19d0922 2026-10-22 chore(deps): update lscr.io/linuxserver/sabnzbd:latest docker digest to 3ac1c9e (#962)
+aa5fc56 2026-10-28 chore(deps): update lscr.io/linuxserver/nzbhydra2:latest docker digest to aea7222 (#989)
+```
+
+Jellyseerr didn't come back as a digest bump. It moved to Seerr v3 in a separate migration (#932), which then took a normal version update to `v3.5.1`.
+
+## What I Check Now
+
+- **A stability check older than the soak is a bug, not a wait.** If `renovate/stability-days` is still pending on a PR that's been open longer than `minimumReleaseAge`, the age is unknown to Renovate, not too young. Two weeks of pending against a three-day soak should have been obvious, and would have been, if anything had surfaced it.
+- **The Dependency Dashboard is a monitoring surface.** A dashboard Renovate can't write to is worse than none, because it looks current. The 403 on the issue edit is tracked separately as a token permissions fix.
+- **Match the upstream update type names exactly.** Writing this up, I compared my rule with the issue's workaround, which matches `["digest", "pinDigest", "lockFileMaintenance"]`. Mine matches `["digest", "pin"]`. In Renovate, `pin` and `pinDigest` are different update types, and the docs list `pin` as not supporting minimum release age at all. First-time digest pins of a `latest` tag are exempt from the age check anyway, but a `pinDigest` of a versioned tag on a registry without timestamps would still be held under `timestamp-required`. `pinDigest` belongs in that rule.
+- **Read the major-version changelog of tools that gate merges.** The Renovate 42 default flip is documented and defensible. It still changed what an existing config did without the config changing.
+
+<NewsletterCTA />

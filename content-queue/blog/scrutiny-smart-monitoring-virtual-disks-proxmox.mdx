@@ -1,0 +1,153 @@
+---
+title: "Scrutiny in k3s VMs: smartctl Operation not permitted"
+description: "My Scrutiny collector ran for 75 days and stored zero SMART data. Device cgroups blocked smartctl, and a VM never sees the host NVMe anyway."
+date: "2027-04-12"
+tags: ["Kubernetes", "Proxmox", "Monitoring", "Debugging"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
+
+I ran Scrutiny as a DaemonSet on all three k3s nodes from 2026-07-20 to 2026-10-03, and in those 75 days it did not store a single SMART measurement. The collector could not open the disks it was pointed at, and even if it could have, those disks were virtual: the one NVMe that actually matters sits on the Proxmox host, where no guest can reach it. I removed the whole stack and kept disk health monitoring on the host, where `smartctl` reads the real device.
+
+The decision is recorded as ADR-050 in the homelab repo. This post is the short version, plus what watches the NVMe now.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## How I Noticed
+
+Scrutiny ran in hub/spoke mode: an InfluxDB StatefulSet, a `scrutiny-web` Deployment, a `scrutiny-collector` DaemonSet on every node, and an Authelia-gated IngressRoute in front. The audit doc listed it as deployed. Nobody looked further than that.
+
+On 2026-10-02 I bumped the InfluxDB image digest and saw the buckets looked empty afterwards. I assumed the upgrade had lost data. It hadn't, because there had never been any data to lose:
+
+```console
+$ kubectl -n apps exec scrutiny-influxdb-0 -- influx bucket list
+  scrutiny           a1564ff8bc47951a  Shards=0
+  scrutiny_weekly    91bf573067a36422  Shards=0
+  scrutiny_monthly   0e5f21fdcfbebd3b  Shards=0
+  scrutiny_yearly    88f5067b56985eeb  Shards=0
+```
+
+Zero shards in all four buckets means no series was ever written. There was no `scrutiny.db` either, so no device had ever been registered. The web log contained `kube-probe` health checks and nothing else: not one `POST` from a collector in the entire retention window.
+
+## Reason 1: smartctl Cannot Open the Device
+
+Running the collector by hand inside the pod showed where it stopped:
+
+```console
+Executing command: smartctl --scan --json
+  /dev/sda -d scsi
+Executing command: smartctl --info --json /dev/sda
+  Smartctl open device: /dev/sda failed: Operation not permitted
+  Could not retrieve device information for sda: exit status 2
+```
+
+`smartctl --scan` finds `/dev/sda`, then fails with `Operation not permitted` the moment it tries to open it. The obvious suspect is a missing capability, and that's what the manifest had already tried to handle. The collector spec looked like this:
+
+```yaml
+spec:
+  hostPID: true
+  containers:
+    - name: collector
+      image: ghcr.io/analogj/scrutiny:v0.9.2-collector
+      env:
+        - name: COLLECTOR_CRON_SCHEDULE
+          value: "*/30 * * * *"
+      securityContext:
+        capabilities:
+          add: ["SYS_RAWIO"]
+      volumeMounts:
+        - name: dev
+          mountPath: /dev
+        - name: udev
+          mountPath: /run/udev
+          readOnly: true
+  volumes:
+    - name: dev
+      hostPath:
+        path: /dev
+    - name: udev
+      hostPath:
+        path: /run/udev
+```
+
+The capability was there. `CAP_SYS_RAWIO` is bit 17, and the container's effective set was `CapEff=0x00000000a80625fb`, which has it. `kubectl exec` already ran as uid 0. A plain `dd if=/dev/sda` failed the same way, so this wasn't specific to `smartctl` at all.
+
+The actual blocker is the device cgroup. k3s runs on cgroup v2, where device access is enforced by an eBPF allowlist that the container runtime builds from the devices it was explicitly told to pass in. A `hostPath` mount of `/dev` puts the device nodes into the container's filesystem, but it does not add them to that allowlist. The file exists; opening it is denied.
+
+Scrutiny's own docs assume Docker. The README says `--cap-add SYS_RAWIO` is needed for `smartctl` to query SMART data, `--device` entries are required so the disks are accessible inside the container, and NVMe drives need `--cap-add SYS_ADMIN` on top. The collector troubleshooting doc mentions mounting `/dev` as an alternative, but only in its section on `--privileged`, with the warning that privileged is equivalent to root access. Docker's `--device` and `--device-cgroup-rule` flags both write to that allowlist. A Kubernetes pod spec has no field for either. Inside a plain pod, the only setting that opens the device cgroup is `privileged: true`.
+
+## Reason 2: Even Privileged, It Would Watch the Wrong Disk
+
+This is the reason the fix would have been wrong, not only awkward.
+
+The lab has one physical Proxmox host, `pve-mgmt-01`. The three k3s nodes are VMs, and their boot disks are LVM-thin volumes carved out of the host's single NVMe. That `/dev/sda` inside each VM is a virtio disk. Its SMART data, if a guest can read any at all, describes a virtual device that QEMU presents. It says nothing about the flash underneath.
+
+The disk I care about is `/dev/nvme0n1` on the host. It's a DRAM-less consumer NVMe, it backs every VM and LXC on the box, and my hardware doc already tracks it as the single point of failure: 56% `percentage_used` at the 2026-08-22 measurement. No collector inside a guest will ever see that device.
+
+So the trade on offer was: grant `privileged: true` to a DaemonSet on every node, a cluster-wide privilege escalation, in exchange for numbers that mean nothing. I didn't take it.
+
+## What I Removed
+
+The `kubernetes/apps/*` ApplicationSet generates one ArgoCD Application per directory, so deleting `kubernetes/apps/scrutiny/` was enough to tear the stack down. ArgoCD dropped the Application and pruned all eight objects it tracked: both PVCs, both Services, the DaemonSet, the Deployment, the StatefulSet and the ExternalSecret. The Secret went with the ExternalSecret through `ownerReferences`. The IngressRoute and the `.trivyignore` entries for the deleted manifest went in the same PR.
+
+Before deleting, I archived both PVCs. They were 44 KiB (InfluxDB bolt file, SQLite and WAL) and 338 bytes (config). Nothing worth restoring.
+
+Two side effects I had to correct afterwards:
+
+- The ADR first claimed the hostname would stop resolving. It doesn't. DNS for the zone is a wildcard, so the name still points at the tunnel and Traefik answers 404.
+- The `nfs-client` StorageClass uses `reclaimPolicy: Retain`. Deleting the PVCs left three PVs in `Released` state with their backing directories still on the NFS server. That's how `Retain` is supposed to behave, but I hadn't thought about it until the removal made it visible.
+
+## What Watches the NVMe Now
+
+All of it runs on the Proxmox host itself, managed by Ansible, reading the physical device.
+
+**`smart-metrics.sh` (every 15 minutes, `pve_power` role).** Calls `smartctl -a -j` on `/dev/nvme0n1` and writes the NVMe health log as Prometheus textfile-collector metrics for node_exporter:
+
+```bash
+# Absolute path: cron's default PATH lacks /usr/sbin, so a bare `smartctl`
+# silently "not found" here, swallowed by 2>/dev/null -- every scheduled run
+# fell back to {} and reported false 0%/unhealthy data.
+JSON=$(/usr/sbin/smartctl -a -j "$DEVICE" 2>/dev/null || echo '{}')
+```
+
+That comment is its own small lesson: the script worked fine from my shell and produced garbage under cron because `smartctl` lives in `/usr/sbin`. The metrics (`smart_nvme_percentage_used`, `smart_nvme_available_spare_percent`, `smart_device_healthy` and others) feed these rules in `hardware-temp-alerts.yml`:
+
+```yaml
+- alert: NVMeWearWarning
+  expr: smart_nvme_percentage_used >= 80 or smart_nvme_available_spare_percent < 50
+  for: 15m
+- alert: NVMeWearCritical
+  expr: smart_nvme_percentage_used >= 90 or smart_nvme_available_spare_percent < 10
+  for: 5m
+```
+
+The honest caveat: when I removed Scrutiny, these rules existed but did not fire. The host's node_exporter can't reach Prometheus because of an unapplied MikroTik firewall rule (`fwd_04a_srv_monitoring`) that needs a Terraform state import through the gated apply path. ADR-050 says so explicitly, and `STEADY-STATE.md` carries it as an open item. Removing Scrutiny didn't make this worse. It stopped a dead service from looking like coverage.
+
+**`ssd_wear_check` (monthly, systemd timer).** Runs on the 1st of each month at 07:00, reads `percentage_used`, `available_spare` and `media_errors` straight from `smartctl`, compares them against the replacement trigger in my hardware doc (warning at 80%, replace at 90%), and posts a summary with a projected date to Discord. It bypasses Prometheus entirely, which is the point while the metrics path is blocked.
+
+**`pve-watchdog.sh` (every 5 minutes, ADR-058).** This one came out of a later incident. During a vault-unseal I/O stall, the kernel logged NVMe timeout and controller-reset lines, and nothing was watching for them. ADR-058 added a check that greps the kernel log for the last 30 minutes:
+
+```bash
+NVME_ERRORS=$(journalctl -k --since "${NVME_WINDOW_MIN} minutes ago" 2>/dev/null \
+  | grep -icE 'nvme[^:]*:.*(timeout|aborting|controller is down|reset|I/O error)')
+[ "${NVME_ERRORS:-0}" -gt 0 ] && \
+  ALERT="${ALERT}NVMe errors in last ${NVME_WINDOW_MIN}m (${NVME_ERRORS}). "
+```
+
+The same ADR added a stale-snapshot check: any `snap_*` LV older than 7 days alerts, because a forgotten LVM-thin snapshot copies every changed block of its origin and keeps adding writes to that same NVMe. Both checks append to the watchdog's existing ntfy alert, so they get its maintenance-mode suppression and escalating backoff for free. ADR-058 deliberately leaves wear out of the watchdog: `smart-metrics` and `ssd_wear_check` already own that signal, and one source per signal keeps the alerts from disagreeing with each other.
+
+If you want a dashboard for the guests themselves, [Beszel](/blog/beszel-lightweight-host-monitoring-k3s/) covers CPU, memory, disk, network and temperatures per host without any of this. The Prometheus side, including node_exporter on the bare-metal nodes, is in my [kube-prometheus-stack setup post](/blog/kube-prometheus-loki-grafana-k3s/).
+
+## What I Check Now
+
+- **Where does the physical disk live?** On a single-host Proxmox lab, SMART monitoring belongs on the hypervisor. Anything running in a VM or in k3s on top of it only sees what QEMU gives it.
+- **Has the tool ever written data?** "Deployed" in an audit doc was true about the manifest and false about the system. For any collector I now check the storage side once after deploy: shard count, row count, last write timestamp.
+- **Does a hostPath mount actually grant access?** On cgroup v2, a device node in the container's filesystem isn't permission to open it. If a tool's docs say `--device`, Kubernetes needs a device plugin or `privileged: true`, and I want to know which before I deploy.
+- **Does the script work under cron, not just my shell?** Use absolute paths for anything in `/usr/sbin`.
+- **What is my real alert path today?** The Prometheus rules are written, but the alerts that reach me right now are the monthly Discord report and the 5-minute ntfy watchdog. I'd rather know that plainly than count rules that can't fire.
+
+If the cron PATH bug above looks familiar, [The Linux Command Line\*](/go/4gEAhv9) has the clearest explanation I know of how the shell environment and PATH work, and why a script that runs in your terminal can behave differently under cron.
+
+<NewsletterCTA />

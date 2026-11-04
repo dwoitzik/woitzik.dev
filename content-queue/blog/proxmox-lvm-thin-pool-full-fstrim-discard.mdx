@@ -1,0 +1,206 @@
+---
+title: "fstrim: command not found: Why My Proxmox Thin Pool Hit 85%"
+description: "My Proxmox LVM-thin pool cannot grow (PFree 0), and the cron job meant to TRIM it failed silently on PATH. Fixing it took pve/data from 85% to 62%."
+date: "2027-02-11"
+tags: ["Proxmox", "Homelab", "Storage", "Debugging"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
+
+My Proxmox host's `local-lvm` thin pool hit 85% and there was no way to grow it: the volume group has zero free extents, so autoextend can never fire. The only thing that returns space to that pool is TRIM, and the cron job I had deployed to run `fstrim` across the host, every LXC and every VM had failed on every scheduled run with `fstrim: command not found`. Fixing cron's `PATH` and running the job daily took `pve/data` from 85% to 62% and host `iowait` from 63% to 9%.
+
+The same fix also explained a `KubeAPIServerDown` alert that had fired an hour earlier. That one looked like a control-plane problem. It was storage.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Two Alerts, One Problem
+
+Two alerts arrived within about an hour of each other:
+
+```text
+[FIRING:1] KubeAPIServerDown            08:05
+[FIRING:1] ProxmoxStorageCapacityHigh  09:11  storage/pve-mgmt-01/local-lvm 85.03%
+```
+
+Host load was high at the same time. Three symptoms, and they looked unrelated. The capacity alert was the one I could explain first, so I started there.
+
+## A Pool With No Room to Grow
+
+The host runs everything off a single NVMe. The volume group `pve` sits on one partition, and that partition is fully allocated:
+
+```text
+PV             VG  PSize  PFree
+/dev/nvme0n1p3 pve 475.94     0
+```
+
+`/dev/nvme0n1p3` holds the 460.8 GiB thin pool, 8 GiB of swap and 3.6 GiB of thin metadata. Nothing is left over.
+
+That matters because of how LVM thin autoextend works. The `lvmthin(7)` man page is explicit that free extents must be available in the VG to extend a thin pool. My `pve_power` Ansible role already sets `thin_pool_autoextend_threshold` to 92, but with `PFree` at 0 there is nothing for it to claim. The setting is inert. No amount of threshold tuning changes that, because it's a property of the partition layout.
+
+The failure mode at the end of that road is ugly. When a thin pool's data space runs out, LVM by default queues writes for up to 60 seconds waiting for an extension, then returns errors to the writer. On this host the writer is every VM and LXC at once.
+
+So on a pool that cannot grow, there is exactly one way to get space back: discard the blocks guests are no longer using.
+
+## The Reclamation Job That Never Ran
+
+I already had a script for that. The role deploys `/usr/local/bin/fstrim-all.sh`, and its own header comment names the exact failure I was now looking at:
+
+```bash
+# Thin-pool blocks stay allocated until TRIMmed -- this is what silently
+# pushes pve/data's data_percent toward REL-019's ENOSPC territory.
+```
+
+It had never reclaimed a block. `/var/log/fstrim-all.log` had the same three lines from every run:
+
+```text
+/usr/local/bin/fstrim-all.sh: line 6: fstrim: command not found
+/usr/local/bin/fstrim-all.sh: line 8: pct: command not found
+/usr/local/bin/fstrim-all.sh: line 12: qm: command not found
+```
+
+cron runs jobs with a minimal `PATH` that doesn't include `/usr/sbin`, and that's where `fstrim`, `pct` and `qm` live on Proxmox VE. Every run exited at the first line that called one of them.
+
+The failure was silent by construction. The crontab entry appended all output to the log file, the crontab entry itself looked correct, and nothing ever read that log. The protection existed, was scheduled, and did nothing.
+
+## The Wrong First Theory
+
+My first hypothesis was different: maybe `fstrim` was fine and the guests' free space had simply never been written, so there were no holes to punch. That was checkable, and it was wrong.
+
+`pve/root` reported 93.88% allocated in the pool, while `df` on the same filesystem reported 49% used. That gap was 20.8 GiB of blocks the filesystem no longer referenced but the pool still counted as allocated. Discard does reach the pool. Nothing had been sending it.
+
+For guests, that path has to be enabled at every layer. Proxmox only relays guest TRIM to the storage if the virtual disk has the Discard option set, which my k3s VMs have in Terraform:
+
+```hcl
+disk {
+  datastore_id = local.storage
+  interface    = "scsi0"
+  size         = 120
+  file_format  = "raw"
+  cache        = "none"
+  aio          = "native"
+  discard      = "on"
+  # ...
+}
+```
+
+On the LVM side, thin pools pass discards down by default. The man page also notes that `fstrim` can only return whole unused chunks to the pool, so a fragmented filesystem gives back less than `df` suggests.
+
+## The Fix
+
+Two changes, both in the `pve_power` role (PR #798). The script now sets its own `PATH` and refuses to run if any of the three binaries is still missing:
+
+```bash
+#!/bin/bash
+# Thin-pool blocks stay allocated until TRIMmed -- this is what silently
+# pushes pve/data's data_percent toward REL-019's ENOSPC territory.
+set -u
+
+# cron's PATH omits /usr/sbin, where fstrim/pct/qm live on PVE. Without this
+# the whole script exits "command not found" while still looking scheduled.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+# A silent no-op is exactly the failure this script exists to prevent, so
+# treat a missing binary as a hard error rather than continuing.
+for cmd in fstrim pct qm; do
+  command -v "$cmd" >/dev/null || {
+    echo "ERROR: $cmd not found in PATH=$PATH" >&2
+    exit 1
+  }
+done
+
+fstrim -a 2>&1
+
+for id in $(pct list | tail -n +2 | awk '{print $1}'); do
+  pct fstrim "$id" 2>&1 || true
+done
+
+for id in $(qm list | tail -n +2 | awk '{print $1}'); do
+  qm agent "$id" fstrim 2>&1 || true
+done
+```
+
+`pct fstrim` trims a container's root and its mount points (bind and read-only mounts are skipped). `qm agent <vmid> fstrim` asks the QEMU guest agent inside the VM to run it, which only helps because the disks carry `discard=on`.
+
+The second change was the schedule. Weekly is not a defensible interval for a pool with no growth headroom, so the cron task dropped its `weekday`:
+
+```yaml
+- name: Schedule daily fstrim-all.sh (04:30, off the PBS backup window)
+  # Daily, not weekly: pve/data sits on an NVMe whose partition has no free
+  # extents (PFree=0), so the pool cannot autoextend and only TRIM returns
+  # space. Weekly left 20.8 GiB stranded on pve/root across two days.
+  ansible.builtin.cron:
+    name: fstrim-all
+    hour: "4"
+    minute: "30"
+    job: /usr/local/bin/fstrim-all.sh >> /var/log/fstrim-all.log 2>&1
+```
+
+04:30 sits outside the PBS backup window. A full run takes over ten minutes under the current I/O load, which is one more reason a week between runs was too long.
+
+## What Changed on the Live Host
+
+Same script, `PATH` corrected, run against the live host:
+
+| | Before | After |
+|---|---|---|
+| `pve/data` | 85.09% (68.7 GB free) | 61.97% (175 GB free) |
+| `pve/root` | 93.88% | 48.46% |
+| Host `iowait` | 63% | 9% |
+| Host load (1 min) | 5.03 | 2.84 |
+
+`fstrim -v /` reported `20.8 GiB trimmed` on the host root alone.
+
+The k3s side moved too. Write IOPS on VM 212 fell from 1769 to 3.9 and on VM 213 from 2627 to 159 over the same window. Kine slow-request warnings on `k3s-11`, the only node running a k3s server, went from 219 per 60 seconds to 0 per 15 minutes.
+
+That's the chain behind the `KubeAPIServerDown` alert. The TRIM job never ran, so freed blocks were never released and `pve/data` filled to 85%. Pool pressure pushed host `iowait` to 63%. Synchronous SQLite writes on `k3s-11` queued behind that latency, kine fell behind, and the API server stopped answering in time. The alert's suggested next step, grepping `journalctl -u k3s` for `apply request took too long`, finds the consequence. The cause was two layers further down.
+
+## Why This Drive Makes It Worse
+
+The NVMe under all of this is a DRAM-less consumer drive. With no onboard cache to absorb write bursts or hold the FTL mapping table, every small random write goes almost straight to flash. That's the same constraint behind the host freezes in [the ZFS ARC deadlock write-up](/blog/zfs-arc-freeze-psu-io-deadlock/) and the reason [boot order on this host is staggered](/blog/staggered-vm-boot-load-average-147/): anything that queues I/O on this one disk shows up as latency in every guest at once.
+
+A nearly full thin pool on that drive isn't only a capacity risk. It's an I/O risk for everything sharing it.
+
+## The Monitoring Follow-Up
+
+Two and a half weeks later, cleaning up after a separate I/O incident, I had to find two more things by hand that the host watchdog should have flagged on its own (ADR-058, PR #914).
+
+The first was leftover snapshots. Investigation snapshots like `snap_vm-211-disk-0_vault-hang-pre-snapshot` sat on the thin pool for days. A thin snapshot shares its blocks with the origin until the origin changes. From then on every changed block exists twice, the old copy pinned by the snapshot, so a forgotten snapshot keeps adding write amplification and pool usage for as long as it exists. The pool-usage check only fired at 92%.
+
+The second was the kernel's own NVMe errors. During the stall the kernel logged NVMe timeout and controller-reset lines, which are the real early warning of a drive dropping commands under load. The watchdog checked pool %, CPU temperature and load, not the disk's error log.
+
+Both checks now live in the existing 5-minute watchdog, so they reuse its ntfy delivery, maintenance-mode suppression and backoff:
+
+```bash
+MAX_SNAP_AGE_DAYS={{ pve_power_watchdog_snapshot_max_age_days }}
+while read -r SNAP_NAME SNAP_DATE; do
+  [ -n "$SNAP_DATE" ] || continue
+  SNAP_EPOCH=$(date -d "$SNAP_DATE" +%s 2>/dev/null) || continue
+  SNAP_AGE_DAYS=$(((NOW - SNAP_EPOCH) / 86400))
+  [ "$SNAP_AGE_DAYS" -ge "$MAX_SNAP_AGE_DAYS" ] && \
+    ALERT="${ALERT}Snapshot ${SNAP_NAME} is ${SNAP_AGE_DAYS}d old. "
+done < <(lvs --noheadings -o lv_name,lv_time 2>/dev/null | awk '$1 ~ /^snap_/ {print $1, $2}')
+
+NVME_WINDOW_MIN={{ pve_power_watchdog_nvme_error_window_min }}
+NVME_ERRORS=$(journalctl -k --since "${NVME_WINDOW_MIN} minutes ago" 2>/dev/null \
+  | grep -icE 'nvme[^:]*:.*(timeout|aborting|controller is down|reset|I/O error)')
+[ "${NVME_ERRORS:-0}" -gt 0 ] && \
+  ALERT="${ALERT}NVMe errors in last ${NVME_WINDOW_MIN}m (${NVME_ERRORS}). "
+```
+
+The defaults are 7 days for snapshot age and a 30-minute window for NVMe errors. A snapshot I keep on purpose past 7 days will alert, and that's intended: the answer is to delete it or raise the variable. Drive wear is deliberately not duplicated here, since SMART metrics already go to Prometheus and a monthly check warns at 80% `percentage_used`.
+
+## What I Check Now
+
+- **Every scheduled script gets run once under cron's environment, not mine.** A root shell has `/usr/sbin` in `PATH`; cron doesn't. Testing by hand proved nothing.
+- **A job that writes only to its own log is unmonitored.** The fixed script exits non-zero on a missing binary. A log nobody reads is not an alert.
+- **On a pool with `PFree` 0, TRIM is load-bearing.** I run `pvs` before trusting any autoextend setting, and treat the reclamation job as part of capacity planning rather than housekeeping.
+- **Compare pool allocation to `df`.** A thin LV far above its filesystem's usage means discards aren't arriving. That comparison disproved my first theory in one command.
+- **A storage alert can wear a control-plane label.** When `KubeAPIServerDown` fires on this host, I look at host `iowait` and `lvs` before the k3s journal.
+
+The capacity ceiling itself is still there. 175 GB of headroom beats 68 GB, but the pool cannot grow. The two real options are moving guests to the USB disks, which trades capacity for worse latency on a host whose problem was I/O, or replacing the NVMe, which also addresses wear. As of ADR-044 that decision is still open.
+
+The bug in all this was a shell environment detail, not anything storage-specific. [The Linux Command Line\*](/go/4gEAhv9) has a whole chapter on the environment and how `PATH` gets set, which is exactly the part that bit me here.
+
+<NewsletterCTA />

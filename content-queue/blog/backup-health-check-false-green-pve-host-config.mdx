@@ -1,0 +1,167 @@
+---
+title: "My PBS Backup Check Was Green. The Host Backup Never Existed."
+description: "A Grafana panel showed PBS backups healthy through or vector(1), and the Proxmox host-config job failed every run with a 403. Why both checks missed it."
+date: "2027-04-09"
+tags: ["Proxmox", "Backup", "Monitoring", "Homelab", "Debugging"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
+
+On 2026-10-18 I found that the backup of my Proxmox host's own configuration (`/etc/pve`, network config, `fstab`) had failed on every single run since it was set up in August. The target bucket in Garage was empty. No alert had fired, and the backup panel on my landing dashboard had spent most of that time showing green. I found it by accident, while chasing an unrelated rclone config conflict.
+
+Two separate checks were involved, and each one failed the same way: neither could tell "nothing is wrong" apart from "nothing is there." This post is about how both were built to see failures but not absences, and what I changed so an absence now shows up.
+
+**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The backup that never ran
+
+Proxmox Backup Server covers the VMs and LXCs on `pve-mgmt-01`. It never covers the hypervisor itself: the nightly vzdump job backs up guests, not the host's `/etc/pve` or `/etc/network/interfaces`. To close that gap I wrote a small Ansible role, `pve_host_backup`. It deploys a systemd timer that tars the host config every day at 04:00 and pushes it to a Garage bucket called `pve-host-config` with rclone:
+
+```yaml
+# ansible/roles/pve_host_backup/defaults/main.yml
+pve_host_backup_paths:
+  - /etc/pve
+  - /etc/network/interfaces
+  - /etc/network/interfaces.d
+  - /etc/hosts
+  - /etc/hostname
+  - /etc/fstab
+
+pve_host_backup_retention_days: 30
+```
+
+The script itself handles failure correctly. It checks the rclone exit code explicitly, prunes old archives only after a successful upload so a failed run never deletes the last good copy, and exits non-zero with a clear message:
+
+```sh
+if rclone copyto "$ARCHIVE" "garage:{{ pve_host_backup_bucket }}/pve-host-config-${TS}.tar.gz"; then
+  rm -f "$ARCHIVE"
+  rclone delete --min-age {{ pve_host_backup_retention_days }}d "garage:{{ pve_host_backup_bucket }}/"
+  echo "pve-host-config backup OK: pve-host-config-${TS}.tar.gz"
+else
+  RESULT=$?
+  rm -f "$ARCHIVE"
+  echo "pve-host-config backup FAILED (rclone exit $RESULT)" >&2
+  exit "$RESULT"
+fi
+```
+
+That is exactly what it did, every day. The journal for `pve-config-backup.service` had the same two lines on every run:
+
+```text
+pve-host-config backup FAILED (rclone exit 1)
+status code: 403, ... No such key: GK…
+```
+
+Garage's "No such key" means the access key ID doesn't exist at all, not that it lacks permission on the bucket. The Ansible Vault value `vault_pve_host_backup_garage_key_id` held a key that `garage key list` no longer knew. The valid key, named `pve-host-backup` with read-write on the `pve-host-config` bucket, existed in Garage and had never been written back to the Vault. Because the role renders `rclone.conf` from the Vault value, every Ansible run redeployed the dead key. Re-running the playbook could never have fixed it.
+
+The fix was small: correct the key ID and secret in `ansible/group_vars/all/vault.yml`, re-run the role against `pve-mgmt-01` (`changed=1`, only `rclone.conf`), start the service by hand:
+
+```text
+pve-host-config backup OK: pve-host-config-20261018T151409Z.tar.gz
+```
+
+Then I confirmed the object was actually in the bucket with `rclone lsf garage:pve-host-config/`, instead of trusting the script's own success line.
+
+The script did its job. It reported failure loudly, to a journal nobody reads. The unit file has no `OnFailure=` and no Healthchecks ping:
+
+```ini
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup-pve-config.sh
+```
+
+A failed oneshot unit on a host with no alerting on unit state is invisible. Exiting non-zero is only a signal if something is listening for it.
+
+## Check one: a dashboard panel that defaulted to healthy
+
+The landing dashboard has a "PBS Health Check" stat panel. In late September I brought that dashboard under GitOps (it had been live-only state in Grafana with no owner in the repo). Diffing live against the repo turned up an `or vector(1)` fallback on the PBS panel's query for `pve_pbs_backup_healthy`.
+
+That metric was defined nowhere. No exporter, no recording rule, no alert in the repo produced it; it appeared only in that panel. Querying Prometheus for it returned an empty result. The `or vector(1)` fallback replaced "no data" with a literal 1, and the panel's thresholds turned a 1 green. An unmeasured signal rendered as a steady green.
+
+I dropped the fallback when adopting the dashboard, so the panel went to "No data", which is the honest state. The next day I made the producer real. The PBS health check hook already evaluated the right condition but only sent an ntfy notification. It now also writes to the node_exporter textfile collector:
+
+```bash
+if [ -n "$FAILURES" ]; then
+	alert "PBS backup healthcheck FAILED" "$(printf '%b' "$FAILURES")"
+	metric "pve_pbs_backup_healthy 0"
+else
+	metric "pve_pbs_backup_healthy 1"
+fi
+metric "pve_pbs_backup_healthcheck_timestamp_seconds ${NOW}"
+```
+
+The timestamp series matters as much as the health value. A textfile metric is just a file on disk. If the hook stops running, node_exporter keeps serving the last value, and a week-old `1` looks exactly like a fresh one. The timestamp is what turns "this hook hasn't run in a week" into something you can see.
+
+Note what even a correct panel would have shown: PBS guest backups, nothing else. The host-config job wasn't part of that check, so "PBS healthy" said nothing about it. A green tile labelled "backups" was standing in for a job it never looked at.
+
+## Check two: a fleet list built from backup history
+
+The hook itself had a deeper version of the same blind spot. It came to light on 2026-10-03, when the check fired at 04:35 with this:
+
+```text
+VMID 110:  latest backup is 1262h old - missing or failed
+VMID 9211: latest backup is 1034h old - missing or failed
+VMID 9213: latest backup is 1033h old - missing or failed
+```
+
+That reads like a month-long backup outage. Every current guest actually had a snapshot from that morning's job. VMIDs 110, 9211 and 9213 didn't exist anymore; they were deleted guests whose last snapshots were still in the datastore (17 orphaned snapshots, the oldest from 2026-08-11). The check had built its guest list from the datastore:
+
+```bash
+# All VMIDs that have ANY backup history in this datastore - the real,
+# current fleet, not a hardcoded list that would drift.
+ALL_VMIDS=$(pvesm list "$STOREID" 2>/dev/null | awk 'NR>1{print $5}' | sort -u)
+```
+
+The comment claims the opposite of what the code does, which is why reading it didn't help. `pvesm list` returns everything the datastore holds. That gives you a false red for every deleted guest until pruning catches it, and a check that fires on deleted guests teaches you to ignore it.
+
+The false red was the visible half. The dangerous half is the other direction: a list built from backup history can never include a guest that has no backup. A new VM that never got picked up by the vzdump job (say, a stale `exclude` entry nobody noticed) would simply never appear in the loop. The script even had an explicit line for that case, and it was the wrong way round:
+
+```bash
+LATEST=$(pvesm list "$STOREID" 2>/dev/null | awk -v id="$VMID" '$5==id')
+[ -z "$LATEST" ] && continue
+LATEST=$(echo "$LATEST" | tail -1)
+```
+
+No backup at all meant `continue`, so the one case that should page was skipped. The `tail -1` was a separate bug: `pvesm list` doesn't promise any ordering, so "last line" isn't "newest snapshot."
+
+The fix (ADR-052) enumerates the fleet from Proxmox, reads the datastore once into a newest-per-VMID map keyed on the timestamp inside each volid, and reports a missing backup instead of skipping it:
+
+```bash
+ALL_VMIDS=$({ qm list 2>/dev/null | awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}'
+	pct list 2>/dev/null | awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}'; } | sort -un)
+
+for VMID in $ALL_VMIDS; do
+	is_excluded "$VMID" && continue
+
+	VOLID=${LATEST_VOLID[$VMID]:-}
+	if [ -z "$VOLID" ]; then
+		FAILURES="${FAILURES}VMID ${VMID}: no backup in ${STOREID} at all - never backed up\n"
+		metric "pve_pbs_backup_age_seconds{vmid=\"${VMID}\"} -1"
+		metric "pve_pbs_backup_size_bytes{vmid=\"${VMID}\"} 0"
+		continue
+	fi
+	# ... age and size checks
+done
+```
+
+I tested it against stubbed `qm`, `pct` and `pvesm` with seven cases, printing the fleet on every run so a vacuous pass couldn't pass for a healthy one. The two cases that matter here are "777 in the fleet, never backed up" and "211 in the fleet, no snapshot in PBS": both now report unhealthy. The old code passed both. Then I ran it unmodified on the real host: 14 live guests, `pve_pbs_backup_healthy 1`, no failures, no ntfy.
+
+## Same mistake, both times
+
+Both checks answered "is anything that exists broken?" when the question I cared about was "does everything that should exist actually exist?" The panel had no data and called it healthy. The hook had no backup for a guest and skipped it. The host-config job had no check at all, and the closest check nearby covered something else.
+
+This is the same family as two earlier incidents. [Velero reported every backup as Completed while capturing no PVC data](/blog/velero-backup-false-positive-no-data/), and [my disaster recovery runbook had never been run end to end](/blog/backup-restore-test-never-verified-network-conflict/). In each case the signal I trusted measured the process (job ran, exit code, document exists) and not the artifact.
+
+## What I'd do differently, and do now
+
+- **The expected list comes from the source of truth, not from the backups.** Fleet from `qm list` and `pct list`, never from what the datastore happens to contain. Whatever you check against has to be able to include the thing that's missing.
+- **No `or vector(1)` (or any default-to-healthy) on a backup panel.** "No data" has to look different from green, and adopting a live dashboard into the repo is a good moment to diff for exactly this.
+- **Every textfile metric ships with a timestamp series**, so a hook that stopped running reads as stale instead of healthy.
+- **Every backup job needs a named check that watches it.** I'd have caught this in August by listing them side by side: the host-config job was the one with nothing next to it. Its unit still has no `OnFailure=` and no heartbeat; REL-076 tracks that as an open follow-up, and until it lands this job is one dead credential away from the same silent failure.
+- **After any fix, I look at the bucket, not the log line.** `rclone lsf` on the target is the check. The script's `backup OK` only says the script thinks it worked.
+
+Most of this investigation was `journalctl`, `pvesm list` and awk at a shell prompt. If you want to get faster at that part, [The Linux Command Line\*](/go/4gEAhv9) is still the book I'd recommend.
+
+<NewsletterCTA />
