@@ -1,91 +1,159 @@
 ---
 import Container from "@components/Container.astro";
 import { SITE } from "@consts";
+
+const columns = [
+  {
+    title: "Read",
+    links: [
+      { href: "/blog/", label: "Blog" },
+      { href: "/projects/", label: "Projects" },
+      { href: "/rss.xml", label: "RSS" },
+    ],
+  },
+  {
+    title: "Build",
+    links: [
+      { href: "/templates/", label: "Terraform modules" },
+      { href: "/tools/", label: "Tools" },
+      { href: "https://github.com/dwoitzik", label: "GitHub", external: true },
+    ],
+  },
+  {
+    title: "Contact",
+    links: [
+      { href: `mailto:${SITE.EMAIL}`, label: "Email" },
+      {
+        href: "https://linkedin.com/in/david-woitzik",
+        label: "LinkedIn",
+        external: true,
+      },
+      {
+        href: "https://github.com/sponsors/dwoitzik",
+        label: "Sponsor",
+        external: true,
+      },
+      { href: SITE.SUPPORT_URL, label: "Buy me a coffee", external: true },
+    ],
+  },
+];
+
+const themeButton =
+  "grid size-7 place-items-center rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-900/[0.05] dark:hover:bg-white/[0.07] transition-colors";
 ---
 
-<footer class="animate">
+<footer
+  class="animate border-t border-zinc-900/[0.06] dark:border-white/[0.06] bg-white/50 dark:bg-white/[0.015]"
+>
   <Container>
-    <div
-      class="flex justify-between items-center py-10 border-t border-neutral-200 dark:border-neutral-800"
-    >
-      <div class="flex flex-col gap-1 text-xs font-medium opacity-50">
-        <div>
-          &copy; {new Date().getFullYear()} | {SITE.NAME}
-        </div>
-        <div>As an Amazon Associate I earn from qualifying purchases.</div>
-        <a
-          href="/tools/"
-          class="hover:text-black dark:hover:text-white transition-colors"
-        >
-          Tools
+    <div class="grid gap-10 py-12 sm:grid-cols-[1.4fr_repeat(3,1fr)]">
+      <div class="space-y-3">
+        <a href="/" class="flex items-center gap-2 w-fit">
+          <span
+            class="grid size-7 place-items-center rounded-lg bg-zinc-950 dark:bg-white text-white dark:text-zinc-950 font-mono text-[0.7rem] font-bold"
+            aria-hidden="true">dw</span
+          >
+          <span
+            class="font-semibold tracking-tight text-zinc-950 dark:text-white"
+            >{SITE.NAME}</span
+          >
         </a>
-        <a
-          href="/legal/"
-          class="hover:text-black dark:hover:text-white transition-colors"
-        >
-          Privacy
-        </a>
-        <a
-          href="/accessibility/"
-          class="hover:text-black dark:hover:text-white transition-colors"
-        >
-          Accessibility
-        </a>
-        <a
-          href="https://buymeacoffee.com/dwoitzik"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="hover:text-black dark:hover:text-white transition-colors"
-        >
-          Buy me a coffee
-        </a>
+        <p class="max-w-xs text-sm leading-relaxed">
+          Write-ups from a real homelab and free Terraform modules for Azure.
+        </p>
       </div>
 
-      <div class="flex flex-wrap gap-1 items-center">
+      {
+        columns.map((col) => (
+          <div>
+            <h2 class="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-950 dark:text-white">
+              {col.title}
+            </h2>
+            <ul class="space-y-2">
+              {col.links.map((link) => (
+                <li>
+                  <a
+                    href={link.href}
+                    {...(link.external
+                      ? { target: "_blank", rel: "noopener noreferrer" }
+                      : {})}
+                    class="text-sm hover:text-zinc-950 dark:hover:text-white transition-colors"
+                  >
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+
+    <div
+      class="flex flex-col-reverse gap-4 border-t border-zinc-900/[0.06] dark:border-white/[0.06] py-6 text-xs sm:flex-row sm:items-center sm:justify-between"
+    >
+      <div class="space-y-1">
+        <p>
+          &copy; {new Date().getFullYear()}
+          {SITE.NAME} &middot;
+          <a
+            href="/legal/"
+            class="hover:text-zinc-950 dark:hover:text-white transition-colors"
+            >Legal &amp; Privacy</a
+          > &middot;
+          <a
+            href="/accessibility/"
+            class="hover:text-zinc-950 dark:hover:text-white transition-colors"
+            >Accessibility</a
+          >
+        </p>
+        <p>As an Amazon Associate I earn from qualifying purchases.</p>
+      </div>
+
+      <div
+        class="flex w-fit items-center gap-0.5 rounded-lg border border-zinc-900/10 dark:border-white/10 p-0.5"
+        role="group"
+        aria-label="Theme"
+      >
         <button
           id="light-theme-button"
           aria-label="Light theme"
-          class="group size-8 flex items-center justify-center rounded-full"
+          class={themeButton}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
+            width="15"
+            height="15"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            stroke-width="1.5"
+            stroke-width="1.75"
             stroke-linecap="round"
             stroke-linejoin="round"
-            class="group-hover:stroke-black group-hover:dark:stroke-white transition-colors duration-300 ease-in-out"
+            aria-hidden="true"
           >
-            <circle cx="12" cy="12" r="5"></circle>
-            <line x1="12" y1="1" x2="12" y2="3"></line>
-            <line x1="12" y1="21" x2="12" y2="23"></line>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-            <line x1="1" y1="12" x2="3" y2="12"></line>
-            <line x1="21" y1="12" x2="23" y2="12"></line>
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            <circle cx="12" cy="12" r="4.5"></circle>
+            <path
+              d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+            ></path>
           </svg>
         </button>
         <button
           id="dark-theme-button"
           aria-label="Dark theme"
-          class="group size-8 flex items-center justify-center rounded-full"
+          class={themeButton}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
+            width="15"
+            height="15"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            stroke-width="1.5"
+            stroke-width="1.75"
             stroke-linecap="round"
             stroke-linejoin="round"
-            class="group-hover:stroke-black group-hover:dark:stroke-white transition-colors duration-300 ease-in-out"
+            aria-hidden="true"
           >
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
           </svg>
@@ -93,23 +161,22 @@ import { SITE } from "@consts";
         <button
           id="system-theme-button"
           aria-label="System theme"
-          class="group size-8 flex items-center justify-center rounded-full"
+          class={themeButton}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
+            width="15"
+            height="15"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            stroke-width="1.5"
+            stroke-width="1.75"
             stroke-linecap="round"
             stroke-linejoin="round"
-            class="group-hover:stroke-black group-hover:dark:stroke-white transition-colors duration-300 ease-in-out"
+            aria-hidden="true"
           >
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-            <line x1="8" y1="21" x2="16" y2="21"></line>
-            <line x1="12" y1="17" x2="12" y2="21"></line>
+            <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+            <path d="M8 21h8M12 17v4"></path>
           </svg>
         </button>
       </div>

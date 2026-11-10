@@ -13,62 +13,134 @@ html.dark {
 
 html,
 body {
-  @apply size-full;
-}
-
-body {
   @apply font-sans antialiased;
   @apply flex flex-col;
-  @apply bg-stone-100 dark:bg-stone-900;
-  @apply text-black/50 dark:text-white/75;
+  @apply bg-zinc-50 dark:bg-zinc-950;
+  @apply text-zinc-600 dark:text-zinc-400;
+  font-feature-settings: "cv11", "ss01";
+}
+
+::selection {
+  @apply bg-teal-500/25 text-inherit;
 }
 
 main {
-  @apply flex-1 py-20;
+  @apply flex-1 pt-14 pb-24 sm:pt-20;
 }
 
 footer {
-  @apply py-5 text-sm;
+  @apply text-sm;
 }
 
-article {
-  @apply max-w-full prose dark:prose-invert prose-img:mx-auto prose-img:my-auto;
-  @apply prose-headings:font-semibold prose-p:font-serif;
-  @apply prose-headings:text-black prose-headings:dark:text-white;
+/* ---------- Page titles ---------- */
+
+.page-title {
+  @apply text-3xl font-bold tracking-tight text-zinc-950 dark:text-white sm:text-4xl;
 }
 
-article img {
-  @apply rounded-md;
+/* ---------- Article typography ---------- */
+
+article:not(.not-prose) {
+  @apply max-w-full prose prose-zinc dark:prose-invert;
+  @apply prose-img:mx-auto prose-img:my-auto;
+  @apply text-[1.0625rem] leading-[1.8];
+  @apply prose-p:text-zinc-700 dark:prose-p:text-zinc-300;
+  @apply prose-li:text-zinc-700 dark:prose-li:text-zinc-300;
+  @apply prose-li:my-1.5 prose-li:marker:text-teal-500;
+  @apply prose-headings:font-semibold prose-headings:tracking-tight;
+  @apply prose-headings:text-zinc-950 dark:prose-headings:text-white;
+  @apply prose-headings:scroll-mt-24;
+  @apply prose-h2:text-[1.5rem] prose-h2:mt-14 prose-h2:mb-4;
+  @apply prose-h3:text-[1.2rem] prose-h3:mt-10 prose-h3:mb-3;
+  @apply prose-strong:text-zinc-950 dark:prose-strong:text-white;
+  @apply prose-hr:border-zinc-200 dark:prose-hr:border-zinc-800;
+  @apply prose-blockquote:border-l-2 prose-blockquote:border-teal-500;
+  @apply prose-blockquote:font-normal prose-blockquote:not-italic;
+  @apply prose-blockquote:text-zinc-600 dark:prose-blockquote:text-zinc-400;
+  @apply prose-blockquote:bg-zinc-100/70 dark:prose-blockquote:bg-white/[0.03];
+  @apply prose-blockquote:rounded-r-lg prose-blockquote:py-1 prose-blockquote:pr-4;
+  @apply prose-th:text-left prose-th:text-zinc-950 dark:prose-th:text-white;
+  @apply prose-table:text-[0.9rem];
 }
 
-article figure {
-  @apply my-6;
+/* Tailwind Typography wraps inline code in literal backticks. Render it as a
+   quiet chip instead. */
+article:not(.not-prose) :not(pre) > code {
+  @apply font-mono font-normal text-[0.85em] rounded px-1 py-0.5;
+  @apply bg-zinc-900/[0.06] dark:bg-white/[0.08];
+  @apply text-zinc-800 dark:text-zinc-200;
+  @apply break-words;
+}
+article:not(.not-prose) :not(pre) > code::before,
+article:not(.not-prose) :not(pre) > code::after {
+  content: none;
 }
 
-article figure img {
+/* Code blocks: one dark surface in both themes, regardless of the Shiki
+   theme's own background colour. */
+article:not(.not-prose) pre {
+  @apply font-mono text-[0.84rem] leading-relaxed rounded-xl;
+  @apply border border-zinc-900/10 dark:border-white/10;
+  @apply shadow-sm;
+  background-color: #111114 !important;
+}
+article:not(.not-prose) pre code {
+  @apply font-mono;
+}
+
+/* Tables scroll inside their own box on small screens. */
+article:not(.not-prose) table {
+  @apply block overflow-x-auto sm:table;
+}
+article:not(.not-prose) thead {
+  @apply border-b border-zinc-300 dark:border-zinc-700;
+}
+article:not(.not-prose) tbody tr {
+  @apply border-zinc-200 dark:border-zinc-800;
+}
+
+article:not(.not-prose) img {
+  @apply rounded-xl;
+}
+
+article:not(.not-prose) figure {
+  @apply my-8;
+}
+
+article:not(.not-prose) figure img {
   @apply w-full;
 }
 
-article figcaption {
-  @apply text-xs text-center text-neutral-500 dark:text-neutral-400 mt-2 font-sans;
+article:not(.not-prose) figcaption {
+  @apply text-xs text-center text-zinc-500 dark:text-zinc-400 mt-2 font-sans;
+}
+
+/* Affiliate disclosure. MDX renders the leading <em>Disclosure...</em> line as
+   a bare <em> directly inside <article>, so it is the only top-level <em>.
+   Shown as a small note, not as body copy. */
+article:not(.not-prose) > em {
+  @apply block text-[0.8rem] leading-relaxed not-italic;
+  @apply text-zinc-500 dark:text-zinc-400;
+  @apply rounded-lg border border-zinc-200 dark:border-zinc-800;
+  @apply bg-white/60 dark:bg-white/[0.02] px-4 py-2.5 mb-8;
 }
 
 @layer utilities {
-  article a:not(:is(h1, h2, h3, h4) a) {
-    @apply font-sans text-sky-600 dark:text-sky-400 underline underline-offset-2;
-    @apply decoration-sky-600/30 dark:decoration-sky-400/40;
+  article:not(.not-prose) a:not(:is(h1, h2, h3, h4) a):not(.not-prose a) {
+    @apply font-medium text-teal-700 dark:text-teal-400 underline underline-offset-[3px];
+    @apply decoration-teal-700/30 dark:decoration-teal-400/35;
     @apply transition-colors duration-300 ease-in-out;
   }
-  article a:not(:is(h1, h2, h3, h4) a):hover {
-    @apply text-sky-700 dark:text-sky-300;
-    @apply decoration-sky-600/60 dark:decoration-sky-400/70;
+  article:not(.not-prose) a:not(:is(h1, h2, h3, h4) a):not(.not-prose a):hover {
+    @apply text-teal-800 dark:text-teal-300;
+    @apply decoration-teal-700/70 dark:decoration-teal-300/70;
   }
 
   /* Anchor links on headings */
-  article :is(h1, h2, h3, h4) > a {
+  article:not(.not-prose) :is(h1, h2, h3, h4) > a {
     @apply no-underline text-inherit;
   }
-  article :is(h1, h2, h3, h4):hover > a::after {
+  article:not(.not-prose) :is(h1, h2, h3, h4):hover > a::after {
     content: " #";
     @apply text-sky-500 opacity-60 text-base font-normal;
   }

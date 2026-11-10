@@ -8,7 +8,7 @@ const { variant = "compact" } = Astro.props;
 
 {
   variant === "compact" && (
-    <div class="not-prose my-8 flex items-center gap-3 p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
+    <div class="not-prose my-10 flex items-center gap-3 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] bg-white/60 dark:bg-white/[0.02] p-4">
       <div class="shrink-0 w-8 h-8 rounded-full bg-sky-500/10 flex items-center justify-center">
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -31,7 +31,7 @@ const { variant = "compact" } = Astro.props;
       </p>
       <a
         href="/templates/"
-        class="text-sm font-semibold text-sky-600 dark:text-sky-400 hover:underline whitespace-nowrap"
+        class="text-sm font-semibold text-teal-700 dark:text-teal-400 hover:underline whitespace-nowrap"
       >
         Subscribe &rarr;
       </a>

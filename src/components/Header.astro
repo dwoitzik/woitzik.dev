@@ -1,55 +1,82 @@
 ---
 import Container from "@components/Container.astro";
-import Link from "@components/Link.astro";
 import { SITE } from "@consts";
+
+const nav = [
+  { href: "/blog/", label: "Blog" },
+  { href: "/projects/", label: "Projects" },
+  { href: "/templates/", label: "Modules" },
+  { href: "/tools/", label: "Tools" },
+  { href: "/certs/", label: "Certs" },
+];
+
+const path = Astro.url.pathname;
+const isActive = (href: string) => path === href || path.startsWith(href);
 ---
 
 <header
-  class="sticky top-0 z-50 py-4 backdrop-blur-md bg-white/75 dark:bg-black/75 border-b border-black/5 dark:border-white/5"
+  class="sticky top-0 z-50 border-b border-zinc-900/[0.06] dark:border-white/[0.06] bg-zinc-50/80 dark:bg-zinc-950/75 backdrop-blur-md"
 >
   <Container>
-    <div class="flex flex-wrap gap-y-2 justify-between items-center">
-      <Link href="/" underline={false}>
-        <div class="font-bold tracking-tighter text-xl">
+    <div class="flex h-14 items-center justify-between gap-4">
+      <a
+        href="/"
+        class="group flex items-center gap-2 shrink-0"
+        aria-label={`${SITE.NAME} home`}
+      >
+        <span
+          class="grid size-7 place-items-center rounded-lg bg-zinc-950 dark:bg-white text-white dark:text-zinc-950 font-mono text-[0.7rem] font-bold tracking-tight transition-transform group-hover:-rotate-6"
+          aria-hidden="true">dw</span
+        >
+        <span
+          class="hidden sm:inline font-semibold tracking-tight text-zinc-950 dark:text-white"
+        >
           {SITE.NAME}
-        </div>
-      </Link>
-      <nav class="flex gap-2 text-sm font-medium">
-        <Link
-          href="/blog/"
-          class="hover:text-black dark:hover:text-white transition-colors"
-          >blog</Link
-        >
-        <span class="opacity-30">/</span>
-        <Link
-          href="/certs/"
-          class="hover:text-black dark:hover:text-white transition-colors"
-          >certs</Link
-        >
-        <span class="opacity-30">/</span>
-        <Link
-          href="/projects/"
-          class="hover:text-black dark:hover:text-white transition-colors"
-          >projects</Link
-        >
-        <span class="opacity-30">/</span>
-        <Link
-          href="/templates/"
-          class="hover:text-black dark:hover:text-white transition-colors"
-          >templates</Link
-        >
-        <span class="opacity-30">/</span>
-        <Link
-          href="/tools/"
-          class="hover:text-black dark:hover:text-white transition-colors"
-          >tools</Link
-        >
-        <span class="opacity-30">/</span>
-        <Link
+        </span>
+      </a>
+
+      <nav
+        class="-mr-2 flex items-center gap-0.5 overflow-x-auto text-sm [scrollbar-width:none]"
+        aria-label="Main"
+      >
+        {
+          nav.map((item) => (
+            <a
+              href={item.href}
+              aria-current={isActive(item.href) ? "page" : undefined}
+              class:list={[
+                "rounded-md px-2.5 py-1.5 font-medium whitespace-nowrap transition-colors",
+                isActive(item.href)
+                  ? "text-zinc-950 dark:text-white bg-zinc-900/[0.06] dark:bg-white/[0.08]"
+                  : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-900/[0.04] dark:hover:bg-white/[0.05]",
+              ]}
+            >
+              {item.label}
+            </a>
+          ))
+        }
+        <a
           href="/search/"
-          class="hover:text-black dark:hover:text-white transition-colors"
-          >search</Link
+          aria-label="Search"
+          aria-current={isActive("/search/") ? "page" : undefined}
+          class="ml-1 grid size-8 place-items-center rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-900/[0.04] dark:hover:bg-white/[0.05] transition-colors"
         >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="11" cy="11" r="7"></circle>
+            <path d="m20 20-3.5-3.5"></path>
+          </svg>
+        </a>
       </nav>
     </div>
   </Container>

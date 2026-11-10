@@ -3,10 +3,10 @@ import { getCollection } from "astro:content";
 import Container from "@components/Container.astro";
 import PageLayout from "@layouts/PageLayout.astro";
 import ArrowCard from "@components/ArrowCard.astro";
-import Link from "@components/Link.astro";
-import { SITE, HOME } from "@consts";
+import { HOME } from "@consts";
 import { products } from "@data/products";
 import EmailCapture from "@components/EmailCapture.astro";
+import { readingTime } from "@lib/utils";
 
 const blog = (await getCollection("blog"))
   .filter((post) => !post.data.draft)
@@ -28,157 +28,257 @@ const certs = (await getCollection("certs"))
       new Date(a.data.dateStart).valueOf(),
   );
 
-const techStack = [
-  { name: "Terraform", color: "bg-purple-500" },
-  { name: "Ansible", color: "bg-red-500" },
-  { name: "Packer", color: "bg-amber-500" },
-  { name: "Azure", color: "bg-sky-500" },
-  { name: "Linux", color: "bg-neutral-500" },
-  { name: "Kubernetes", color: "bg-blue-600" },
+const modules = products.filter((p) => p.available);
+const latest = blog.slice(0, 5);
+
+// Every figure here is counted from the content collections at build time,
+// so it can't drift from what the site actually contains.
+const stats = [
+  { value: blog.length, label: "articles" },
+  { value: modules.length, label: "free Terraform modules" },
+  { value: certs.length, label: "certifications" },
 ];
+
+const stack = [
+  "Azure",
+  "Terraform",
+  "Kubernetes",
+  "Proxmox",
+  "Ansible",
+  "MikroTik",
+];
+
+const fmt = (d: Date) =>
+  d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+
+const sectionHead =
+  "flex items-end justify-between gap-4 border-b border-zinc-900/[0.07] dark:border-white/[0.07] pb-3";
+const sectionTitle =
+  "text-sm font-semibold uppercase tracking-wider text-zinc-950 dark:text-white";
+const viewAll =
+  "text-sm font-medium text-teal-700 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 transition-colors";
 ---
 
 <PageLayout title={HOME.TITLE} description={HOME.DESCRIPTION}>
   <Container>
-    <section class="space-y-6">
+    <!-- Hero -->
+    <section class="relative">
+      <div
+        class="pointer-events-none absolute -top-24 left-1/2 -z-10 h-72 w-[42rem] -translate-x-1/2 rounded-full bg-teal-500/10 blur-3xl dark:bg-teal-400/[0.07]"
+        aria-hidden="true"
+      >
+      </div>
+
       <div class="animate">
+        <p
+          class="inline-flex items-center gap-2 rounded-full border border-zinc-900/10 dark:border-white/10 bg-white/70 dark:bg-white/[0.03] px-3 py-1 text-xs font-medium text-zinc-600 dark:text-zinc-400"
+        >
+          <span class="size-1.5 rounded-full bg-teal-500"></span>
+          Hybrid Cloud Engineer
+        </p>
         <h1
-          class="text-4xl font-black text-black dark:text-white tracking-tighter"
+          class="mt-5 text-4xl font-bold tracking-tight text-zinc-950 dark:text-white sm:text-5xl"
         >
           David Woitzik
         </h1>
         <p
-          class="text-lg text-neutral-500 dark:text-neutral-400 mt-2 font-medium"
+          class="mt-4 max-w-2xl text-lg leading-relaxed text-zinc-700 dark:text-zinc-300 sm:text-xl"
         >
-          Hybrid Cloud Engineer. Azure, Terraform, infrastructure automation.
+          I build Azure infrastructure for environments that have to pass ISO
+          27001, NIS2 and KRITIS audits, and run a homelab where I find out what
+          breaks first.
+        </p>
+        <p class="mt-3 max-w-2xl leading-relaxed">
+          Here I publish the Terraform modules and the write-ups I wanted when I
+          was solving the same problems: what failed, why, and the fix that
+          held.
         </p>
       </div>
 
-      <article
-        class="animate space-y-4 text-neutral-700 dark:text-neutral-300 leading-relaxed max-w-2xl"
-      >
-        <p>
-          I'm a Hybrid Cloud Engineer working mostly with <strong>Azure</strong
-          >,
-          <strong>Terraform</strong>, and <strong
-            >Zero-Trust network design</strong
-          >. At work I build production infrastructure. Here I publish the
-          Terraform templates and write-ups I wanted when I was solving the same
-          problems.
-        </p>
-        <p>
-          Right now I'm focused on Azure infrastructure for environments that
-          have to pass ISO 27001, NIS2, and KRITIS audits.
-        </p>
-      </article>
+      <div class="animate mt-8 flex flex-wrap items-center gap-3">
+        <a
+          href="/blog/"
+          class="inline-flex items-center gap-2 rounded-lg bg-zinc-950 dark:bg-white px-4 py-2.5 text-sm font-semibold text-white dark:text-zinc-950 shadow-sm transition-transform hover:-translate-y-0.5"
+        >
+          Read the blog <span aria-hidden="true">&rarr;</span>
+        </a>
+        <a
+          href="/templates/"
+          class="inline-flex items-center gap-2 rounded-lg border border-zinc-900/15 dark:border-white/15 px-4 py-2.5 text-sm font-semibold text-zinc-950 dark:text-white transition-colors hover:bg-zinc-900/[0.04] dark:hover:bg-white/[0.05]"
+        >
+          Terraform modules
+        </a>
+        <a
+          href="https://github.com/dwoitzik"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="GitHub"
+          class="grid size-10 place-items-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-900/[0.04] hover:text-zinc-950 dark:hover:bg-white/[0.05] dark:hover:text-white"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"
+            ></path>
+          </svg>
+        </a>
+      </div>
 
-      <div class="animate flex flex-wrap gap-2 pt-2">
+      <dl
+        class="animate mt-12 grid grid-cols-3 divide-x divide-zinc-900/[0.07] dark:divide-white/[0.07] rounded-xl border border-zinc-900/[0.07] dark:border-white/[0.07] bg-white/60 dark:bg-white/[0.02]"
+      >
         {
-          techStack.map((tech) => (
-            <span class="flex items-center gap-1.5 px-3 py-1 hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors cursor-default">
-              <span class={`w-1.5 h-1.5 rounded-full ${tech.color}`} />
-              {tech.name}
-            </span>
+          stats.map((s) => (
+            <div class="px-4 py-4 sm:px-6">
+              <dt class="sr-only">{s.label}</dt>
+              <dd class="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-white tabular-nums">
+                {s.value}
+              </dd>
+              <dd class="mt-0.5 text-xs leading-snug sm:text-sm">{s.label}</dd>
+            </div>
           ))
         }
-      </div>
+      </dl>
+
+      <ul class="animate mt-6 flex flex-wrap gap-2" aria-label="Tech stack">
+        {
+          stack.map((name) => (
+            <li class="rounded-md border border-zinc-900/[0.08] dark:border-white/[0.08] px-2.5 py-1 font-mono text-xs text-zinc-600 dark:text-zinc-400">
+              {name}
+            </li>
+          ))
+        }
+      </ul>
     </section>
 
-    <div class="space-y-12 mt-12">
+    <div class="mt-20 space-y-20">
+      <!-- Latest writing -->
       {
-        blog.length > 0 && (
-          <section class="animate space-y-4">
-            <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
-              <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">
-                Latest Articles
-              </h2>
-              <Link
-                href="/blog/"
-                class="text-xs opacity-50 hover:opacity-100 transition-opacity"
-              >
-                View all &rarr;
-              </Link>
+        latest.length > 0 && (
+          <section class="animate">
+            <div class={sectionHead}>
+              <h2 class={sectionTitle}>Latest writing</h2>
+              <a href="/blog/" class={viewAll}>
+                All {blog.length} articles &rarr;
+              </a>
             </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {blog.slice(0, 4).map((post) => (
-                <a
-                  href={`/blog/${post.slug}/`}
-                  class="group flex flex-col gap-2 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-500 transition-colors"
-                >
-                  <div class="flex items-center gap-2 justify-between">
-                    <div class="flex items-center gap-2">
-                      {post.data.pinned && (
-                        <span class="text-[0.6rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 shrink-0">
-                          Pinned
-                        </span>
-                      )}
-                      <h3 class="font-semibold text-sm text-black dark:text-white leading-snug">
+            <ul class="divide-y divide-zinc-900/[0.07] dark:divide-white/[0.07]">
+              {latest.map((post) => (
+                <li>
+                  <a
+                    href={`/blog/${post.slug}/`}
+                    class="group grid gap-1.5 py-5 sm:grid-cols-[7.5rem_1fr] sm:gap-6"
+                  >
+                    <div class="font-mono text-xs text-zinc-500 sm:pt-1">
+                      <time datetime={post.data.date.toISOString()}>
+                        {fmt(post.data.date)}
+                      </time>
+                      <div class="hidden sm:block mt-1 opacity-80">
+                        {readingTime(post.body)}
+                      </div>
+                    </div>
+                    <div>
+                      <h3 class="text-base font-semibold leading-snug text-zinc-950 transition-colors group-hover:text-teal-700 dark:text-white dark:group-hover:text-teal-400 sm:text-lg">
+                        {post.data.pinned && (
+                          <span class="mr-2 align-middle rounded bg-teal-500/10 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">
+                            Pinned
+                          </span>
+                        )}
                         {post.data.title}
                       </h3>
+                      <p class="mt-1.5 line-clamp-2 text-sm leading-relaxed">
+                        {post.data.description}
+                      </p>
+                      {post.data.tags && (
+                        <div class="mt-2.5 flex flex-wrap gap-1.5">
+                          {post.data.tags.slice(0, 3).map((tag) => (
+                            <span class="rounded bg-zinc-900/[0.04] px-1.5 py-0.5 text-[0.7rem] text-zinc-500 dark:bg-white/[0.05] dark:text-zinc-400">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <span class="text-xs opacity-30 shrink-0">
-                      {post.data.date.toLocaleDateString("en-GB", {
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </span>
-                  </div>
-                  <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                    {post.data.description}
-                  </p>
-                  <span class="text-xs text-sky-500 mt-auto">Read &rarr;</span>
-                </a>
+                  </a>
+                </li>
               ))}
-            </div>
+            </ul>
           </section>
         )
       }
 
-      <section class="animate space-y-4">
-        <div
-          class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2"
-        >
-          <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">
-            Open Source Modules
-          </h2>
-          <Link
-            href="/templates/"
-            class="text-xs opacity-50 hover:opacity-100 transition-opacity"
-            >View all &rarr;</Link
-          >
+      <!-- Modules -->
+      <section class="animate">
+        <div class={sectionHead}>
+          <h2 class={sectionTitle}>Free Terraform modules</h2>
+          <a href="/templates/" class={viewAll}>Details &rarr;</a>
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <p class="mt-4 max-w-2xl text-sm leading-relaxed">
+          MIT licensed and published on the Terraform Registry. Each one has a
+          write-up that explains the design decisions.
+        </p>
+        <div class="mt-6 grid gap-4 sm:grid-cols-2">
           {
-            products
-              .filter((p) => p.available)
-              .map((product) => (
-                <div class="flex flex-col gap-3 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:border-sky-500 transition-colors">
-                  <div>
-                    <div class="font-semibold text-sm text-black dark:text-white">
-                      {product.title}
-                    </div>
-                    <div class="text-xs text-neutral-500 dark:text-neutral-400 mt-1 flex gap-2 flex-wrap">
-                      {product.tags.slice(0, 3).map((tag) => (
-                        <span>{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div class="flex items-center justify-between mt-auto">
-                    <span class="font-bold text-sm text-emerald-600 dark:text-emerald-400">
-                      Free
+            modules.map((product) => (
+              <div class="group flex flex-col rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] bg-white dark:bg-white/[0.02] p-5 transition-all hover:-translate-y-0.5 hover:border-teal-500/40 hover:shadow-lg hover:shadow-teal-500/[0.04]">
+                <div class="flex items-start justify-between gap-3">
+                  <h3 class="font-semibold leading-snug text-zinc-950 dark:text-white">
+                    {product.title}
+                  </h3>
+                  <span class="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[0.7rem] font-semibold text-emerald-700 dark:text-emerald-400">
+                    Free
+                  </span>
+                </div>
+                <p class="mt-2 line-clamp-3 text-sm leading-relaxed">
+                  {product.description}
+                </p>
+                <div class="mt-3 flex flex-wrap gap-1.5">
+                  {product.tags.slice(0, 3).map((tag) => (
+                    <span class="rounded bg-zinc-900/[0.04] px-1.5 py-0.5 text-[0.7rem] text-zinc-500 dark:bg-white/[0.05] dark:text-zinc-400">
+                      {tag}
                     </span>
+                  ))}
+                </div>
+                <div class="mt-auto flex flex-wrap items-center gap-x-4 gap-y-2 pt-5 text-sm font-medium">
+                  <a
+                    href={product.repoHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-zinc-950 hover:text-teal-700 dark:text-white dark:hover:text-teal-400 transition-colors"
+                  >
+                    GitHub &rarr;
+                  </a>
+                  {product.registryHref && (
                     <a
-                      href={product.repoHref}
+                      href={product.registryHref}
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="text-xs font-semibold px-3 py-1.5 rounded bg-black dark:bg-white text-white dark:text-black hover:opacity-75 transition-opacity"
+                      class="hover:text-zinc-950 dark:hover:text-white transition-colors"
                     >
-                      GitHub &rarr;
+                      Registry
                     </a>
-                  </div>
+                  )}
+                  {product.articleHref && (
+                    <a
+                      href={product.articleHref}
+                      class="hover:text-zinc-950 dark:hover:text-white transition-colors"
+                    >
+                      Write-up
+                    </a>
+                  )}
                 </div>
-              ))
+              </div>
+            ))
           }
         </div>
       </section>
@@ -192,108 +292,64 @@ const techStack = [
         />
       </div>
 
-      {
-        projects.length > 0 && (
-          <section class="animate space-y-4">
-            <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
-              <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">
-                Projects
-              </h2>
-              <Link
-                href="/projects/"
-                class="text-xs opacity-50 hover:opacity-100 transition-opacity"
-              >
-                View all &rarr;
-              </Link>
-            </div>
-            <div class="grid grid-cols-1 gap-3">
-              {projects.slice(0, 3).map((project) => (
-                <ArrowCard entry={project} />
-              ))}
-            </div>
-          </section>
-        )
-      }
+      <div
+        class="grid gap-16 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] lg:gap-10"
+      >
+        {
+          projects.length > 0 && (
+            <section class="animate">
+              <div class={sectionHead}>
+                <h2 class={sectionTitle}>Projects</h2>
+                <a href="/projects/" class={viewAll}>
+                  All &rarr;
+                </a>
+              </div>
+              <div class="mt-6 grid gap-3">
+                {projects.slice(0, 3).map((project) => (
+                  <ArrowCard entry={project} />
+                ))}
+              </div>
+            </section>
+          )
+        }
 
-      {
-        certs.length > 0 && (
-          <section class="animate space-y-6">
-            <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2">
-              <h2 class="font-bold text-xs uppercase tracking-widest opacity-50">
-                Certifications
-              </h2>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {certs.map((cert) => (
-                <div class="group p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-all duration-300">
-                  <div class="flex items-center gap-4">
+        {
+          certs.length > 0 && (
+            <section class="animate">
+              <div class={sectionHead}>
+                <h2 class={sectionTitle}>Certifications</h2>
+                <a href="/certs/" class={viewAll}>
+                  All &rarr;
+                </a>
+              </div>
+              <ul class="mt-6 grid gap-3">
+                {certs.map((cert) => (
+                  <li class="flex items-center gap-3 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] bg-white dark:bg-white/[0.02] p-3">
                     {cert.data.image && (
-                      <div class="w-12 h-12 flex-shrink-0 bg-neutral-100 dark:bg-neutral-800 rounded-lg p-2">
+                      <div class="size-10 shrink-0 rounded-lg bg-zinc-100 p-1.5 dark:bg-white/[0.06]">
                         <img
                           src={cert.data.image.src}
-                          alt={cert.data.company}
-                          class="w-full h-full object-contain"
+                          alt=""
+                          class="size-full object-contain"
+                          loading="lazy"
                         />
                       </div>
                     )}
-                    <div class="flex-grow">
-                      <div class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-0.5">
+                    <div class="min-w-0">
+                      <div class="text-[0.65rem] font-semibold uppercase tracking-wider text-zinc-500">
                         {cert.data.company}
                       </div>
-                      <div class="font-bold text-sm text-black dark:text-white leading-tight group-hover:text-sky-500 transition-colors">
+                      <div class="text-sm font-medium leading-snug text-zinc-950 dark:text-white">
                         {cert.data.role}
                       </div>
                     </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )
-      }
-
-      <footer
-        class="animate pt-10 border-t border-neutral-200 dark:border-neutral-800 flex flex-col sm:flex-row justify-between items-center gap-4"
-      >
-        <div class="flex gap-4 text-sm font-medium">
-          <Link
-            href="https://github.com/dwoitzik"
-            external
-            class="hover:text-black dark:hover:text-white transition-colors"
-            >GitHub</Link
-          >
-          <Link
-            href="https://github.com/sponsors/dwoitzik"
-            external
-            class="hover:text-black dark:hover:text-white transition-colors"
-            >Sponsor</Link
-          >
-          <Link
-            href="https://linkedin.com/in/david-woitzik"
-            external
-            class="hover:text-black dark:hover:text-white transition-colors"
-            >LinkedIn</Link
-          >
-          <Link
-            href={`mailto:${SITE.EMAIL}`}
-            class="hover:text-black dark:hover:text-white transition-colors"
-            >Email</Link
-          >
-          <Link
-            href="https://buymeacoffee.com/dwoitzik"
-            external
-            class="hover:text-black dark:hover:text-white transition-colors"
-            >Coffee</Link
-          >
-        </div>
-        <div class="flex gap-4 text-sm font-medium text-neutral-500">
-          <Link
-            href="/legal/"
-            class="hover:text-black dark:hover:text-white transition-colors"
-            >Legal & Privacy</Link
-          >
-        </div>
-      </footer>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )
+        }
+      </div>
     </div>
   </Container>
 </PageLayout>

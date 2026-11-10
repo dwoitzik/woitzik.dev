@@ -15,11 +15,17 @@ const {
 ---
 
 <div
-  class="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50 p-6"
+  class="relative overflow-hidden rounded-2xl border border-zinc-900/[0.08] dark:border-white/[0.08] bg-gradient-to-br from-white to-teal-50/60 dark:from-white/[0.03] dark:to-teal-400/[0.05] p-6 sm:p-8"
 >
   <div class="mb-4">
-    <h3 class="font-bold text-base text-black dark:text-white">{title}</h3>
-    <p class="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+    <h3
+      class="text-lg font-semibold tracking-tight text-zinc-950 dark:text-white"
+    >
+      {title}
+    </h3>
+    <p
+      class="mt-1.5 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400"
+    >
       {description}
     </p>
   </div>
@@ -36,11 +42,11 @@ const {
       aria-label="Email address"
       autocomplete="email"
       placeholder="you@company.com"
-      class="flex-1 px-3 py-2 text-sm rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-black dark:text-white placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 transition-colors"
+      class="flex-1 rounded-lg border border-zinc-900/15 dark:border-white/15 bg-white dark:bg-zinc-950/60 px-3.5 py-2.5 text-sm text-zinc-950 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
     />
     <button
       type="submit"
-      class="px-4 py-2 text-sm font-semibold rounded bg-black dark:bg-white text-white dark:text-black hover:opacity-75 transition-opacity shrink-0"
+      class="shrink-0 rounded-lg bg-zinc-950 dark:bg-white px-4 py-2.5 text-sm font-semibold text-white dark:text-zinc-950 transition-opacity hover:opacity-85"
     >
       {buttonText}
     </button>

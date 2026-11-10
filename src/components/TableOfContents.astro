@@ -17,9 +17,9 @@ const filtered = headings.filter((h) => h.depth === 2 || h.depth === 3);
 {
   filtered.length > 1 && (
     <nav
-      class={`not-prose p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50 ${sidebar ? "" : "mb-10"}`}
+      class={`not-prose ${sidebar ? "border-l border-zinc-900/[0.08] dark:border-white/[0.08] pl-4" : "mb-10 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] bg-white/60 dark:bg-white/[0.02] p-4"}`}
     >
-      <div class="text-xs font-bold uppercase tracking-widest opacity-40 mb-3">
+      <div class="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-950 dark:text-white">
         On this page
       </div>
       <ul class="space-y-1.5">
@@ -27,7 +27,8 @@ const filtered = headings.filter((h) => h.depth === 2 || h.depth === 3);
           <li class={heading.depth === 3 ? "pl-3" : ""}>
             <a
               href={`#${heading.slug}`}
-              class="text-sm text-neutral-600 dark:text-neutral-400 hover:text-sky-500 dark:hover:text-sky-400 transition-colors no-underline leading-snug block"
+              data-toc-link
+              class="block py-0.5 text-[0.8rem] leading-snug text-zinc-500 no-underline transition-colors hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white"
             >
               {heading.text}
             </a>
@@ -37,3 +38,82 @@ const filtered = headings.filter((h) => h.depth === 2 || h.depth === 3);
     </nav>
   )
 }
+
+<script is:inline>
+  // Highlights the section currently being read: the last heading whose top
+  // has scrolled above a line just under the sticky header. Reads scroll
+  // position only and never touches location.hash or the History API, so it
+  // can't produce analytics pageviews (see PageLayout.astro, replaceState pin).
+  // Inline so it stays plain JS; the handler lives on window so re-running
+  // after a ClientRouter navigation replaces it instead of stacking a second.
+  (function () {
+    function setup() {
+      if (window.__tocScroll) {
+        window.removeEventListener("scroll", window.__tocScroll);
+        window.__tocScroll = null;
+      }
+      var links = Array.prototype.slice.call(
+        document.querySelectorAll("a[data-toc-link]"),
+      );
+      if (links.length === 0) return;
+      var byId = {};
+      links.forEach(function (link) {
+        var id = decodeURIComponent(link.hash.slice(1));
+        (byId[id] = byId[id] || []).push(link);
+      });
+      var headings = Object.keys(byId)
+        .map(function (id) {
+          return document.getElementById(id);
+        })
+        .filter(Boolean);
+      var current = null;
+      var queued = false;
+
+      function update() {
+        queued = false;
+        var line = 120;
+        var active = null;
+        for (var i = 0; i < headings.length; i++) {
+          if (headings[i].getBoundingClientRect().top - line <= 0) {
+            active = headings[i];
+          } else {
+            break;
+          }
+        }
+        var bottom =
+          window.innerHeight + window.scrollY >=
+          document.documentElement.scrollHeight - 4;
+        if (bottom) active = headings[headings.length - 1];
+        var id = active ? active.id : null;
+        if (id === current) return;
+        current = id;
+        links.forEach(function (l) {
+          l.removeAttribute("data-active");
+        });
+        if (id) {
+          byId[id].forEach(function (l) {
+            l.setAttribute("data-active", "");
+          });
+        }
+      }
+
+      window.__tocScroll = function () {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(update);
+      };
+      window.addEventListener("scroll", window.__tocScroll, { passive: true });
+      update();
+    }
+    if (!window.__tocListener) {
+      window.__tocListener = true;
+      document.addEventListener("astro:page-load", setup);
+    }
+  })();
+</script>
+
+<style>
+  a[data-toc-link][data-active] {
+    @apply text-teal-700 dark:text-teal-400 font-medium;
+  }
+</style>

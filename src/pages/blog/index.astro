@@ -36,7 +36,7 @@ const allTags = [...new Set(data.flatMap((p) => p.data.tags ?? []))].sort();
   <Container>
     <div class="space-y-10">
       <div class="animate space-y-3">
-        <h1 class="font-semibold text-black dark:text-white">Blog</h1>
+        <h1 class="page-title">Blog</h1>
         <p class="text-sm text-neutral-500 dark:text-neutral-400">
           {english.length} article{english.length !== 1 ? "s" : ""} on infrastructure,
           automation, and cloud{

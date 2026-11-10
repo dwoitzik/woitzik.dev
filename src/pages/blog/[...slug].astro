@@ -4,7 +4,6 @@ import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
 import FormattedDate from "@components/FormattedDate.astro";
 import { readingTime } from "@lib/utils";
-import BackToPrev from "@components/BackToPrev.astro";
 import TableOfContents from "@components/TableOfContents.astro";
 import EmailCapture from "@components/EmailCapture.astro";
 import ShareButtons from "@components/ShareButtons.astro";
@@ -197,56 +196,63 @@ const breadcrumbLd = {
   </div>
 
   <Container>
-    <!-- Breadcrumbs -->
-    <nav
-      class="animate text-xs text-neutral-400 dark:text-neutral-500 mb-6"
-      aria-label="Breadcrumb"
+    <header
+      class={tocHeadings.length > 1 ? "max-w-3xl" : "mx-auto max-w-[46rem]"}
     >
-      <ol class="flex items-center gap-1.5 flex-wrap">
-        <li>
-          <a href="/" class="hover:text-sky-500 transition-colors">Home</a>
-        </li>
-        <li aria-hidden="true">/</li>
-        <li>
-          <a href="/blog/" class="hover:text-sky-500 transition-colors">Blog</a>
-        </li>
-        {
-          post.data.tags && post.data.tags.length > 0 && (
-            <>
-              <li aria-hidden="true">/</li>
-              <li>
-                <a
-                  href={`/blog/tag/${post.data.tags[0].toLowerCase()}/`}
-                  class="hover:text-sky-500 transition-colors"
-                >
-                  {post.data.tags[0]}
-                </a>
-              </li>
-            </>
-          )
-        }
-        <li aria-hidden="true">/</li>
-        <li class="text-black/50 dark:text-white/60 truncate max-w-[200px]">
-          {post.data.title}
-        </li>
-      </ol>
-    </nav>
+      <!-- Breadcrumbs -->
+      <nav class="animate text-xs text-zinc-500 mb-8" aria-label="Breadcrumb">
+        <ol class="flex items-center gap-1.5 flex-wrap">
+          <li>
+            <a
+              href="/"
+              class="hover:text-zinc-950 dark:hover:text-white transition-colors"
+              >Home</a
+            >
+          </li>
+          <li aria-hidden="true" class="opacity-50">/</li>
+          <li>
+            <a
+              href="/blog/"
+              class="hover:text-zinc-950 dark:hover:text-white transition-colors"
+              >Blog</a
+            >
+          </li>
+          {
+            post.data.tags && post.data.tags.length > 0 && (
+              <>
+                <li aria-hidden="true" class="opacity-50">
+                  /
+                </li>
+                <li>
+                  <a
+                    href={`/blog/tag/${post.data.tags[0].toLowerCase()}/`}
+                    class="hover:text-zinc-950 dark:hover:text-white transition-colors"
+                  >
+                    {post.data.tags[0]}
+                  </a>
+                </li>
+              </>
+            )
+          }
+          <li aria-hidden="true" class="opacity-50">/</li>
+          <li class="text-zinc-700 dark:text-zinc-300 truncate max-w-[220px]">
+            {post.data.title}
+          </li>
+        </ol>
+      </nav>
 
-    <div class="animate">
-      <BackToPrev href="/blog/">Back to blog</BackToPrev>
-    </div>
-
-    <div class="space-y-3 my-10">
       <div
-        class="animate flex items-center gap-1.5 text-sm opacity-60 flex-wrap"
+        class="animate flex items-center gap-2 font-mono text-xs text-zinc-500 flex-wrap"
       >
         <FormattedDate date={post.data.date} />
-        &bull;
+        <span aria-hidden="true" class="opacity-50">/</span>
         <span>{readingTime(post.body)}</span>
         {
           post.data.updated && (
             <>
-              &bull;
+              <span aria-hidden="true" class="opacity-50">
+                /
+              </span>
               <span>
                 Updated <FormattedDate date={post.data.updated} />
               </span>
@@ -254,16 +260,39 @@ const breadcrumbLd = {
           )
         }
       </div>
-      <h1 class="animate text-2xl font-semibold text-black dark:text-white">
+      <h1
+        class="animate mt-3 text-3xl font-bold leading-[1.15] tracking-tight text-zinc-950 dark:text-white sm:text-[2.6rem]"
+      >
         {post.data.title}
       </h1>
       {
+        /*
+        Answer-first summary.
+
+        The frontmatter description was already machine-readable, but only in
+        <meta name="description"> and the TechArticle JSON-LD. It never reached the
+        rendered text, so nothing on the page stated the article's conclusion in
+        its own words. Answer engines quote from body text, not from meta tags, so
+        this restates the conclusion directly under the H1 as a self-contained
+        passage. The wording is reused verbatim from frontmatter on purpose: a
+        paraphrase here would drift from the description that already ranks and
+        that structured data asserts.
+      */
+      }
+      {
+        post.data.description && (
+          <p class="animate mt-5 text-lg leading-relaxed text-zinc-700 dark:text-zinc-300">
+            {post.data.description}
+          </p>
+        )
+      }
+      {
         post.data.tags && post.data.tags.length > 0 && (
-          <div class="animate flex flex-wrap gap-2">
+          <div class="animate mt-5 flex flex-wrap gap-1.5">
             {post.data.tags.map((tag) => (
               <a
                 href={`/blog/tag/${tag.toLowerCase()}/`}
-                class="text-xs px-2 py-0.5 rounded border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-sky-500 hover:text-sky-500 transition-colors"
+                class="rounded-md border border-zinc-900/10 dark:border-white/10 px-2 py-0.5 text-xs text-zinc-600 dark:text-zinc-400 hover:border-teal-500/50 hover:text-teal-700 dark:hover:text-teal-400 transition-colors"
               >
                 {tag}
               </a>
@@ -271,31 +300,10 @@ const breadcrumbLd = {
           </div>
         )
       }
-    </div>
-
-    {
-      /*
-      Answer-first summary.
-
-      The frontmatter description was already machine-readable, but only in
-      <meta name="description"> and the TechArticle JSON-LD. It never reached the
-      rendered text, so nothing on the page stated the article's conclusion in
-      its own words. Answer engines quote from body text, not from meta tags, so
-      this restates the conclusion directly under the H1 as a self-contained
-      passage. The wording is reused verbatim from frontmatter on purpose: a
-      paraphrase here would drift from the description that already ranks and
-      that structured data asserts.
-    */
-    }
-    {
-      post.data.description && (
-        <div class="animate mt-6 border-l-2 border-sky-500/60 pl-4">
-          <p class="text-base leading-relaxed text-black/75 dark:text-white/75 m-0">
-            {post.data.description}
-          </p>
-        </div>
-      )
-    }
+      <hr
+        class="animate mt-8 mb-10 border-zinc-900/[0.07] dark:border-white/[0.07]"
+      />
+    </header>
 
     <!-- Mobile TOC (hidden on large screens) -->
     {
@@ -308,92 +316,90 @@ const breadcrumbLd = {
 
     <!-- Two-column layout: article + sticky sidebar TOC on desktop -->
     <div
-      class={`${tocHeadings.length > 1 ? "lg:grid lg:grid-cols-[1fr_220px] lg:gap-10 lg:items-start" : ""}`}
+      class={`${tocHeadings.length > 1 ? "lg:grid lg:grid-cols-[minmax(0,1fr)_220px] lg:gap-12 lg:items-start" : "mx-auto max-w-[46rem]"}`}
     >
       <div>
         <article class="animate">
           <Content />
         </article>
 
-        <!-- Share + Author -->
+        <!-- Feedback + share -->
         <div
-          class="animate mt-10 flex flex-wrap items-center justify-between gap-4"
+          class="animate mt-14 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] bg-white/60 dark:bg-white/[0.02] px-4 py-3"
         >
+          <FeedbackWidget slug={post.slug} />
           <ShareButtons title={post.data.title} url={postUrl} />
         </div>
 
-        <div class="animate mt-8">
+        <div class="animate mt-6">
           <AuthorBio />
-        </div>
-
-        <div class="animate">
-          <FeedbackWidget slug={post.slug} />
-        </div>
-
-        <div class="animate">
-          <SupportCTA />
         </div>
 
         <!-- Related Posts -->
         {
           related.length > 0 && (
-            <div class="animate mt-12">
-              <h2 class="text-sm font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500 mb-4">
-                Related articles
+            <section class="animate mt-14">
+              <h2 class="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-950 dark:text-white">
+                Keep reading
               </h2>
-              <div class="grid gap-4 sm:grid-cols-2">
+              <div class="grid gap-3 sm:grid-cols-3">
                 {related.map((p) => (
                   <a
                     href={`/blog/${p.slug}/`}
-                    class="group block p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 hover:border-sky-500/50 transition-colors"
+                    class="group flex flex-col rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] bg-white dark:bg-white/[0.02] p-4 transition-all hover:-translate-y-0.5 hover:border-teal-500/40"
                   >
-                    <h3 class="text-sm font-semibold text-black dark:text-white group-hover:text-sky-500 transition-colors leading-snug m-0">
+                    <h3 class="text-sm font-semibold leading-snug text-zinc-950 transition-colors group-hover:text-teal-700 dark:text-white dark:group-hover:text-teal-400">
                       {p.data.title}
                     </h3>
-                    <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 m-0 line-clamp-2">
+                    <p class="mt-2 line-clamp-3 text-xs leading-relaxed">
                       {p.data.description}
                     </p>
                   </a>
                 ))}
               </div>
-            </div>
+            </section>
           )
         }
 
-        <div class="animate mt-12">
+        <div class="animate mt-14">
           <EmailCapture
             title="More like this in your inbox"
             description="New Terraform modules and articles by email. No spam."
           />
         </div>
 
+        <div class="animate">
+          <SupportCTA />
+        </div>
+
         {
           (prev || next) && (
-            <nav class="animate mt-12 pt-8 border-t border-neutral-200 dark:border-neutral-800 grid grid-cols-2 gap-4">
+            <nav
+              class="animate mt-6 grid gap-3 sm:grid-cols-2"
+              aria-label="More articles"
+            >
               {prev ? (
                 <a
                   href={`/blog/${prev.slug}/`}
-                  class="group flex flex-col gap-1 text-sm"
+                  class="group flex flex-col gap-1 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] p-4 text-sm transition-colors hover:border-teal-500/40"
                 >
-                  <span class="text-xs opacity-40 uppercase tracking-widest">
+                  <span class="text-xs uppercase tracking-wider text-zinc-500">
                     Previous
                   </span>
-                  <span class="text-black dark:text-white font-medium group-hover:text-sky-500 transition-colors leading-snug">
+                  <span class="font-medium leading-snug text-zinc-950 transition-colors group-hover:text-teal-700 dark:text-white dark:group-hover:text-teal-400">
                     &larr; {prev.data.title}
                   </span>
                 </a>
-              ) : (
-                <div />
-              )}
+              ) : null}
               {next && (
                 <a
                   href={`/blog/${next.slug}/`}
-                  class="group flex flex-col gap-1 text-sm text-right ml-auto"
+                  class="group flex flex-col gap-1 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] p-4 text-sm text-right transition-colors hover:border-teal-500/40 sm:col-start-2"
                 >
-                  <span class="text-xs opacity-40 uppercase tracking-widest">
+                  <span class="text-xs uppercase tracking-wider text-zinc-500">
                     Next
                   </span>
-                  <span class="text-black dark:text-white font-medium group-hover:text-sky-500 transition-colors leading-snug">
+                  <span class="font-medium leading-snug text-zinc-950 transition-colors group-hover:text-teal-700 dark:text-white dark:group-hover:text-teal-400">
                     {next.data.title} &rarr;
                   </span>
                 </a>
