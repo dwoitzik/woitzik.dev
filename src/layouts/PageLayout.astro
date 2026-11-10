@@ -44,6 +44,27 @@ const {
       alternates={alternates}
       noindex={noindex}
     />
+    <script is:inline>
+      // Rybbit's SPA tracking wraps history.pushState and replaceState and
+      // records a pageview for every call. ClientRouter calls replaceState to
+      // save the scroll position each time the reader stops scrolling, so one
+      // read of a long buying guide logged 100-300 "pageviews". Pin
+      // replaceState to the native method before Rybbit loads: Rybbit's
+      // assignment is ignored, scroll saves stop counting, and real
+      // navigations (pushState, popstate) are still tracked exactly once.
+      (function () {
+        var native = History.prototype.replaceState;
+        var desc = Object.getOwnPropertyDescriptor(history, "replaceState");
+        if (desc && desc.get) return;
+        Object.defineProperty(history, "replaceState", {
+          configurable: true,
+          get: function () {
+            return native;
+          },
+          set: function () {},
+        });
+      })();
+    </script>
     <script
       src="https://analytics.woitzik.dev/api/script.js"
       data-site-id="a52de9f046eb"
