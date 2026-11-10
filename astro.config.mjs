@@ -79,8 +79,8 @@ const TAG_LASTMOD = (() => {
     for (const raw of tags[1].split(",")) {
       const tag = raw.trim().replace(/^["']|["']$/g, "");
       if (!tag) continue;
-      // Matches the lowercased tag in the route: /blog/tag/<lowercase>/
-      const key = tag.toLowerCase();
+      // Matches the tag slug in the route: /blog/tag/<lowercase-hyphenated>/
+      const key = tag.toLowerCase().trim().replace(/\s+/g, "-");
       const seen = map.get(key);
       if (!seen || when > seen) map.set(key, when);
     }

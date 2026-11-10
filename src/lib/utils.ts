@@ -9,14 +9,14 @@ export function formatDate(date: Date) {
   return Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "2-digit",
-    year: "numeric"
+    year: "numeric",
   }).format(date);
 }
 
 export function readingTime(html: string) {
   const textOnly = html.replace(/<[^>]+>/g, "");
   const wordCount = textOnly.split(/\s+/).length;
-  const readingTimeMinutes = ((wordCount / 200) + 1).toFixed();
+  const readingTimeMinutes = (wordCount / 200 + 1).toFixed();
   return `${readingTimeMinutes} min read`;
 }
 
@@ -39,4 +39,10 @@ export function dateRange(start: Date | string, end?: Date | string) {
   });
 
   return `${startFormatted} - ${endFormatted}`;
+}
+// URL slug for a tag: lowercase, whitespace to hyphens. Tags with spaces used
+// to produce /blog/tag/chaos engineering/ style URLs; vercel.json redirects
+// those old forms to the hyphenated ones.
+export function tagSlug(tag: string) {
+  return tag.toLowerCase().trim().replace(/\s+/g, "-");
 }

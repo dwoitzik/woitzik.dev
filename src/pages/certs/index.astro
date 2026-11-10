@@ -2,6 +2,7 @@
 import { getCollection } from "astro:content";
 import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
+import PageHeader from "@components/PageHeader.astro";
 import { dateRange } from "@lib/utils";
 import { CERTS } from "@consts";
 import { Image } from "astro:assets";
@@ -24,44 +25,43 @@ const certs = await Promise.all(
 
 <PageLayout title={CERTS.TITLE} description={CERTS.DESCRIPTION}>
   <Container>
-    <div class="space-y-10">
-      <h1 class="animate page-title">Certifications</h1>
-
-      <ul class="flex flex-col space-y-8">
-        {
-          certs.map((entry) => (
-            <li class="animate flex flex-col sm:flex-row gap-6 p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/50">
-              {/* Bild/Badge Bereich */}
-              {entry.data.image && (
-                <div class="w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0">
-                  <Image
-                    src={entry.data.image}
-                    alt={entry.data.company}
-                    class="w-full h-full object-contain"
-                  />
-                </div>
-              )}
-
-              <div class="flex-grow">
-                <div class="text-sm opacity-75">
-                  {entry.data.dateEnd
-                    ? dateRange(entry.data.dateStart, entry.data.dateEnd)
-                    : `Issued ${new Date(entry.data.dateStart).toLocaleDateString("en-US", { month: "short", year: "numeric" })}`}
-                </div>
-                <div class="font-bold text-lg text-black dark:text-white leading-tight">
-                  {entry.data.role}
-                </div>
-                <div class="text-sm font-medium text-sky-600 dark:text-sky-400 mb-4">
-                  {entry.data.company}
-                </div>
-                <article class="prose prose-sm dark:prose-invert max-w-none">
-                  <entry.Content />
-                </article>
+    <PageHeader
+      eyebrow="Certifications"
+      title="Certifications"
+      description="Current Microsoft and HashiCorp certifications. The work behind them is in the blog and the Terraform modules."
+    />
+    <ul class="animate grid gap-4 sm:grid-cols-2">
+      {
+        certs.map((entry) => (
+          <li class="flex gap-5 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] bg-white dark:bg-white/[0.02] p-5 sm:p-6">
+            {entry.data.image && (
+              <div class="grid size-20 shrink-0 place-items-center rounded-xl bg-zinc-100 p-2 dark:bg-white/[0.05]">
+                <Image
+                  src={entry.data.image}
+                  alt={`${entry.data.company} badge`}
+                  class="size-full object-contain"
+                />
               </div>
-            </li>
-          ))
-        }
-      </ul>
-    </div>
+            )}
+            <div class="min-w-0">
+              <p class="font-mono text-xs uppercase tracking-wider text-teal-700 dark:text-teal-400">
+                {entry.data.company}
+              </p>
+              <h2 class="mt-1.5 font-semibold leading-snug text-zinc-950 dark:text-white">
+                {entry.data.role}
+              </h2>
+              <p class="mt-2 font-mono text-xs text-zinc-500">
+                {entry.data.dateEnd
+                  ? `Valid ${dateRange(entry.data.dateStart, entry.data.dateEnd)}`
+                  : `Issued ${new Date(entry.data.dateStart).toLocaleDateString("en-US", { month: "short", year: "numeric" })}`}
+              </p>
+              <div class="prose prose-sm prose-zinc mt-3 max-w-none dark:prose-invert">
+                <entry.Content />
+              </div>
+            </div>
+          </li>
+        ))
+      }
+    </ul>
   </Container>
 </PageLayout>

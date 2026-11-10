@@ -46,12 +46,17 @@ const faqLd = {
 <PageLayout title={title} description={description}>
   <Container>
     <div class="max-w-3xl space-y-8">
-      <div class="animate space-y-2">
-        <h1 class="page-title">
+      <div class="animate">
+        <a
+          href="/tools/"
+          class="font-mono text-xs uppercase tracking-wider text-teal-700 hover:text-teal-800 dark:text-teal-400 dark:hover:text-teal-300"
+          >&larr; Tools</a
+        >
+        <h1 class="page-title mt-3">
           {title}
         </h1>
         <p
-          class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed"
+          class="mt-4 text-lg leading-relaxed text-zinc-600 dark:text-zinc-400"
         >
           {intro}
         </p>

@@ -2,11 +2,11 @@
 import { getCollection } from "astro:content";
 import Container from "@components/Container.astro";
 import PageLayout from "@layouts/PageLayout.astro";
-import ArrowCard from "@components/ArrowCard.astro";
+import ProjectCard from "@components/ProjectCard.astro";
+import PostList from "@components/PostList.astro";
 import { HOME } from "@consts";
 import { products } from "@data/products";
 import EmailCapture from "@components/EmailCapture.astro";
-import { readingTime } from "@lib/utils";
 
 const blog = (await getCollection("blog"))
   .filter((post) => !post.data.draft)
@@ -47,13 +47,6 @@ const stack = [
   "Ansible",
   "MikroTik",
 ];
-
-const fmt = (d: Date) =>
-  d.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
 
 const sectionHead =
   "flex items-end justify-between gap-4 border-b border-zinc-900/[0.07] dark:border-white/[0.07] pb-3";
@@ -172,47 +165,7 @@ const viewAll =
                 All {blog.length} articles &rarr;
               </a>
             </div>
-            <ul class="divide-y divide-zinc-900/[0.07] dark:divide-white/[0.07]">
-              {latest.map((post) => (
-                <li>
-                  <a
-                    href={`/blog/${post.slug}/`}
-                    class="group grid gap-1.5 py-5 sm:grid-cols-[7.5rem_1fr] sm:gap-6"
-                  >
-                    <div class="font-mono text-xs text-zinc-500 sm:pt-1">
-                      <time datetime={post.data.date.toISOString()}>
-                        {fmt(post.data.date)}
-                      </time>
-                      <div class="hidden sm:block mt-1 opacity-80">
-                        {readingTime(post.body)}
-                      </div>
-                    </div>
-                    <div>
-                      <h3 class="text-base font-semibold leading-snug text-zinc-950 transition-colors group-hover:text-teal-700 dark:text-white dark:group-hover:text-teal-400 sm:text-lg">
-                        {post.data.pinned && (
-                          <span class="mr-2 align-middle rounded bg-teal-500/10 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">
-                            Pinned
-                          </span>
-                        )}
-                        {post.data.title}
-                      </h3>
-                      <p class="mt-1.5 line-clamp-2 text-sm leading-relaxed">
-                        {post.data.description}
-                      </p>
-                      {post.data.tags && (
-                        <div class="mt-2.5 flex flex-wrap gap-1.5">
-                          {post.data.tags.slice(0, 3).map((tag) => (
-                            <span class="rounded bg-zinc-900/[0.04] px-1.5 py-0.5 text-[0.7rem] text-zinc-500 dark:bg-white/[0.05] dark:text-zinc-400">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </a>
-                </li>
-              ))}
-            </ul>
+            <PostList posts={latest} />
           </section>
         )
       }
@@ -305,8 +258,8 @@ const viewAll =
                 </a>
               </div>
               <div class="mt-6 grid gap-3">
-                {projects.slice(0, 3).map((project) => (
-                  <ArrowCard entry={project} />
+                {projects.slice(0, 2).map((project) => (
+                  <ProjectCard entry={project} />
                 ))}
               </div>
             </section>

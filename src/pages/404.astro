@@ -1,7 +1,6 @@
 ---
 import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
-import Link from "@components/Link.astro";
 ---
 
 <PageLayout
@@ -10,22 +9,32 @@ import Link from "@components/Link.astro";
   noindex
 >
   <Container>
-    <div class="animate flex flex-col gap-6">
-      <div
-        class="text-8xl font-black text-black dark:text-white tracking-tighter opacity-10"
-      >
-        404
-      </div>
-      <div class="space-y-2">
-        <h1 class="page-title">Page not found</h1>
-        <p class="text-neutral-500 dark:text-neutral-400">
-          This page doesn't exist or has been moved.
-        </p>
-      </div>
-      <div class="flex gap-4 text-sm font-medium">
-        <Link href="/">Go home &rarr;</Link>
-        <Link href="/blog/">Browse articles &rarr;</Link>
-        <Link href="/templates/">View templates &rarr;</Link>
+    <div class="animate mx-auto max-w-xl py-10 text-center">
+      <p class="font-mono text-sm text-teal-700 dark:text-teal-400">404</p>
+      <h1 class="page-title mt-3">Page not found</h1>
+      <p class="mt-4 text-lg leading-relaxed">
+        This page doesn't exist or has moved. Search usually finds it, or start
+        from one of these.
+      </p>
+      <div class="mt-8 flex flex-wrap justify-center gap-3">
+        <a
+          href="/search/"
+          class="inline-flex items-center gap-2 rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white dark:bg-white dark:text-zinc-950"
+        >
+          Search the site
+        </a>
+        <a
+          href="/blog/"
+          class="inline-flex items-center rounded-lg border border-zinc-900/15 px-4 py-2.5 text-sm font-semibold text-zinc-950 hover:bg-zinc-900/[0.04] dark:border-white/15 dark:text-white dark:hover:bg-white/[0.05]"
+        >
+          All articles
+        </a>
+        <a
+          href="/"
+          class="inline-flex items-center rounded-lg border border-zinc-900/15 px-4 py-2.5 text-sm font-semibold text-zinc-950 hover:bg-zinc-900/[0.04] dark:border-white/15 dark:text-white dark:hover:bg-white/[0.05]"
+        >
+          Home
+        </a>
       </div>
     </div>
   </Container>

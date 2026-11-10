@@ -5,6 +5,16 @@
 html {
   overflow-y: scroll;
   color-scheme: light;
+  /* The page background lives on <html> too: on short pages the body can end
+     above the viewport bottom, and the uncovered area showed the browser's
+     default white under the dark theme. */
+  background-color: theme("colors.zinc.50");
+}
+
+/* Written out instead of dark:bg-*: Tailwind's dark variant compiles to
+   ".dark html", which never matches because <html> itself carries the class. */
+html.dark {
+  background-color: theme("colors.zinc.950");
 }
 
 html.dark {

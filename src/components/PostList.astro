@@ -1,0 +1,74 @@
+---
+import type { CollectionEntry } from "astro:content";
+import { readingTime } from "@lib/utils";
+
+interface Props {
+  posts: CollectionEntry<"blog">[];
+  showTags?: boolean;
+  showTranslationLink?: boolean;
+}
+const { posts, showTags = true, showTranslationLink = false } = Astro.props;
+
+const fmt = (d: Date) =>
+  d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+---
+
+<ul class="divide-y divide-zinc-900/[0.07] dark:divide-white/[0.07]">
+  {
+    posts.map((post) => (
+      <li class="group relative grid gap-1.5 py-5 sm:grid-cols-[7.5rem_1fr] sm:gap-6">
+        <div class="font-mono text-xs text-zinc-500 sm:pt-1">
+          <time datetime={post.data.date.toISOString()}>
+            {fmt(post.data.date)}
+          </time>
+          <div class="mt-1 hidden opacity-80 sm:block">
+            {readingTime(post.body)}
+          </div>
+        </div>
+        <div class="min-w-0">
+          <h3 class="text-base font-semibold leading-snug text-zinc-950 transition-colors group-hover:text-teal-700 dark:text-white dark:group-hover:text-teal-400 sm:text-lg">
+            <a
+              href={`/blog/${post.slug}/`}
+              class="after:absolute after:inset-0"
+            >
+              {post.data.pinned && (
+                <span class="mr-2 rounded bg-teal-500/10 px-1.5 py-0.5 align-middle text-[0.65rem] font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-400">
+                  Pinned
+                </span>
+              )}
+              {post.data.title}
+            </a>
+          </h3>
+          <p class="mt-1.5 line-clamp-2 text-sm leading-relaxed">
+            {post.data.description}
+          </p>
+          {(showTags && post.data.tags) ||
+          (showTranslationLink && post.data.translationOf) ? (
+            <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
+              {showTags &&
+                post.data.tags
+                  ?.slice(0, 3)
+                  .map((tag) => (
+                    <span class="rounded bg-zinc-900/[0.04] px-1.5 py-0.5 text-[0.7rem] text-zinc-500 dark:bg-white/[0.05] dark:text-zinc-400">
+                      {tag}
+                    </span>
+                  ))}
+              {showTranslationLink && post.data.translationOf && (
+                <a
+                  href={`/blog/${post.data.translationOf}/`}
+                  class="relative z-10 ml-1 text-xs font-medium text-teal-700 hover:underline dark:text-teal-400"
+                >
+                  English original &rarr;
+                </a>
+              )}
+            </div>
+          ) : null}
+        </div>
+      </li>
+    ))
+  }
+</ul>

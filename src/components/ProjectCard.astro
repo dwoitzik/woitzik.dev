@@ -1,0 +1,75 @@
+---
+import type { CollectionEntry } from "astro:content";
+
+interface Props {
+  entry: CollectionEntry<"projects">;
+  featured?: boolean;
+}
+const { entry, featured = false } = Astro.props;
+const date = entry.data.date.toLocaleDateString("en-GB", {
+  month: "short",
+  year: "numeric",
+});
+---
+
+<article
+  class:list={[
+    "not-prose group relative flex h-full flex-col rounded-xl border border-zinc-900/[0.08] bg-white p-5 transition-all hover:-translate-y-0.5 hover:border-teal-500/40 dark:border-white/[0.08] dark:bg-white/[0.02]",
+    featured &&
+      "sm:p-7 bg-gradient-to-br from-white to-teal-50/50 dark:from-white/[0.03] dark:to-teal-400/[0.04]",
+  ]}
+>
+  <div
+    class="flex items-center justify-between gap-3 font-mono text-xs text-zinc-500"
+  >
+    <span>{featured ? "Featured project" : "Project"}</span>
+    <time datetime={entry.data.date.toISOString()}>{date}</time>
+  </div>
+  <h2
+    class:list={[
+      "mt-3 font-semibold leading-snug tracking-tight text-zinc-950 transition-colors group-hover:text-teal-700 dark:text-white dark:group-hover:text-teal-400",
+      featured ? "text-xl sm:text-2xl" : "text-base",
+    ]}
+  >
+    <a href={`/projects/${entry.slug}/`} class="after:absolute after:inset-0">
+      {entry.data.title}
+    </a>
+  </h2>
+  <p
+    class:list={[
+      "mt-2 leading-relaxed",
+      featured ? "max-w-2xl text-base" : "text-sm",
+    ]}
+  >
+    {entry.data.description}
+  </p>
+  <div
+    class="mt-auto flex flex-wrap items-center gap-x-4 gap-y-2 pt-5 text-sm font-medium"
+  >
+    <span class="text-zinc-950 dark:text-white">Details &rarr;</span>
+    {
+      entry.data.repoURL && (
+        <a
+          href={entry.data.repoURL}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="relative z-10 hover:text-zinc-950 dark:hover:text-white transition-colors"
+        >
+          Source on GitHub
+        </a>
+      )
+    }
+    {
+      entry.data.demoURL && (
+        <a
+          href={entry.data.demoURL}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="relative z-10 hover:text-zinc-950 dark:hover:text-white transition-colors"
+        >
+          Demo
+        </a>
+      )
+    }
+  </div>
+</article>

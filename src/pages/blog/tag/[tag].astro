@@ -1,15 +1,17 @@
 ---
+import { tagSlug } from "@lib/utils";
 import { getCollection } from "astro:content";
 import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
-import ArrowCard from "@components/ArrowCard.astro";
+import PageHeader from "@components/PageHeader.astro";
+import PostList from "@components/PostList.astro";
 import tagDescriptions from "@data/tag-descriptions.json";
 
 export async function getStaticPaths() {
   const posts = (await getCollection("blog")).filter((p) => !p.data.draft);
   const tags = [...new Set(posts.flatMap((p) => p.data.tags ?? []))];
   return tags.map((tag) => ({
-    params: { tag: tag.toLowerCase() },
+    params: { tag: tagSlug(tag) },
     props: {
       tag,
       posts: posts
@@ -27,28 +29,21 @@ const description =
 
 <PageLayout title={`${tag} articles`} description={description}>
   <Container>
-    <div class="space-y-8">
-      <div class="animate space-y-1">
-        <div class="text-xs font-bold uppercase tracking-widest opacity-40">
-          Tag
-        </div>
-        <h1 class="page-title">{tag}</h1>
-        <p class="text-sm text-neutral-500 dark:text-neutral-400 max-w-xl">
-          {description}
-        </p>
-        <p class="text-xs text-neutral-400 dark:text-neutral-500">
-          {posts.length} article{posts.length !== 1 ? "s" : ""}
-        </p>
-      </div>
-      <ul class="animate flex flex-col gap-3">
-        {
-          posts.map((post) => (
-            <li>
-              <ArrowCard entry={post} />
-            </li>
-          ))
-        }
-      </ul>
+    <PageHeader
+      eyebrow="Topic"
+      title={tag}
+      description={description}
+      meta={`${posts.length} article${posts.length !== 1 ? "s" : ""}`}
+    >
+      <a
+        href="/blog/"
+        class="mt-5 inline-flex items-center gap-1 text-sm font-medium text-teal-700 hover:text-teal-800 dark:text-teal-400 dark:hover:text-teal-300"
+      >
+        &larr; All topics
+      </a>
+    </PageHeader>
+    <div class="animate">
+      <PostList posts={posts} />
     </div>
   </Container>
 </PageLayout>

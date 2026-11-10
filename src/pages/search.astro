@@ -1,6 +1,7 @@
 ---
 import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
+import PageHeader from "@components/PageHeader.astro";
 ---
 
 <PageLayout
@@ -9,50 +10,57 @@ import Container from "@components/Container.astro";
   noindex
 >
   <Container>
-    <div class="space-y-6">
-      <h1 class="animate page-title">Search</h1>
-      <div id="pagefind-search" class="animate"></div>
-    </div>
+    <PageHeader
+      eyebrow="Search"
+      title="Search"
+      description="Full-text search across every article, project and tool page. Error messages work well as queries."
+    />
+    <div id="pagefind-search" class="animate max-w-3xl"></div>
   </Container>
 </PageLayout>
 
 <style is:global>
-  #pagefind-search .pagefind-ui__search-input {
-    border-radius: 0.75rem !important;
-    border: 1px solid rgb(229 229 229) !important;
-    background: white !important;
-    font-size: 0.875rem !important;
-    width: 100% !important;
+  /* Pagefind is themed through its own CSS variables, mapped to the site
+     palette (zinc greys, teal accent). */
+  #pagefind-search {
+    --pagefind-ui-scale: 0.85;
+    --pagefind-ui-primary: #0f766e;
+    --pagefind-ui-text: #18181b;
+    --pagefind-ui-background: #ffffff;
+    --pagefind-ui-border: rgba(24, 24, 27, 0.12);
+    --pagefind-ui-tag: #f4f4f5;
+    --pagefind-ui-border-width: 1px;
+    --pagefind-ui-border-radius: 12px;
+    --pagefind-ui-font: inherit;
   }
-  .dark #pagefind-search .pagefind-ui__search-input {
-    border-color: rgb(38 38 38) !important;
-    background: rgb(23 23 23) !important;
-    color: white !important;
+  .dark #pagefind-search {
+    --pagefind-ui-primary: #2dd4bf;
+    --pagefind-ui-text: #e4e4e7;
+    --pagefind-ui-background: #0f0f12;
+    --pagefind-ui-border: rgba(255, 255, 255, 0.1);
+    --pagefind-ui-tag: #18181b;
   }
-  #pagefind-search .pagefind-ui__result {
-    border-bottom: 1px solid rgb(229 229 229) !important;
-    padding: 1rem 0 !important;
+  #pagefind-search .pagefind-ui__search-input:focus {
+    outline: 2px solid rgba(20, 184, 166, 0.35);
+    outline-offset: 0;
   }
-  .dark #pagefind-search .pagefind-ui__result {
-    border-color: rgb(38 38 38) !important;
+  #pagefind-search .pagefind-ui__result-link {
+    text-decoration: none;
   }
-  #pagefind-search .pagefind-ui__result-title a {
-    color: rgb(0 0 0) !important;
-    font-weight: 600 !important;
-    text-decoration: none !important;
+  #pagefind-search .pagefind-ui__result-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
-  .dark #pagefind-search .pagefind-ui__result-title a {
-    color: white !important;
+  #pagefind-search .pagefind-ui__result-excerpt {
+    color: #71717a;
   }
-  #pagefind-search .pagefind-ui__result-title a:hover {
-    color: rgb(14 165 233) !important;
+  .dark #pagefind-search .pagefind-ui__result-excerpt {
+    color: #a1a1aa;
   }
-  #pagefind-search .pagefind-ui__button {
-    border-radius: 0.5rem !important;
-    font-size: 0.875rem !important;
-  }
-  #pagefind-search .pagefind-ui__message {
-    font-size: 0.875rem !important;
+  #pagefind-search mark {
+    background: rgba(20, 184, 166, 0.18);
+    color: inherit;
+    border-radius: 2px;
   }
 </style>
 

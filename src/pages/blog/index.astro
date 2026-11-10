@@ -1,8 +1,10 @@
 ---
+import { tagSlug } from "@lib/utils";
 import { type CollectionEntry, getCollection } from "astro:content";
 import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
-import ArrowCard from "@components/ArrowCard.astro";
+import PageHeader from "@components/PageHeader.astro";
+import PostList from "@components/PostList.astro";
 import { BLOG } from "@consts";
 
 const data = (await getCollection("blog"))
@@ -34,86 +36,61 @@ const allTags = [...new Set(data.flatMap((p) => p.data.tags ?? []))].sort();
 
 <PageLayout title={BLOG.TITLE} description={BLOG.DESCRIPTION}>
   <Container>
-    <div class="space-y-10">
-      <div class="animate space-y-3">
-        <h1 class="page-title">Blog</h1>
-        <p class="text-sm text-neutral-500 dark:text-neutral-400">
-          {english.length} article{english.length !== 1 ? "s" : ""} on infrastructure,
-          automation, and cloud{
-            german.length > 0 && `, plus ${german.length} in German`
-          }.
-        </p>
-      </div>
+    <PageHeader
+      eyebrow="Blog"
+      title="Notes from production and the homelab"
+      description="Incidents, fixes and design decisions from Azure work and a single-host Proxmox homelab: what broke, why, and what held."
+      meta={`${english.length} articles${german.length > 0 ? ` · ${german.length} in German` : ""}`}
+    />
 
-      <!-- Tag filter -->
-      <div class="animate flex flex-wrap gap-1.5">
-        <a
-          href="/blog/"
-          class="text-xs px-2.5 py-1 rounded-full border border-sky-500 bg-sky-500/10 text-sky-600 dark:text-sky-400 font-medium"
-        >
-          All
-        </a>
+    <nav class="animate mb-14" aria-label="Topics">
+      <h2
+        class="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-950 dark:text-white"
+      >
+        Browse by topic
+      </h2>
+      <ul class="flex flex-wrap gap-1.5">
         {
           allTags.map((tag) => (
-            <a
-              href={`/blog/tag/${tag.toLowerCase()}/`}
-              class="text-xs px-2.5 py-1 rounded-full border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-sky-500 hover:text-sky-500 transition-colors"
-            >
-              {tag}
-            </a>
+            <li>
+              <a
+                href={`/blog/tag/${tagSlug(tag)}/`}
+                class="block rounded-md border border-zinc-900/[0.08] dark:border-white/[0.08] px-2.5 py-1 text-xs text-zinc-600 dark:text-zinc-400 hover:border-teal-500/50 hover:text-teal-700 dark:hover:text-teal-400 transition-colors"
+              >
+                {tag}
+              </a>
+            </li>
           ))
         }
-      </div>
+      </ul>
+    </nav>
 
-      <div class="space-y-4">
-        {
-          years.map((year) => (
-            <section class="animate space-y-4">
-              <h2 class="font-semibold text-black dark:text-white">{year}</h2>
-              <div>
-                <ul class="flex flex-col gap-4">
-                  {posts[year]
-                    .filter((post) => post.data.lang !== "de")
-                    .map((post) => (
-                      <li>
-                        <ArrowCard entry={post} />
-                      </li>
-                    ))}
-                </ul>
-              </div>
-            </section>
-          ))
-        }
-      </div>
+    <div class="space-y-14">
+      {
+        years.map((year) => (
+          <section class="animate">
+            <h2 class="border-b border-zinc-900/[0.07] dark:border-white/[0.07] pb-3 font-mono text-sm font-semibold text-zinc-950 dark:text-white">
+              {year}
+            </h2>
+            <PostList
+              posts={posts[year].filter((post) => post.data.lang !== "de")}
+            />
+          </section>
+        ))
+      }
 
       {
         german.length > 0 && (
-          <section class="animate space-y-4">
-            <div class="flex items-baseline gap-2">
-              <h2 class="font-semibold text-black dark:text-white">
+          <section class="animate" lang="de">
+            <div class="flex flex-wrap items-baseline justify-between gap-2 border-b border-zinc-900/[0.07] dark:border-white/[0.07] pb-3">
+              <h2 class="text-sm font-semibold text-zinc-950 dark:text-white">
                 Auf Deutsch
               </h2>
-              <div class="text-xs px-2 py-0.5 rounded border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400">
-                nur hier, kein dev.to-Crosspost
-              </div>
+              <span class="text-xs text-zinc-500">
+                Nur hier, kein dev.to-Crosspost
+              </span>
             </div>
-            <ul class="flex flex-col gap-4">
-              {german.map((post) => (
-                <li>
-                  <ArrowCard entry={post} />
-                  {post.data.translationOf && (
-                    <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1 ml-1">
-                      <a
-                        href={`/blog/${post.data.translationOf}/`}
-                        class="hover:text-sky-500 transition-colors"
-                      >
-                        Read the English original →
-                      </a>
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
+            <PostList posts={german} showTags={false} showTranslationLink />
           </section>
         )
       }

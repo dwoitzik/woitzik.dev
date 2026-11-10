@@ -4,8 +4,6 @@ import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
 import FormattedDate from "@components/FormattedDate.astro";
 import { readingTime } from "@lib/utils";
-import BackToPrev from "@components/BackToPrev.astro";
-import Link from "@components/Link.astro";
 
 export async function getStaticPaths() {
   const projects = (await getCollection("projects"))
@@ -24,42 +22,77 @@ const { Content } = await project.render();
 
 <PageLayout title={project.data.title} description={project.data.description}>
   <Container>
-    <div class="animate">
-      <BackToPrev href="/projects/"> Back to projects </BackToPrev>
-    </div>
-    <div class="space-y-1 my-10">
-      <div class="animate flex items-center gap-1.5">
-        <div class="font-sans text-sm">
-          <FormattedDate date={project.data.date} />
-        </div>
-        &bull;
-        <div class="font-sans text-sm">
-          {readingTime(project.body)}
-        </div>
+    <div class="mx-auto max-w-[46rem]">
+      <nav class="animate mb-8 text-xs text-zinc-500" aria-label="Breadcrumb">
+        <ol class="flex flex-wrap items-center gap-1.5">
+          <li>
+            <a
+              href="/"
+              class="hover:text-zinc-950 dark:hover:text-white transition-colors"
+              >Home</a>
+          </li>
+          <li aria-hidden="true" class="opacity-50">/</li>
+          <li>
+            <a
+              href="/projects/"
+              class="hover:text-zinc-950 dark:hover:text-white transition-colors"
+              >Projects</a>
+          </li>
+          <li aria-hidden="true" class="opacity-50">/</li>
+          <li class="truncate text-zinc-700 dark:text-zinc-300">
+            {project.data.title}
+          </li>
+        </ol>
+      </nav>
+      <div
+        class="animate flex flex-wrap items-center gap-2 font-mono text-xs text-zinc-500"
+      >
+        <FormattedDate date={project.data.date} />
+        <span aria-hidden="true" class="opacity-50">/</span>
+        <span>{readingTime(project.body)}</span>
       </div>
-      <h1 class="animate page-title">
+      <h1
+        class="animate mt-3 text-3xl font-bold leading-[1.15] tracking-tight text-zinc-950 dark:text-white sm:text-[2.6rem]"
+      >
         {project.data.title}
       </h1>
+      <p
+        class="animate mt-5 text-lg leading-relaxed text-zinc-700 dark:text-zinc-300"
+      >
+        {project.data.description}
+      </p>
       {
         (project.data.demoURL || project.data.repoURL) && (
-          <nav class="animate flex gap-1">
-            {project.data.demoURL && (
-              <Link href={project.data.demoURL} external>
-                demo
-              </Link>
-            )}
-            {project.data.demoURL && project.data.repoURL && <span>/</span>}
+          <div class="animate mt-6 flex flex-wrap gap-3">
             {project.data.repoURL && (
-              <Link href={project.data.repoURL} external>
-                repo
-              </Link>
+              <a
+                href={project.data.repoURL}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-2 rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5 dark:bg-white dark:text-zinc-950"
+              >
+                Source on GitHub &rarr;
+              </a>
             )}
-          </nav>
+            {project.data.demoURL && (
+              <a
+                href={project.data.demoURL}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-2 rounded-lg border border-zinc-900/15 px-4 py-2.5 text-sm font-semibold text-zinc-950 hover:bg-zinc-900/[0.04] dark:border-white/15 dark:text-white dark:hover:bg-white/[0.05]"
+              >
+                Live demo
+              </a>
+            )}
+          </div>
         )
       }
+      <hr
+        class="animate mt-8 mb-10 border-zinc-900/[0.07] dark:border-white/[0.07]"
+      />
+      <article class="animate">
+        <Content />
+      </article>
     </div>
-    <article class="animate">
-      <Content />
-    </article>
   </Container>
 </PageLayout>

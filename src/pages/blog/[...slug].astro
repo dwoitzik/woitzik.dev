@@ -3,7 +3,7 @@ import { type CollectionEntry, getCollection } from "astro:content";
 import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
 import FormattedDate from "@components/FormattedDate.astro";
-import { readingTime } from "@lib/utils";
+import { readingTime, tagSlug } from "@lib/utils";
 import TableOfContents from "@components/TableOfContents.astro";
 import EmailCapture from "@components/EmailCapture.astro";
 import ShareButtons from "@components/ShareButtons.astro";
@@ -164,7 +164,7 @@ const breadcrumbLd = {
             "@type": "ListItem",
             position: 3,
             name: post.data.tags[0],
-            item: `https://woitzik.dev/blog/tag/${post.data.tags[0].toLowerCase()}/`,
+            item: `https://woitzik.dev/blog/tag/${tagSlug(post.data.tags[0])}/`,
           },
         ]
       : []),
@@ -225,7 +225,7 @@ const breadcrumbLd = {
                 </li>
                 <li>
                   <a
-                    href={`/blog/tag/${post.data.tags[0].toLowerCase()}/`}
+                    href={`/blog/tag/${tagSlug(post.data.tags[0])}/`}
                     class="hover:text-zinc-950 dark:hover:text-white transition-colors"
                   >
                     {post.data.tags[0]}
@@ -291,7 +291,7 @@ const breadcrumbLd = {
           <div class="animate mt-5 flex flex-wrap gap-1.5">
             {post.data.tags.map((tag) => (
               <a
-                href={`/blog/tag/${tag.toLowerCase()}/`}
+                href={`/blog/tag/${tagSlug(tag)}/`}
                 class="rounded-md border border-zinc-900/10 dark:border-white/10 px-2 py-0.5 text-xs text-zinc-600 dark:text-zinc-400 hover:border-teal-500/50 hover:text-teal-700 dark:hover:text-teal-400 transition-colors"
               >
                 {tag}

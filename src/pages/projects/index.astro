@@ -2,27 +2,36 @@
 import { getCollection } from "astro:content";
 import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
-import ArrowCard from "@components/ArrowCard.astro";
+import PageHeader from "@components/PageHeader.astro";
+import ProjectCard from "@components/ProjectCard.astro";
 import { PROJECTS } from "@consts";
 
 const projects = (await getCollection("projects"))
   .filter((project) => !project.data.draft)
   .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+
+// The homelab is the long-running project the rest of the site is written
+// from, so it leads; the Azure modules follow in date order.
+const featured = projects.find((p) => p.slug === "homelab") ?? projects[0];
+const rest = projects.filter((p) => p !== featured);
 ---
 
 <PageLayout title={PROJECTS.TITLE} description={PROJECTS.DESCRIPTION}>
   <Container>
-    <div class="space-y-10">
-      <h1 class="animate page-title">Projects</h1>
-      <ul class="animate flex flex-col gap-4">
-        {
-          projects.map((project) => (
-            <li>
-              <ArrowCard entry={project} />
-            </li>
-          ))
-        }
-      </ul>
+    <PageHeader
+      eyebrow="Projects"
+      title="What I build and run"
+      description="A homelab managed entirely through Git, and the Azure Terraform modules that came out of client-style work on locked-down networks."
+    />
+    <div class="animate grid gap-4 sm:grid-cols-2">
+      {
+        featured && (
+          <div class="sm:col-span-2">
+            <ProjectCard entry={featured} featured />
+          </div>
+        )
+      }
+      {rest.map((project) => <ProjectCard entry={project} />)}
     </div>
   </Container>
 </PageLayout>
