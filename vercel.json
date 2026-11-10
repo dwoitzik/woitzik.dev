@@ -44,6 +44,71 @@
       "permanent": true
     },
     {
+      "source": "/agb/",
+      "destination": "/legal/",
+      "permanent": true
+    },
+    {
+      "source": "/widerruf/",
+      "destination": "/legal/",
+      "permanent": true
+    },
+    {
+      "source": "/widerrufsbutton/",
+      "destination": "/legal/",
+      "permanent": true
+    },
+    {
+      "source": "/blog/tag/chaos%20engineering",
+      "destination": "/blog/tag/chaos-engineering/",
+      "permanent": true
+    },
+    {
+      "source": "/blog/tag/chaos%20engineering/",
+      "destination": "/blog/tag/chaos-engineering/",
+      "permanent": true
+    },
+    {
+      "source": "/blog/tag/disaster%20recovery",
+      "destination": "/blog/tag/disaster-recovery/",
+      "permanent": true
+    },
+    {
+      "source": "/blog/tag/disaster%20recovery/",
+      "destination": "/blog/tag/disaster-recovery/",
+      "permanent": true
+    },
+    {
+      "source": "/blog/tag/logic%20apps",
+      "destination": "/blog/tag/logic-apps/",
+      "permanent": true
+    },
+    {
+      "source": "/blog/tag/logic%20apps/",
+      "destination": "/blog/tag/logic-apps/",
+      "permanent": true
+    },
+    {
+      "source": "/blog/tag/private%20link",
+      "destination": "/blog/tag/private-link/",
+      "permanent": true
+    },
+    {
+      "source": "/blog/tag/private%20link/",
+      "destination": "/blog/tag/private-link/",
+      "permanent": true
+    },
+    {
+      "source": "/blog/tag/raspberry%20pi",
+      "destination": "/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables/",
+      "permanent": true
+    },
+    {
+      "source": "/blog/tag/raspberry%20pi/",
+      "destination": "/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables/",
+      "permanent": true
+    },
+    {
       "source": "/blog",
       "destination": "/blog/",
       "permanent": true

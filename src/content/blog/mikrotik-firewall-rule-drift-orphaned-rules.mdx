@@ -2,6 +2,7 @@
 title: "My Firewall Had 77 Rules. Terraform Knew About 22 of Them."
 description: "Multiple rounds of 'reconstruct the firewall' work each added a fresh generation of rules without removing the old one. Because RouterOS evaluates rules in order and stops at the first match, the oldest, broadest generation was silently winning over the newest, narrower one, undoing a security tightening that looked complete in Terraform."
 date: "2026-06-22"
+updated: "2026-11-04"
 tags: ["MikroTik", "Terraform", "Security", "Networking"]
 ---
 
