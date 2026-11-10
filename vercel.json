@@ -6,6 +6,12 @@
     { "source": "/agb", "destination": "/legal/", "permanent": true },
     { "source": "/widerruf", "destination": "/legal/", "permanent": true },
     { "source": "/widerrufsbutton", "destination": "/legal/", "permanent": true },
+    {
+      "source": "/blog/k3s-raspberry-pi-why-i-said-no/?",
+      "destination": "/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables/",
+      "permanent": true
+    },
+    { "source": "/blog/hello-world/?", "destination": "/blog/", "permanent": true },
     { "source": "/blog", "destination": "/blog/", "permanent": true },
     { "source": "/blog/:slug", "destination": "/blog/:slug/", "permanent": true },
     { "source": "/blog/tag/:tag", "destination": "/blog/tag/:tag/", "permanent": true },
