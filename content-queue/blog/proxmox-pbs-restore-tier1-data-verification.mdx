@@ -13,7 +13,7 @@ When my single [mini PC Proxmox host\*](/go/4bv3yF1) needed a full foundation re
 
 The three VMs at risk were the entire k3s control plane and worker set. Every stateful PVC for Vaultwarden, Headscale, Vault, Authelia's Postgres and more lived on their local-path storage. Before any host-level change, all three needed their data extracted and independently verified. Below is the method, including the one dataset that looked lost and turned out never to have held data.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Rule One: Restore to Scratch VMIDs, Never Boot Them
 

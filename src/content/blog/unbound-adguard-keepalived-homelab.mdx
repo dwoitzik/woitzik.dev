@@ -15,7 +15,7 @@ This is the DNS architecture running on two Raspberry Pi 4B edge nodes ([starter
 
 > **Update (November 2026):** The code blocks below now match the Ansible roles in the repo. The earlier version had a container healthcheck that queried port 5335 inside the container (Unbound listens on 53 there, so it could never pass), an empty `forward-zone` block, and a DNSSEC trust-anchor line that the real config does not have. That last one matters: without a trust anchor, Unbound does not validate DNSSEC. Checked live on 2026-11-04, `dnssec-failed.org` resolves with `NOERROR` and no answer carries the `ad` flag. See [the DNSSEC section](#dnssec-is-not-validated-yet) below.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Architecture
 

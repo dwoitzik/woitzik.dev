@@ -13,7 +13,7 @@ My three-node k3s cluster on a [BMAX Mini PC\*](/go/4bv3yF1) had about 20 long-l
 
 The fix sounded simple: add `livenessProbe` and `readinessProbe` to every deployment. In practice it took five batches of probes, each live-tested against the running pods, and one gotcha that put a healthy pod into a restart loop because of a Host header mismatch.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Host Header Trap
 

@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 [Headscale](/blog/headscale-oidc-k3s-authelia/) crash-looped with a startup fetch failure. On boot it makes a one-time OIDC discovery request to Authelia's issuer URL, `auth.woitzik.dev`. Inside the cluster, that hostname resolves to its public A record: Traefik's external LoadBalancer VIP, the same address my [split-DNS setup](/blog/cloudflare-tunnel-zero-inbound-ports/) hands to external clients. The request hairpins out to the VIP and back in, and that path turned out to be intermittently unreliable. Repeated probes from an in-cluster pod showed the first request succeeding and the next several failing instantly with connection refused. That was enough to fire both an availability alert and a probe-failure alert for Headscale.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Fix: A CoreDNS Override Instead of a One-Pod Workaround
 

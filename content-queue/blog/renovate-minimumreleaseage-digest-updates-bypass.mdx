@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 For two weeks, every digest-pinned image in my homelab stopped updating, and nothing alerted. Renovate kept opening PRs, but each one sat on a `renovate/stability-days` check stuck at pending, so automerge never fired. The cause was a global `minimumReleaseAge: "3 days"` combined with how Renovate 42+ handles updates that carry no release timestamp, and the fix was a single package rule setting `minimumReleaseAgeBehaviour: "timestamp-optional"` for digest updates.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## How I Found It
 

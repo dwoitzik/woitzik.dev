@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 By default, `terraform plan` exits with code 0 whether there are changes or not. In a GitOps workflow with [Atlantis](/blog/mikrotik-terraform-gitops-firewall-management/) on a [BMAX Mini PC*](/go/4bv3yF1), that means a plan can show 15 resources to destroy and CI still passes green. A GitHub Actions job that runs the plan with `-detailed-exitcode`, counts additions, changes and deletions, and posts a summary to Slack gives the team visibility without opening the Atlantis UI.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Problem
 

@@ -13,7 +13,7 @@ CNPG needs WAL archiving to object storage. Gitea needs artifact storage. The op
 
 Its role is deliberately different from [Garage](/blog/velero-garage-k3s-backup/), the other S3-compatible store in this cluster: Garage backs Velero, and MinIO backs everything else. Splitting them means a Garage incident (like [the SQLite corruption that hit its metadata volume](/blog/nfs-vs-local-path-sqlite-trap/)) doesn't also take out CNPG's WAL archiving.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Why MinIO
 

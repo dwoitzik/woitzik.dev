@@ -15,7 +15,7 @@ import AffiliateLink from "@components/AffiliateLink.astro";
 
 Three services in my homelab are reachable from the internet through Cloudflare Tunnel today: Immich for family photo backup, Jellyfin for media, and the analytics endpoint for this site. None of them needs an inbound firewall rule: the <AffiliateLink href="/go/4w08b21">MikroTik</AffiliateLink> [firewall stays default-deny](/blog/mikrotik-zero-trust-firewall-terraform/), and `cloudflared` carries their traffic over an outbound-only connection. The one exception on the router is Headscale, which cannot run behind the tunnel (see the update above). Split-DNS on AdGuard sends LAN clients to internal services directly.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Architecture
 

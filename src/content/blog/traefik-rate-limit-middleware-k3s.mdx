@@ -13,7 +13,7 @@ Opening my Immich photo library, I got "error loading dynamically imported modul
 
 > **Update (November 2026):** An earlier version of this post opened with a Grafana scrape storm and claimed that switching to `Cf-Connecting-Ip` fixed per-client bucketing behind the Cloudflare Tunnel. Both were wrong. The real incident is the Immich one above. Re-checking live: the public tunnel routes for Immich and Jellyfin go straight to the backends and never pass through Traefik, so these middlewares only see LAN and VPN traffic. That traffic carries no `Cf-Connecting-Ip` header, and the shared address in the log (`10.42.2.0`) is a k3s node's pod-network address from source NAT, not the cloudflared pod. The post now describes what the middleware actually does in this setup.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The RateLimit Middleware
 

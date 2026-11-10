@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 The 3-2-1 rule asks for 3 copies of your data, on 2 different media, with 1 offsite. Proxmox Backup Server (PBS) covers the "2 media" part cheaply: on my homelab it runs directly on the Proxmox VE host, a [BMAX Mini PC*](/go/4bv3yF1), and writes deduplicated snapshots of every VM and LXC to a [2TB Seagate External HDD*](/go/4vxwLpY). That part works and is checked after every run. The "1 offsite" part for PBS does not exist right now. My only active offsite copy is Velero's, and it covers a handful of Kubernetes namespaces, not the VM images. This post describes the setup as it actually runs, including the gap.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## PBS on the Proxmox Host
 

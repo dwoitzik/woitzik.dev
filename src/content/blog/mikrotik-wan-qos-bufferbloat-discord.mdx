@@ -13,7 +13,7 @@ Discord voice was choppy, and in one direction only: I heard everyone fine, but 
 
 The investigation led to a textbook bufferbloat setup on the [MikroTik RB5009\*](/go/4w08b21): no QoS or AQM on the WAN interface, a 50 Mbit upload ceiling that is easy to saturate, and RouterOS's default `pfifo` queue doing nothing to stop one bulk transfer from monopolizing the link against latency-sensitive UDP voice traffic.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Investigation
 

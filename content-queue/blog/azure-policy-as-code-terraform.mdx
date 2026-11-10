@@ -11,7 +11,7 @@ import AffiliateLink from "@components/AffiliateLink.astro";
 
 The [Hub & Spoke article](/blog/azure-terraform-hub-spoke-zero-trust/) on this blog covers surviving Azure Policy imposed on you by someone else's governance tenant: the DINE Death Loop, and the `lifecycle { ignore_changes }` blocks that stop Terraform from fighting a policy engine it doesn't control. This article covers the other side: authoring and assigning your own Azure Policy definitions as Terraform code, as the enforcement mechanism behind every compliance mapping this blog has covered. Instead of documenting that a control exists, the code makes violating it fail at deploy time.
 
-**[The Hub & Spoke module these policies get assigned against is free on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-hub-spoke)**
+**[The Hub & Spoke module these policies get assigned against is free on GitHub](https://github.com/dwoitzik/terraform-azurerm-hub-spoke)**
 
 ## Why Policy-as-Code on Top of Terraform Modules
 

@@ -20,7 +20,7 @@ azurerm_route_table.spoke_udr, azurerm_firewall.fw ...
 
 Terraform can't order the resources, so nothing gets built. Below is why the cycle happens, how to break it, and why fixing it is only half the job: a bare `0.0.0.0/0` route then silently breaks Windows activation and Microsoft Entra ID traffic.
 
-**[Get the basic Cycle-Error fix free on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-firewall-forced-tunneling)**
+**[Get the basic Cycle-Error fix free on GitHub](https://github.com/dwoitzik/terraform-azurerm-firewall-forced-tunneling)**
 
 ## The Anatomy of a Cycle Error
 

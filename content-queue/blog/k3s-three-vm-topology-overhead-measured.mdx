@@ -12,7 +12,7 @@ import AffiliateLink from "@components/AffiliateLink.astro";
 
 My whole k3s cluster runs as three VMs on one Proxmox host: a single mini PC, one NVMe disk, nothing else. That's a documented, deliberate constraint, and real zero-downtime HA isn't achievable on this hardware. What I had never measured, only assumed, was whether splitting that one host into three virtualized nodes cost more than it was worth compared with running k3s on fewer VMs or bare-metal on the host. So I measured it. Short answer: the split costs a few hundred MB of RAM per VM, and both incidents I blamed on it were caused by the single shared disk.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Allocation vs. What's Actually Used
 

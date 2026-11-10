@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 Authelia is the single sign-on gate in front of every service on my [BMAX Mini PC\*](/go/4bv3yF1)-based k3s cluster. If its Postgres backend is down, nothing behind it is reachable either, credentials or not. I already built a warm standby for the SQLite-backed side of this homelab (Headscale, Vaultwarden) and flagged Authelia's Postgres backend at the time as a heavier, architecturally different job that didn't belong in the same pass. ADR-030 is that follow-up: the groundwork for a Postgres warm standby, done properly rather than bolted on. It is prep work, not a tested failover yet, and one constraint it ran into deserves its own writeup.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## A Different Secrets Convention for This One Component
 

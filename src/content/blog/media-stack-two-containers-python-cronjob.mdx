@@ -15,7 +15,7 @@ So I moved the media stack out of k3s entirely. Jellyfin runs in its own GPU-pas
 
 **Update:** the first version of this stack wrapped the whole acquisition LXC in a Mullvad WireGuard tunnel via [gluetun](https://github.com/qdm12/gluetun), on the assumption that every flow out of that box needed VPN protection equally. Two days later I tore that back out. "The Traffic-Isolation Rethink" below explains why a single blanket tunnel was the wrong model for what these five apps do.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Why Kubernetes Was Wrong for Media
 

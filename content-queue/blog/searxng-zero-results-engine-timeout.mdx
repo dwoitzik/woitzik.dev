@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 My self-hosted SearXNG returned a normal-looking results page with zero hits. No error banner, no timeout message, HTTP 200. The pod was Ready, `/stats/errors` showed no failing engines, and the same queries sent straight to the pod returned 20 results each. The cause was `outgoing.request_timeout: 2.0`: the one engine doing the real work answered just after the deadline, and SearXNG threw its answer away. Raising the timeout fixed the empty pages. Getting back to more than one working engine took another two and a half weeks and a detour through `cse.google.com`.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Two failures that looked like one
 

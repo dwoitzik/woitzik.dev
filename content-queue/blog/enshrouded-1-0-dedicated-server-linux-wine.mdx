@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 After Enshrouded 1.0, my Linux-hosted dedicated server went down because of its own updater. `steamcmd +app_update 2278520 validate` reported success, deleted 24 game files including `enshrouded_server.exe`, and left systemd crash-looping on a binary that no longer existed. The fix has three parts: always request the Windows depot, give Steamworks a client install directory, and only update when Steam's public buildid has actually changed.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Setup: A Windows Server Under Wine, in the DMZ
 

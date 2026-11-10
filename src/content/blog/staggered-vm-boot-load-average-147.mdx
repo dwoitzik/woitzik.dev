@@ -17,7 +17,7 @@ The fix was boot order, not more hardware.
 
 > **Update (November 2026):** staggered boot fixed the boot-time storm, but it was not the whole story behind the host freezes I was chasing that week. An undersized PSU (mitigated by dropping the BIOS TDP from 54W to 25W) and a known OpenZFS 2.4.1 deadlock under ARC pressure (addressed by upgrading to 2.4.2 and capping ARC) were the other contributors. The k3s cluster has also since moved from three-member embedded etcd to a single server with SQLite via kine.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Boot Storm
 

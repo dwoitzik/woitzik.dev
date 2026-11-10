@@ -13,7 +13,7 @@ The 3-2-1 backup rule is simple: 3 copies of your data, on 2 different media typ
 
 > **Update (November 2026):** When this post went up, it said the Cloudflare R2 offsite layer was scaffolded but not active. That was already out of date: the R2 manifests were added to the ArgoCD sync with real credentials on 2026-08-22, almost four weeks before publication. The offsite layer has been running since then, with one bad gap: from about 2026-10-04 to 2026-10-18 a budget guard paused it, and the offsite backups expired while it was paused (details below). Checked live on 2026-11-04: `r2-offsite` is `Available` and the last three `daily-offsite` backups completed. I have also corrected the schedules and retention values, which did not match the repo, and replaced a restore error message and two verification steps I could not back up with what the repo actually shows.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Three Layers
 

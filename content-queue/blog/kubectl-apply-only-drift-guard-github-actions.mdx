@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 I've [already written about the drift class where ArgoCD says `Synced` but the live cluster is stale or running an inert config](/blog/gitops-merged-not-applied-argocd-drift/): a stuck sync timestamp, a Helm values typo that silently no-ops. This is the mirror image, and it's worse in one way: ArgoCD can't see it *by construction*, not because of a bug. A raw manifest that was never wrapped in an ArgoCD `Application` has no sync status to be wrong about. Nothing reconciles it. A `kubectl apply` that never happened (a forgotten step after a merge, an agent session that ran out of context mid-task) looks correct in git and does nothing on the cluster until something downstream breaks and someone goes looking.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Four Incidents, Same Root Cause
 

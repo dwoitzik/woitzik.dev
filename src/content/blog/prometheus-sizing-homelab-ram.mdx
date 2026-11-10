@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 My Prometheus ran for months with no resource requests or limits. Nobody noticed until it landed on `vm-srv-k3s-13`, at the time the smallest node in the cluster with 4GB, and used about 1.4Gi there. Together with everything else scheduled on that node it pushed memory to 100%, and containerd kill timeouts started restarting unrelated pods. Three weeks later the TSDB was filling its NFS volume. This post covers the values that fixed both, what the live numbers look like now, and one restart problem that looked like memory but wasn't. It's the same [kube-prometheus-stack](/blog/kube-prometheus-loki-grafana-k3s/) deployment behind the cluster's alerting, so when Prometheus falls over, the alert pipeline goes with it.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## What Drives Prometheus Memory
 

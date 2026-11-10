@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 [WireGuard on MikroTik](/blog/mikrotik-wireguard-vpn-terraform/) worked, but every device needed a hand-written peer config with the right allowed IPs and DNS. Tailscale builds on WireGuard and adds NAT traversal, key distribution, and ACLs. My tailnet runs against a [self-hosted Headscale control server](/blog/headscale-oidc-k3s-authelia/), and one ordinary Tailscale client running as a pod in k3s gives my phone and laptop two things: a route into the server VLAN and an exit node for mobile-data traffic. The [RB5009*](/go/4w08b21) doesn't run Tailscale at all; it stays the firewall that enforces VLAN segmentation behind that route.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Subnet Routes vs Exit Nodes
 

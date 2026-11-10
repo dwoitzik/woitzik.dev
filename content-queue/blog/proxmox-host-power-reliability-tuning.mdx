@@ -12,7 +12,7 @@ import AffiliateLink from "@components/AffiliateLink.astro";
 
 My whole homelab runs on one <AffiliateLink href="/go/4bv3yF1">Ryzen mini PC</AffiliateLink> and one DRAM-less consumer NVMe: every VM, LXC, and container, with no second host and no second disk to move a noisy job onto. [I've already written about the ZFS ARC deadlock a marginal PSU exposed on this exact box](/blog/zfs-arc-freeze-psu-io-deadlock/), and about [the two-tier memory-overcommit model](/blog/overcommit-guard-python-host-freeze/) that came out of it. Those weren't the only tuning decisions this hardware forced on me, just the two with the most dramatic incidents attached. Here are seven more, applied one at a time as each gap was found rather than as an upfront plan.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## CPU Governor: `powersave`, Not a Compromise
 

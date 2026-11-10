@@ -13,7 +13,7 @@ Longhorn is designed for multi-node Kubernetes clusters. It replicates Persisten
 
 I run three k3s nodes on a single physical host. All three nodes share the same NVMe. When Longhorn replicates a PVC across three nodes, all three replicas live on the same physical disk, so there is no real distribution and no real redundancy. And when a node failed, block-volume failover created a problem I would not have had without it.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Multi-Attach Error
 

@@ -17,7 +17,7 @@ Dieser Artikel beschreibt den Umbau vom Standard-Deploy zu einer netzwerkisolier
 
 > **Update (November 2026):** Upstream-Acmebot (das Repo liegt inzwischen unter [polymind-inc/acmebot](https://github.com/polymind-inc/acmebot)) deployt auf einen Flex-Consumption-Plan unter Linux. Das Terraform unten zielt auf eine Windows Function App (`azurerm_windows_function_app`) in einem Premium- oder Dedicated-App-Service-Plan; der Windows-Consumption-Plan kennt gar keine VNet Integration. Auf Flex Consumption bleibt das Muster gleich, aber die Function App ist dann `azurerm_function_app_flex_consumption`, und das Integrationssubnetz muss an `Microsoft.App/environments` delegiert werden statt an `Microsoft.Web/serverFarms`.
 
-**[View the standard deployment source code on GitHub 🐙](https://github.com/dwoitzik/terraform-azurerm-acme-cert)**
+**[View the standard deployment source code on GitHub](https://github.com/dwoitzik/terraform-azurerm-acme-cert)**
 
 ## Die Compliance-Lücke
 

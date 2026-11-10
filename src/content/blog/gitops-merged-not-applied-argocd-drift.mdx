@@ -13,7 +13,7 @@ GitOps makes a specific promise: the cluster matches git. When a change is merge
 
 It doesn't always hold. A drift audit of my k3s cluster turned up three merged fixes that had never taken effect: one ArgoCD never tracked, one it reported as `Synced` while the cluster ran the old config, and one that synced correctly but could never have worked.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## How the Gap Opens: ArgoCD's App-of-Apps Bootstrap Problem
 

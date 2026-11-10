@@ -13,7 +13,7 @@ PostgreSQL major version upgrades are not swap-the-image operations. When Renova
 
 Both are plain `StatefulSet` Postgres instances (`postgres-nextcloud` and `postgres-paperless` in the `apps` namespace), not operator-managed. My [Authelia](/blog/k3s-authelia-proxmox-homelab/) database runs on a CloudNativePG cluster with no pinned image tag, so Renovate never touched it. The migration took a fresh PVC per app, a dump and restore, a mount-path change the PG18 image enforces, and one missing role that kept Nextcloud from logging in.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Why You Can't Swap the Image
 

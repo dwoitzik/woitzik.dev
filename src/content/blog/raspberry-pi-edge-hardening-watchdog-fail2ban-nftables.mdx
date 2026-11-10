@@ -13,7 +13,7 @@ Two Raspberry Pi 4Bs ([starter set I used\*](/go/4wNS0oI)) run AdGuard Home and 
 
 This is the hardening pass that closed every gap I found in that setup: a hardware watchdog for total-freeze recovery, fail2ban for the one SSH-exposed surface, an nftables host firewall that stays out of the way of Docker's own iptables rules, log size caps against slow SD-card death, and a DNS health check that works even on the day the rest of the monitoring stack is offline. That turned out to be exactly the day it mattered.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Why "It's Just DNS" Needs More Hardening, Not Less
 

@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 Out of the box, AdGuard Home forwards every query it doesn't block to a single public resolver: Quad9 over DNS-over-HTTPS in current releases, and in plenty of homelab setups `8.8.8.8` or `1.1.1.1` over plain DNS. Every lookup (every website, every API call, every telemetry ping) ends up in one provider's logs. Unbound resolves recursively instead: it walks the DNS hierarchy from the root servers down and caches results locally, so no single upstream sees your complete query history. This same AdGuard instance also answers the internal wildcard names behind [cert-manager's TLS automation](/blog/cert-manager-wildcard-k3s-cloudflare/), so filtering and resolution are one control point in this network.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Leak
 

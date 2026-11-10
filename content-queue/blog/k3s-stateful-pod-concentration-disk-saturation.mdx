@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 One of [my three k3s VMs](/blog/k3s-three-vm-topology-overhead-measured/) hung completely. SSH, the guest agent and QEMU's own block-device query all timed out, while `info status` still answered: the QEMU process was alive, and the guest OS underneath it was wedged, not the hypervisor. A force stop and restart brought the API server and all three nodes back `Ready`. That fixed the symptom. It didn't explain the cause, and the cause turned out to be bigger than one node: nothing in the cluster had ever enforced pod spread, so most of the stateful workload sat on that VM.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Storage Was Still Saturated After the Restart
 

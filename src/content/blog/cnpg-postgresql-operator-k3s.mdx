@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 Nextcloud's PostgreSQL database ran as a StatefulSet with a Longhorn PVC. When the Proxmox host rebooted for a kernel update, Longhorn volumes took 90 seconds to reconstruct, and during that window Nextcloud returned 500 errors. It was the same [Longhorn Multi-Attach problem](/blog/longhorn-to-nfs-distributed-storage/) that pushed everything else off distributed storage on this single-host cluster. The fix: CloudNativePG (CNPG), a Kubernetes operator that manages PostgreSQL streaming replication, automatic failover and backups without depending on a distributed storage layer.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 > **Update (November 2026):** the manifests below describe the two-instance pattern, not what my cluster runs today. In the repo, CNPG manages the Authelia, Firefly III, n8n, Scanopy and Synapse databases in the `database` namespace, each with `instances: 1` on `local-path`, so there is no replica to fail over to. Their base backups and WAL go to a dedicated `cnpg-backups` bucket on Garage, scheduled by a `ScheduledBackup`. Nextcloud's Postgres stayed a plain StatefulSet on an NFS-backed PVC and was never moved to CNPG.
 

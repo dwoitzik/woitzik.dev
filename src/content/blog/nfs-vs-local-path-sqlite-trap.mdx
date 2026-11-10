@@ -13,7 +13,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 The root cause: Garage's metadata volume was an NFS-backed PersistentVolume, and SQLite's WAL (write-ahead logging) mode does not work over a network filesystem. The SQLite docs say so explicitly. The corruption showed up while a Velero backup and a Terraform state write were hitting Garage at the same time. The fix was moving every embedded database to `local-path`.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Storage Classes
 

@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 My entire k3s cluster runs on one Proxmox host. That's a documented, accepted constraint, not an oversight: zero-downtime HA is not achievable on this hardware. But "no zero-downtime HA" doesn't have to mean "everything critical goes down together with no plan." A NetworkPolicy drift once took my Tailscale subnet router and Cloudflare tunnel down for days, and every incident like that means noticing and diagnosing it by hand while the whole cluster is unreachable. I wanted [Headscale](/blog/headscale-oidc-k3s-authelia/) and Vaultwarden to survive that.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## Warm Standby, Manual Failover
 

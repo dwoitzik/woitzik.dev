@@ -23,7 +23,7 @@ On a single Proxmox host running k3s VMs alongside Ollama LLM inference, Minecra
 
 The fix is `cpu.units = 2048` on the k3s VMs, while most other guests keep no explicit value and run at the cgroup v2 default of 100. These are the same VMs that get [staggered boot ordering](/blog/staggered-vm-boot-load-average-147/) to prevent I/O storms in the first place.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## How Proxmox CPU Scheduling Works
 

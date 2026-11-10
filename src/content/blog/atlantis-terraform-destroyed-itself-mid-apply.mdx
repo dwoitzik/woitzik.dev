@@ -13,7 +13,7 @@ On 2026-07-04, Atlantis applied a Terraform change that shut down the VM it was 
 
 The cause was a circular dependency that doesn't show up in `terraform plan`, combined with attributes `bpg/proxmox` can't update on a running VM. Moving Atlantis from a k3s Deployment to a dedicated LXC container removed the hazard.
 
-**[View the complete homelab infrastructure source on GitHub 🐙](https://github.com/dwoitzik/homelab-infrastructure)**
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Setup
 
