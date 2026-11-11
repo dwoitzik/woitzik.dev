@@ -1,6 +1,6 @@
 ---
 title: "How I Prepared for AZ-104 and Terraform Associate"
-description: "Terraform Associate by self-study plus daily Terraform work, AZ-104 through paid instructor-led training. What each exam tests and which path fits which cert."
+description: "Terraform Associate by self-study plus hands-on Terraform work, AZ-104 through paid instructor-led training. What each exam tests and which path fits which cert."
 date: "2027-04-01"
 tags: ["Azure", "Terraform", "Security"]
 ---
@@ -26,7 +26,7 @@ The [004 review guide](https://developer.hashicorp.com/terraform/tutorials/certi
 
 HashiCorp's own [study guide](https://developer.hashicorp.com/terraform/tutorials/certification-004/associate-study-004) says you are best prepared with professional production experience, and that working through the objectives in a personal demo environment may be sufficient.
 
-### How daily Terraform work covers most of it
+### How hands-on Terraform work covers most of it
 
 Most of objectives 1 to 7 overlaps with the Terraform I write at work and at home. My homelab runs separate Terraform stacks for the MikroTik network, Proxmox, Cloudflare and Garage, each with its own remote state in an S3-compatible backend, and the public Azure modules on my GitHub are plain Terraform as well. Running `fmt`, `validate` and `plan` in CI, reading a plan before it applies, pinning provider versions, and writing `import` blocks to adopt resources that already existed map directly onto objectives 2, 3, 6 and 7.
 
