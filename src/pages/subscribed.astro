@@ -1,0 +1,66 @@
+---
+import PageLayout from "@layouts/PageLayout.astro";
+import Container from "@components/Container.astro";
+---
+
+<PageLayout
+  title="Subscription"
+  description="Newsletter subscription status for woitzik.dev."
+  noindex
+>
+  <Container>
+    <div class="animate mx-auto max-w-xl py-10 text-center">
+      <p class="font-mono text-sm text-teal-700 dark:text-teal-400">
+        Newsletter
+      </p>
+      <h1 id="sub-title" class="page-title mt-3">You're subscribed</h1>
+      <p id="sub-text" class="mt-4 text-lg leading-relaxed">
+        Thanks for confirming. The Azure Zero-Trust Terraform cheat sheet is on
+        its way to your inbox.
+      </p>
+      <div class="mt-8 flex flex-wrap justify-center gap-3">
+        <a
+          href="/blog/"
+          class="inline-flex items-center rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white dark:bg-white dark:text-zinc-950"
+        >
+          Read the blog
+        </a>
+        <a
+          href="/templates/"
+          class="inline-flex items-center rounded-lg border border-zinc-900/15 px-4 py-2.5 text-sm font-semibold text-zinc-950 hover:bg-zinc-900/[0.04] dark:border-white/15 dark:text-white dark:hover:bg-white/[0.05]"
+        >
+          Terraform modules
+        </a>
+      </div>
+    </div>
+  </Container>
+</PageLayout>
+
+<script is:inline>
+  (function () {
+    var messages = {
+      already: [
+        "You're already subscribed",
+        "This address was confirmed before, so nothing changed and no emails were sent twice.",
+      ],
+      invalid: [
+        "This link doesn't work",
+        "The confirmation link is invalid or older than 7 days. Sign up again with the form on any article to get a new one.",
+      ],
+      error: [
+        "Something went wrong",
+        "Your confirmation couldn't be completed right now. Please open the link from the email again in a few minutes.",
+      ],
+    };
+    function apply() {
+      var status = new URLSearchParams(location.search).get("status");
+      var m = status && messages[status];
+      var title = document.getElementById("sub-title");
+      var text = document.getElementById("sub-text");
+      if (!m || !title || !text) return;
+      title.textContent = m[0];
+      text.textContent = m[1];
+    }
+    document.addEventListener("astro:page-load", apply);
+  })();
+</script>

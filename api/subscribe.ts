@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "http";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -6,6 +7,49 @@ const SENDER = { name: "David Woitzik", email: "david@woitzik.dev" };
 
 function daysFromNow(days: number): string {
   return new Date(Date.now() + days * 86_400_000).toISOString();
+}
+
+const SITE = "https://woitzik.dev";
+// Confirmation links stay valid for a week.
+const CONFIRM_TTL_SECONDS = 7 * 86_400;
+
+// Double opt-in (§ 7 Abs. 2 UWG, Art. 7 Abs. 1 DSGVO): the signup form only
+// sends a confirmation link. The contact is created and the welcome sequence
+// starts when that link is opened, which proves the address owner asked for
+// it. The link carries the address and an expiry, signed with an HMAC key
+// derived from the Brevo API key, so no extra secret has to be managed and
+// nobody can confirm an address they don't control.
+function signingKey(apiKey: string): Buffer {
+  return createHash("sha256").update(`newsletter-doi:${apiKey}`).digest();
+}
+
+function sign(apiKey: string, email: string, expires: number): string {
+  return createHmac("sha256", signingKey(apiKey))
+    .update(`${email.toLowerCase()}|${expires}`)
+    .digest("hex");
+}
+
+function validSignature(
+  apiKey: string,
+  email: string,
+  expires: number,
+  signature: string,
+): boolean {
+  const expected = Buffer.from(sign(apiKey, email, expires), "hex");
+  const given = Buffer.from(signature, "hex");
+  return expected.length === given.length && timingSafeEqual(expected, given);
+}
+
+function redirect(
+  res: ServerResponse,
+  status: "ok" | "already" | "invalid" | "error",
+) {
+  const target =
+    status === "ok"
+      ? `${SITE}/subscribed/`
+      : `${SITE}/subscribed/?status=${status}`;
+  res.writeHead(302, { Location: target, "Cache-Control": "no-store" });
+  res.end();
 }
 
 // Bulletproof email HTML: every table has explicit border/cellpadding/cellspacing
@@ -121,12 +165,21 @@ const DAY7_BODY = emailBody(`
   <p style="margin:16px 0 0;font-size:13px;color:#737373">David<br><a href="https://woitzik.dev" style="color:#0ea5e9;text-decoration:none">woitzik.dev</a></p>
 `);
 
+const CONFIRM_SUBJECT = "Please confirm your subscription to woitzik.dev";
+function confirmBody(link: string): string {
+  return emailBody(`
+  <p style="margin:0 0 16px">Please confirm that you want to receive emails from woitzik.dev: the Azure Zero-Trust Terraform cheat sheet now, and new articles and Terraform modules afterwards.</p>
+  <p style="margin:0 0 24px"><a href="${link}" style="display:inline-block;background:#0a0a0a;color:#ffffff;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:8px">Confirm subscription</a></p>
+  <p style="margin:0 0 8px;font-size:13px;color:#737373">The link is valid for 7 days. If you did not sign up, ignore this email and nothing will happen.</p>
+  <p style="margin:16px 0 0;font-size:13px;color:#737373">David<br><a href="${SITE}" style="color:#0f766e;text-decoration:none">woitzik.dev</a></p>`);
+}
+
 export default async function handler(
   req: IncomingMessage,
   res: ServerResponse,
 ) {
   res.setHeader("Access-Control-Allow-Origin", "https://woitzik.dev");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Content-Type", "application/json");
 
@@ -134,6 +187,27 @@ export default async function handler(
     res.writeHead(204);
     res.end();
     return;
+  }
+
+  const apiKey = process.env.BREVO_API_KEY;
+
+  if (req.method === "GET") {
+    if (!apiKey) return redirect(res, "error");
+    const url = new URL(req.url ?? "", SITE);
+    const email = url.searchParams.get("e") ?? "";
+    const expires = Number(url.searchParams.get("x"));
+    const signature = url.searchParams.get("s") ?? "";
+    if (
+      !EMAIL_RE.test(email) ||
+      !Number.isFinite(expires) ||
+      expires < Date.now() / 1000 ||
+      !/^[0-9a-f]{64}$/.test(signature) ||
+      !validSignature(apiKey, email, expires, signature)
+    ) {
+      return redirect(res, "invalid");
+    }
+    const result = await activate(apiKey, email);
+    return redirect(res, result);
   }
 
   if (req.method !== "POST") {
@@ -160,20 +234,57 @@ export default async function handler(
     return;
   }
 
-  const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) {
     res.writeHead(500);
     res.end(JSON.stringify({ error: "Server configuration error" }));
     return;
   }
 
-  const brevoHeaders = {
+  // Signup only sends the confirmation link. Nothing is stored in Brevo and no
+  // welcome email goes out until the link is opened (see GET above).
+  const expires = Math.floor(Date.now() / 1000) + CONFIRM_TTL_SECONDS;
+  const link = `${SITE}/api/subscribe?e=${encodeURIComponent(email)}&x=${expires}&s=${sign(apiKey, email, expires)}`;
+  const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: brevoHeaders(apiKey),
+    body: JSON.stringify({
+      sender: SENDER,
+      to: [{ email }],
+      subject: CONFIRM_SUBJECT,
+      htmlContent: confirmBody(link),
+    }),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    console.error("Brevo confirmation email error:", r.status, err);
+    res.writeHead(502);
+    res.end(
+      JSON.stringify({
+        error: "Couldn't send the confirmation email. Please try again.",
+      }),
+    );
+    return;
+  }
+
+  res.writeHead(200);
+  res.end(JSON.stringify({ success: true, confirmationRequired: true }));
+}
+
+function brevoHeaders(apiKey: string) {
+  return {
     accept: "application/json",
     "content-type": "application/json",
     "api-key": apiKey,
   };
+}
 
-  // Add contact to list
+// Runs only after the confirmation link was opened: creates the contact and
+// starts the Day 0/3/7 sequence.
+async function activate(
+  apiKey: string,
+  email: string,
+): Promise<"ok" | "already" | "error"> {
+  const headers = brevoHeaders(apiKey);
   const contact: Record<string, unknown> = { email, updateEnabled: true };
   const listId = process.env.BREVO_LIST_ID
     ? parseInt(process.env.BREVO_LIST_ID)
@@ -182,31 +293,21 @@ export default async function handler(
 
   const contactRes = await fetch("https://api.brevo.com/v3/contacts", {
     method: "POST",
-    headers: brevoHeaders,
+    headers,
     body: JSON.stringify(contact),
   });
 
   if (contactRes.status !== 201 && contactRes.status !== 204) {
     const err = await contactRes.json().catch(() => ({}));
     console.error("Brevo contact error:", contactRes.status, err);
-    res.writeHead(500);
-    res.end(
-      JSON.stringify({ error: "Failed to subscribe. Please try again." }),
-    );
-    return;
+    return "error";
   }
 
-  // Brevo returns 201 for a brand-new contact, 204 when the email already
-  // existed (updateEnabled just refreshed it). Only a brand-new signup should
-  // trigger the welcome sequence. Without this check, re-submitting the form
-  // (double-click, or someone signing up a second time) re-sends Day 0
-  // immediately and schedules a second, overlapping Day 3 + Day 7 on top of
-  // whatever's already pending from the first signup.
-  if (contactRes.status === 204) {
-    res.writeHead(200);
-    res.end(JSON.stringify({ success: true }));
-    return;
-  }
+  // 204 means the address was already a contact: either the link was opened
+  // twice or the reader subscribed before. Only a brand-new contact gets the
+  // welcome sequence, so a second click doesn't send Day 0 again or stack a
+  // second Day 3 + Day 7 on top of the pending ones.
+  if (contactRes.status === 204) return "already";
 
   const scheduleEmail = async (
     subject: string,
@@ -215,7 +316,7 @@ export default async function handler(
   ) => {
     const r = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
-      headers: brevoHeaders,
+      headers,
       body: JSON.stringify({
         sender: SENDER,
         to: [{ email }],
@@ -233,37 +334,14 @@ export default async function handler(
   };
 
   // allSettled, not all: a Day 3/7 scheduling failure shouldn't block the
-  // Day 0 cheat-sheet email the user is actively waiting for right now.
+  // Day 0 cheat-sheet email the reader is waiting for right now.
   const results = await Promise.allSettled([
     scheduleEmail(DAY0_SUBJECT, DAY0_BODY),
     scheduleEmail(DAY3_SUBJECT, DAY3_BODY, daysFromNow(3)),
     scheduleEmail(DAY7_SUBJECT, DAY7_BODY, daysFromNow(7)),
   ]);
-
-  const [day0, day3, day7] = results;
   for (const r of results) {
     if (r.status === "rejected") console.error("Brevo email error:", r.reason);
   }
-
-  if (day0.status === "rejected") {
-    // The contact is already saved in Brevo, so retrying won't duplicate it.
-    res.writeHead(502);
-    res.end(
-      JSON.stringify({
-        error:
-          "Subscribed, but the welcome email couldn't be sent right now. Please try again in a moment.",
-      }),
-    );
-    return;
-  }
-
-  if (day3.status === "rejected" || day7.status === "rejected") {
-    console.error(
-      "Day 0 sent but a follow-up email failed to schedule, sequence incomplete for",
-      email,
-    );
-  }
-
-  res.writeHead(200);
-  res.end(JSON.stringify({ success: true }));
+  return results[0].status === "rejected" ? "error" : "ok";
 }
