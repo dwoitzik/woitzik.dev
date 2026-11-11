@@ -44,13 +44,180 @@ const ASINS: Record<string, string> = {
 };
 
 // Amazon Associates tracking IDs, one per marketplace this account is
-// registered in. Everything outside GB/US falls back to the DE storefront;
-// that's the marketplace the ASIN catalog above was sourced from.
+// registered in. Every other country falls back to the DE storefront, the
+// marketplace the ASIN catalog above was sourced from and one that ships across
+// the EU.
 const MARKETPLACES: Record<string, { domain: string; tag: string }> = {
   GB: { domain: "amazon.co.uk", tag: "woitzikdev0e-21" },
   US: { domain: "amazon.com", tag: "woitzikdev-20" },
+  FR: { domain: "amazon.fr", tag: "woitzikdev0f0-21" },
+  ES: { domain: "amazon.es", tag: "woitzikdev0a-21" },
+  PL: { domain: "amazon.pl", tag: "woitzikdev00-21" },
+  NL: { domain: "amazon.nl", tag: "woitzikdev03-21" },
 };
 const DEFAULT_MARKETPLACE = { domain: "amazon.de", tag: "woitzikdev-21" };
+
+// ASINs confirmed to have a product page on each non-DE storefront (checked
+// 2026-11-11). Not every ASIN exists everywhere: a /dp/ link to a missing ASIN
+// lands on Amazon's 404 page and the visit is lost. Confirmed ASINs go
+// straight to the product page; anything unconfirmed goes to a storefront
+// search for that ASIN, which shows the product when it exists and related
+// listings when it doesn't. Either way the visitor stays in their own store
+// with the right tag. Add an ASIN here once its product page is confirmed.
+const VERIFIED: Record<string, Set<string>> = {
+  "amazon.co.uk": new Set([
+    "1098119061",
+    "1491962194",
+    "1617297275",
+    "1718504527",
+    "1942788290",
+    "3747510094",
+    "B01MZXL61M",
+    "B06XCXNB59",
+    "B07CRG94G3",
+    "B07HC7P3HJ",
+    "B07ZLCVKPV",
+    "B086NHM33N",
+    "B08T1TTQQC",
+    "B09BFT7NZJ",
+    "B09GW641SL",
+    "B09M6W23ZM",
+    "B09P1KD19W",
+    "B0BJVX5K5R",
+    "B0BLTG7TN6",
+    "B0C1YKGGWY",
+    "B0CRPF47RG",
+    "B0D2K9J5TY",
+    "B0DZF4VL35",
+    "B0DZQK5ZWN",
+    "B0FB2XPTKC",
+    "B0FB7KQLR1",
+    "B0FNM2KG6R",
+  ]),
+  "amazon.com": new Set([
+    "1098119061",
+    "1491962194",
+    "1617297275",
+    "1718504527",
+    "1942788290",
+    "B07CRG94G3",
+    "B07HC7P3HJ",
+    "B07ZLCVKPV",
+    "B086NHM33N",
+    "B08T1TTQQC",
+    "B09BFT7NZJ",
+    "B09GW641SL",
+    "B09M6W23ZM",
+    "B09P1KD19W",
+    "B0BJVX5K5R",
+    "B0BLTG7TN6",
+    "B0C1YKGGWY",
+    "B0CRPF47RG",
+    "B0DZF4VL35",
+    "B0FB2XPTKC",
+    "B0FB7KQLR1",
+  ]),
+  "amazon.fr": new Set([
+    "1098119061",
+    "1491962194",
+    "1617297275",
+    "1718504527",
+    "1942788290",
+    "3747510094",
+    "B01MZXL61M",
+    "B06XCXNB59",
+    "B07CRG94G3",
+    "B07HC7P3HJ",
+    "B07ZLCVKPV",
+    "B086NHM33N",
+    "B08T1TTQQC",
+    "B09BFT7NZJ",
+    "B09GW641SL",
+    "B09M6W23ZM",
+    "B09P1KD19W",
+    "B0B12S22WV",
+    "B0BJVX5K5R",
+    "B0BLTG7TN6",
+    "B0C1YKGGWY",
+    "B0C4GWYL6K",
+    "B0CRPF47RG",
+    "B0D2K9J5TY",
+    "B0DPM4N1SL",
+    "B0DSPXJ2LS",
+    "B0DZF4VL35",
+    "B0DZQK5ZWN",
+    "B0FB2XPTKC",
+    "B0FB7KQLR1",
+    "B0FNM2KG6R",
+  ]),
+  "amazon.es": new Set([
+    "1098119061",
+    "1491962194",
+    "1617297275",
+    "1718504527",
+    "1942788290",
+    "3747510094",
+    "B01MZXL61M",
+    "B06XCXNB59",
+    "B07CRG94G3",
+    "B07HC7P3HJ",
+    "B07ZLCVKPV",
+    "B086NHM33N",
+    "B08T1TTQQC",
+    "B09BFT7NZJ",
+    "B09GW641SL",
+    "B09M6W23ZM",
+    "B09P1KD19W",
+    "B0B12S22WV",
+    "B0BJVX5K5R",
+    "B0BLTG7TN6",
+    "B0C1YKGGWY",
+    "B0C4GWYL6K",
+    "B0CRPF47RG",
+    "B0D2K9J5TY",
+    "B0DPM4N1SL",
+    "B0DSPXJ2LS",
+    "B0DZF4VL35",
+    "B0DZQK5ZWN",
+    "B0FB2XPTKC",
+    "B0FB7KQLR1",
+    "B0FNM2KG6R",
+    "B0GHY46K1B",
+  ]),
+  "amazon.pl": new Set([
+    "1098119061",
+    "1491962194",
+    "1617297275",
+    "1718504527",
+    "1942788290",
+    "3747510094",
+    "B01MZXL61M",
+    "B06XCXNB59",
+    "B07CRG94G3",
+    "B07HC7P3HJ",
+    "B07ZLCVKPV",
+    "B086NHM33N",
+    "B08T1TTQQC",
+    "B09BFT7NZJ",
+    "B09GW641SL",
+    "B09M6W23ZM",
+    "B09P1KD19W",
+    "B0B12S22WV",
+    "B0BJVX5K5R",
+    "B0BLTG7TN6",
+    "B0C1YKGGWY",
+    "B0C4GWYL6K",
+    "B0CRPF47RG",
+  ]),
+};
+
+function productUrl(domain: string, tag: string, asin: string) {
+  const confirmed =
+    domain === DEFAULT_MARKETPLACE.domain || VERIFIED[domain]?.has(asin);
+  return confirmed
+    ? `https://www.${domain}/dp/${asin}?tag=${tag}`
+    : `https://www.${domain}/s?k=${asin}&tag=${tag}`;
+}
 
 export default async function handler(
   req: IncomingMessage & { query?: Record<string, string | string[]> },
@@ -86,15 +253,11 @@ export default async function handler(
     domain,
     ua: req.headers["user-agent"] ?? "",
     referer: req.headers["referer"] ?? req.headers["referrer"] ?? "",
-    ip:
-      req.headers["x-vercel-forwarded-for"]?.toString().split(",")[0].trim() ??
-      req.headers["x-real-ip"]?.toString() ??
-      "",
     path: url.pathname,
     query: url.search,
   });
   res.writeHead(302, {
-    Location: `https://www.${domain}/dp/${asin}?tag=${tag}`,
+    Location: productUrl(domain, tag, asin),
     "Cache-Control": "no-store",
   });
   res.end();
