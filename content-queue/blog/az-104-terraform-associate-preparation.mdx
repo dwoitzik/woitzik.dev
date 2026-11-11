@@ -1,0 +1,101 @@
+---
+title: "How I Prepared for AZ-104 and Terraform Associate"
+description: "Terraform Associate by self-study plus daily Terraform work, AZ-104 through paid instructor-led training. What each exam tests and which path fits which cert."
+date: "2027-04-01"
+tags: ["Azure", "Terraform", "Security"]
+---
+
+**Short answer:** I passed HashiCorp Terraform Associate with self-study (a Udemy course plus the Terraform I already write at work and for my homelab) in roughly two to four weeks alongside work. I passed Microsoft AZ-104 Azure Administrator after an instructor-led training at TÜV Rheinland, and preparation was essentially the length of that course. My verdict on the paid training: worth it if your employer pays, too expensive for what you get if you pay for it yourself. The hardest part of either exam was AZ-104's identity and access block: Entra ID, RBAC and Azure Policy.
+
+Terraform Associate issued July 2025 (valid to July 2027), AZ-104 issued April 2026 (valid to April 2027). Exam facts below were checked against the official HashiCorp and Microsoft pages in November 2026. Exams change, so check the linked pages again before you book.
+
+## Terraform Associate: What It Tests
+
+The current version is **Terraform Associate (004)**. According to the [official exam page](https://developer.hashicorp.com/certifications/terraform-associate), it is a one-hour, online proctored, multiple-choice exam in English, tests Terraform 1.12, and the credential is valid for two years. The page lists the price as $70.50 USD plus local taxes and fees, with no free retake.
+
+The [004 review guide](https://developer.hashicorp.com/terraform/tutorials/certification-004/associate-review-004) groups the objectives into eight areas:
+
+1. Infrastructure as Code with Terraform
+2. Terraform fundamentals (providers, state)
+3. Core Terraform workflow (`init`, `validate`, `plan`, `apply`, `destroy`, `fmt`)
+4. Terraform configuration (resources vs. data blocks, variables, outputs, complex types, expressions, dependencies, custom conditions, sensitive data and Vault)
+5. Terraform modules (sources, variable scope, versions)
+6. Terraform state management (local backend, locking, remote backends, drift)
+7. Maintaining infrastructure (import, inspecting state, verbose logging)
+8. HCP Terraform (workspaces, projects, collaboration and governance)
+
+HashiCorp's own [study guide](https://developer.hashicorp.com/terraform/tutorials/certification-004/associate-study-004) says you are best prepared with professional production experience, and that working through the objectives in a personal demo environment may be sufficient.
+
+### How daily Terraform work covers most of it
+
+Most of objectives 1 to 7 overlaps with the Terraform I write at work and at home. My homelab runs separate Terraform stacks for the MikroTik network, Proxmox, Cloudflare and Garage, each with its own remote state in an S3-compatible backend, and the public Azure modules on my GitHub are plain Terraform as well. Running `fmt`, `validate` and `plan` in CI, reading a plan before it applies, pinning provider versions, and writing `import` blocks to adopt resources that already existed map directly onto objectives 2, 3, 6 and 7.
+
+Regular use does not automatically cover the exam's precision, though. Multiple-choice questions ask about exact command behavior, state locking and backend details, and module variable scope rules, so a structured course on top of hands-on work is what I used to close that gap.
+
+### What to study on top
+
+The one area my own work does not touch is **objective 8, HCP Terraform**. My state lives in a self-hosted S3 backend and applies run through GitHub Actions, so HCP Terraform workspaces, projects, variable sets, team permissions and run triggers never come up. If your setup looks like mine, plan time for the free [Get Started with HCP Terraform](https://developer.hashicorp.com/terraform/tutorials/cloud-get-started) tutorials.
+
+The 004 review guide also calls out objectives that were added compared to 003: resource dependencies (4f), custom conditions (4g), sensitive data and Vault (4h), and HCP Terraform workspaces and projects (8c). If you prepare with material written for 003, cover those four separately.
+
+## AZ-104: What It Tests
+
+AZ-104 leads to the **Microsoft Certified: Azure Administrator Associate** credential. The [certification page](https://learn.microsoft.com/en-us/credentials/certifications/azure-administrator/) gives 100 minutes for the exam, says it is proctored and may include interactive components, and prices it by the country where you take it. The [scoring page](https://learn.microsoft.com/en-us/credentials/certifications/exam-scoring-reports) and the study guide both state that you need 700 or more to pass.
+
+The [AZ-104 study guide](https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/az-104) splits the skills measured into five areas:
+
+| Skill area | Weight |
+| --- | --- |
+| Manage Azure identities and governance | 20 to 25% |
+| Implement and manage storage | 15 to 20% |
+| Deploy and manage Azure compute resources | 20 to 25% |
+| Implement and manage virtual networking | 15 to 20% |
+| Monitor and maintain Azure resources | 10 to 15% |
+
+The skills outline in force when I checked is dated October 26, 2023.
+
+### Why identity and access was the hard part
+
+The first block is the one I found hardest. From the official outline, it covers:
+
+- **Entra users and groups:** creating users and groups, managing their properties, managing licenses in Entra ID, managing external users, and configuring self-service password reset (SSPR).
+- **Access to Azure resources:** managing built-in Azure roles, assigning roles at different scopes, and interpreting access assignments.
+- **Subscriptions and governance:** implementing and managing Azure Policy, resource locks, tags, resource groups, subscriptions, cost alerts and budgets, Azure Advisor recommendations, and management groups.
+
+The three parts interact, and that is what makes the block hard: a role assignment at a management group is inherited down the scope hierarchy, a resource lock can block an action a role allows, and an Azure Policy can deny a deployment that RBAC permits. "Interpret access assignments" means working out the effective result of all of that, and that is where questions get specific.
+
+The networking block maps much more directly onto what I build in Terraform: VNets, peering, user-defined routes, NSGs, private endpoints and private DNS. Note that the compute block expects you to read and modify ARM templates and Bicep files, not Terraform.
+
+### The paid-training verdict
+
+I prepared through an instructor-led training at TÜV Rheinland. Microsoft lists the official course as [AZ-104T00, Microsoft Azure Administrator](https://learn.microsoft.com/en-us/training/courses/az-104t00), four days, delivered by training partners. The same content is free as self-paced learning paths on Microsoft Learn, starting from the [certification page](https://learn.microsoft.com/en-us/credentials/certifications/azure-administrator/), and Microsoft offers a free practice assessment and an exam sandbox there as well.
+
+My verdict: the instructor-led route is worth it when your employer pays for it. If you pay privately, it is too expensive for what you get, given that the learning paths, practice assessment and sandbox cost nothing.
+
+## Self-Study vs. Paid Training
+
+| | Terraform Associate (004) | AZ-104 |
+| --- | --- | --- |
+| Free official material | HashiCorp tutorials and study guide | Microsoft Learn learning paths, practice assessment, exam sandbox |
+| Official instructor-led option | Not listed on the exam page | AZ-104T00, 4 days, via training partners |
+| Exam length | 1 hour | 100 minutes |
+| Validity | 2 years | 12 months, renewable |
+| How I prepared | Udemy course plus hands-on Terraform work, roughly 2 to 4 weeks | Instructor-led training at TÜV Rheinland, about the course length |
+| My verdict on paid training | Not used | Only worth it if the employer pays |
+
+## How the Certs Map to Real Work
+
+Both exams test the building blocks. Real work means putting them together. On this blog, that looks like:
+
+- **[Zero-Trust Hub & Spoke with Terraform](/blog/azure-terraform-hub-spoke-zero-trust/):** VNet peering, NSGs and Private DNS from the AZ-104 networking block, written as Terraform, plus the Azure Policy side effects that the governance block only describes.
+- **[NIS2 Article 21 in Azure](/blog/nis2-article-21-azure-terraform/):** segmentation, access control and auditability mapped to Azure resources, which is the identity and governance block applied to a compliance requirement.
+- **[Private AKS with Zero Trust](/blog/azure-private-aks-zero-trust/):** private endpoints, user-defined routes and RBAC role assignments to managed identities instead of stored credentials.
+- **[My Terraform Runner Destroyed Itself Mid-Apply](/blog/atlantis-terraform-destroyed-itself-mid-apply/):** state, providers and the apply workflow from the Terraform Associate objectives, in the situation where they go wrong.
+
+## Renewal
+
+The two certifications renew very differently.
+
+**AZ-104** expires after 12 months. According to Microsoft's [renewal page](https://learn.microsoft.com/en-us/credentials/certifications/renew-your-microsoft-certification), renewal is free: you pass a short, unproctored, open-book online assessment on Microsoft Learn during a six-month eligibility window before expiry, you can retake it as often as needed until the expiry date, and a pass extends the certification by one year from the expiration date.
+
+**Terraform Associate** is valid for two years and has no free renewal assessment. Per the [exam page](https://developer.hashicorp.com/certifications/terraform-associate), 004 holders can extend it by passing the 004 exam again starting six months before expiration, or by passing the Terraform Infrastructure Engineer Professional exam or one of the Terraform Authoring and Operations Advanced exams. For 002 and 003 holders, retaking the 004 exam issues new, separate credentials instead of extending the old expiration date. Once it has expired, you pass the current version of the exam again.
