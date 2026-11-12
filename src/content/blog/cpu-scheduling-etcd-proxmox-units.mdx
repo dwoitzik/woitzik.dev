@@ -2,7 +2,7 @@
 title: "CPU Scheduling for etcd: Why Proxmox cpu.units Matters"
 description: "Ollama, Minecraft and etcd compete for CPU on one Proxmox host. cpu.units gives the k3s VMs higher weight; without it, leader-election timeouts cascade."
 date: "2026-09-20"
-updated: "2026-11-04"
+updated: "2026-11-12"
 tags: ["Proxmox", "Kubernetes", "Performance", "Homelab"]
 ---
 
@@ -10,13 +10,12 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-**Update:** this cluster has since moved off etcd entirely. A single-server k3s setup uses the
-embedded SQLite datastore by default, and the multi-server HA path that would have used etcd
-was never turned on here. The CPU-contention problem and the `cpu.units` fix below were real
-while etcd was in play, and the underlying lesson (latency-sensitive, write-heavy workloads need
-scheduling priority when they share a host with bursty ones like LLM inference or game servers)
-still holds for anyone running multi-server etcd today. Read this as a general reference, not
-a description of this cluster's current architecture.
+**Update (November 2026):** this cluster no longer runs etcd. An earlier attempt at three-server
+embedded etcd caused host freezes, because all three k3s VMs share one physical host and one
+DRAM-less NVMe. Since the rebuild on 2026-08-13 the cluster runs a single k3s server on the
+embedded SQLite datastore. The `cpu.units = 2048` weighting below is still set on the k3s VMs.
+The etcd-specific parts explain why etcd is so sensitive to CPU and disk contention: read them as
+a reference for multi-server clusters, not as a description of this cluster's current setup.
 
 etcd is the datastore behind the Kubernetes API. Every write (a ConfigMap update, a Lease renewal, a pod binding) is committed to etcd. When etcd is slow, everything is slow; when etcd times out, the API server stops answering.
 
