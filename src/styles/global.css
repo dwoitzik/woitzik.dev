@@ -30,6 +30,29 @@ body {
   font-feature-settings: "cv11", "ss01";
 }
 
+/* Sticky footer: on pages shorter than the viewport, <main> takes the free
+   height so the footer sits at the bottom instead of mid-screen. */
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+#main-content {
+  flex: 1 0 auto;
+}
+
+/* Short status pages (404, newsletter confirmation): center the content in
+   the free height instead of leaving it stuck under the header. */
+#main-content:has(> .page-center) {
+  display: flex;
+  flex-direction: column;
+}
+
+.page-center {
+  margin-block: auto;
+  width: 100%;
+}
+
 ::selection {
   @apply bg-teal-500/25 text-inherit;
 }
