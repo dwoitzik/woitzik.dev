@@ -1,0 +1,142 @@
+---
+title: "Trivy Action: Why severity CRITICAL,HIGH Still Uploaded 459 Findings"
+description: "In trivy-action, limit-severities-for-sarif is a boolean. Any value but true unsets the severity filter, so my SARIF upload kept all 459 advisory findings."
+date: "2026-11-21"
+tags: ["Security", "CI/CD", "Kubernetes", "Debugging"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+I narrowed the Trivy SARIF upload in my homelab CI to `severity: CRITICAL,HIGH`, reproduced it locally, got 0 results and declared the GitHub Security tab clean. It wasn't. The upload still carried all 459 MEDIUM and LOW findings, because `aquasecurity/trivy-action` deletes the severity filter for SARIF output unless `limit-severities-for-sarif` is exactly `true`. My second attempt set that input to `CRITICAL,HIGH`, which is not `true`, so it changed nothing. A guard script I added the same afternoon caught it on its first run. Three PRs on 2026-10-02 (#821, #822, #823), and the interesting part is why the first check lied.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The setup
+
+The `security-scan` job in `.github/workflows/ci.yml` runs Trivy three times over the repo: two `format: table` steps restricted to `severity: CRITICAL,HIGH` that print findings in the log, and one `format: sarif` step that uploads to the GitHub Security tab.
+
+The SARIF step had no severity filter. Measured against `kubernetes/` with the repo's `.trivyignore`, that produced 478 findings:
+
+```text
+error     19   HIGH/CRITICAL
+warning  167   MEDIUM
+note     292   LOW/UNKNOWN
+```
+
+So the Security tab showed 478 alerts while the part CI cares about was 19. A 19-item signal under 459 advisory rows is a signal nobody reads, and because the count never moved, a real regression would have looked exactly like the backlog.
+
+## Attempt 1 (#821): set severity on the SARIF step
+
+The plan in ADR-049 had two parts. Narrow the SARIF upload to the severities the table steps enforce, and move the 19 enforced findings into `.trivyignore` with their evidence. Most of them were deliberate decisions already recorded in manifest comments, for example workloads that crash with `readOnlyRootFilesystem` (I broke [nine containers](/blog/kubernetes-securitycontext-hardening-broke-9-containers/) learning which ones). GitHub closes an alert when a later upload for the same analysis no longer contains it, so the tab should converge to zero without any dismissal API calls.
+
+The workflow change was one line:
+
+```yaml
+          format: sarif
+          output: trivy-results.sarif
+          trivyignores: .trivyignore
+          severity: CRITICAL,HIGH
+```
+
+To check it, I reproduced the scan locally with the Trivy version CI runs, 0.70.0:
+
+```console
+TRIVY_SEVERITY=CRITICAL,HIGH trivy config kubernetes/ --format sarif --ignorefile .trivyignore
+  -> 0 results
+```
+
+Zero. I merged and called the tab clean.
+
+## Attempt 2 (#822): read the log, misread the log
+
+Reading the CI job log afterwards, two things looked off. The action printed `Building SARIF report with all severities`, and the Trivy invocation in the log was `trivy config kubernetes/` with no `--severity` flag.
+
+I explained both away. The action passes `severity` to Trivy as the `TRIVY_SEVERITY` environment variable, not as a flag, so a missing flag proved nothing. And I read "all severities" as the action announcing that its optional SARIF post-processing was skipped, not as a statement about the report. My local reproduction said 0, so I trusted that.
+
+To be safe I added the other input anyway:
+
+```yaml
+          severity: CRITICAL,HIGH
+          limit-severities-for-sarif: CRITICAL,HIGH
+          version: v0.70.0
+```
+
+`version` pins Trivy explicitly. CI had been running 0.70.0 only because that is the action's default, and I wanted a Trivy bump to be a deliberate change, not a side effect of updating the action.
+
+More importantly, the same PR added a guard. Trivy runs with `exit-code: 0`, so nothing failed when a finding appeared on the Security tab. `scripts/check-trivy-sarif.py` runs after the upload and fails the build if the SARIF contains any result:
+
+```python
+    document = json.loads(SARIF.read_text())
+    runs = document.get("runs") or [{}]
+    results = [r for run in runs for r in run.get("results", [])]
+
+    if not results:
+        print("  0 findings at CRITICAL,HIGH -- code scanning stays clean.")
+        return 0
+
+    print(f"  {len(results)} finding(s) at CRITICAL,HIGH reached code scanning:\n")
+```
+
+It also fails if the SARIF file is missing, so a skipped scan step can't pass as clean. In the workflow it runs under `if: always()`, after the upload step:
+
+```yaml
+      - name: Assert code scanning stays clean
+        if: always()
+        run: python3 scripts/check-trivy-sarif.py
+```
+
+That way a regression updates the tab and turns CI red in the same run. I tested the script in three states: a real filtered SARIF passes, two injected findings fail and are listed, a missing file fails.
+
+The CI run for #822 failed in `Security / Trivy`. The guard found 459 findings in the SARIF I had declared clean less than an hour earlier.
+
+## The actual mechanism
+
+The answer is in the action's `entrypoint.sh` (v0.36.0, the version my workflow uses):
+
+```bash
+if [ "${TRIVY_FORMAT:-}" = "sarif" ]; then
+  if [ "${INPUT_LIMIT_SEVERITIES_FOR_SARIF:-false,,}" != "true" ]; then
+    echo "Building SARIF report with all severities"
+    unset TRIVY_SEVERITY
+  fi
+fi
+```
+
+For SARIF output, the action deletes `TRIVY_SEVERITY` before calling Trivy unless `limit-severities-for-sarif` is the literal string `true`. So `severity` alone does not filter a SARIF report at all. The input that controls it is a boolean despite its plural name, and its description in `action.yaml` is just "limit severities for SARIF format", with no default. Passing `CRITICAL,HIGH` is not a narrower severity list. It is a value that is not `true`, and it takes the branch that removes the filter.
+
+That also explains the log line I dismissed. `Building SARIF report with all severities` is exactly what it says. It was the action telling me it had dropped the filter, and I read it as noise.
+
+## Attempt 3 (#823): the one-word fix
+
+```yaml
+          severity: CRITICAL,HIGH
+          # Boolean, not a list: unless exactly "true" the action unsets
+          # TRIVY_SEVERITY (entrypoint.sh), so the SARIF carries every severity
+          # no matter what the input above says.
+          limit-severities-for-sarif: true
+          version: v0.70.0
+```
+
+I reproduced both settings through the action's own logic: 459 results with `CRITICAL,HIGH`, 0 with `true`. The CI run for #823 passed, including `Security / Trivy`, which means the guard saw an empty SARIF.
+
+## Why the local check lied
+
+This is the part I'd keep even if you never use Trivy. My reproduction in #821 was correct. `TRIVY_SEVERITY=CRITICAL,HIGH trivy config ...` really returns 0 results with 0.70.0. It just measured a configuration the action never runs, because the action is written specifically to remove that variable. The local number was true and irrelevant.
+
+Nothing in the CI output contradicted me either. `Successfully uploaded results` carries no count, so from the log alone a 0-result upload and a 459-result upload look the same. The only thing that settled it was a check running inside the real pipeline, on the real artifact, after the real action had done its work.
+
+## What is still not verified
+
+I could not look at the Security tab state through the API. Both tokens I had return `403` for the code-scanning endpoints. The evidence that the tab converges is the guard passing on the uploaded file, plus GitHub's documented behaviour of closing alerts that are absent from a later upload. That's good evidence, but it is not the same as reading the tab, and I'd rather say so than claim it.
+
+## What to check in your own workflow
+
+- **If you use `format: sarif` with trivy-action, set `limit-severities-for-sarif: true`.** Without it, `severity` does nothing for the SARIF output. Any other value, including a severity list, behaves like false.
+- **Grep your job log for `Building SARIF report with all severities`.** If it's there, your SARIF is unfiltered no matter what `severity` says.
+- **Reproduce through the tool you actually run.** Calling the scanner directly with your own env vars tests your assumptions about the wrapper, not the wrapper.
+- **Check the artifact, not the upload status.** A small script that counts `runs[].results[]` in the SARIF and fails the build is about 45 lines. It caught this on its first run.
+- **Pin the scanner version separately from the action version**, so a new rule set arrives as its own reviewable change.
+
+The same lesson keeps coming back in this homelab: the status I can see (a green upload, a Synced app) is not the state I care about. The [ArgoCD drift audit](/blog/gitops-merged-not-applied-argocd-drift/) was that problem with deployments. This was that problem with the Security tab.
+
+<NewsletterCTA />

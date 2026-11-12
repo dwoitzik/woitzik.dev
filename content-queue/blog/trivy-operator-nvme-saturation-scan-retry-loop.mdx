@@ -1,0 +1,103 @@
+---
+title: "Trivy Operator Saturated My NVMe: Retried Scans and a Shared Cache"
+description: "Trivy Operator scan jobs failed on a cache lock and retried forever, re-downloading the DB each time. The NVMe saturated and kubelet leases timed out."
+date: "2026-11-28"
+tags: ["Kubernetes", "Security", "Performance", "Homelab"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+My Proxmox host was writing about 16 MB/s to its only NVMe, around the clock, and the source was one k3s VM. Inside that VM it was the Trivy Operator. Its scan jobs never finished: each one failed with `unable to initialize fs cache: cache may be in use by another process: timeout`, retried, downloaded the Trivy DB again, pulled the image layers again, and failed again. On a single DRAM-less NVMe that was enough to push write latency to around 200 ms, time out the k3s API server and a kubelet, and set off a container restart storm. The fix was `replicas: 0` in Git. Scaling to zero with kubectl had already failed once, two months earlier, because ArgoCD put the replica back.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The hardware constraint
+
+Everything in my homelab runs on one Proxmox host with one DRAM-less consumer NVMe (ADR-034). There is no second disk to move noisy jobs onto. Every VM, every LXC and every container shares the same device, so one component with a write habit becomes everyone's latency problem. I've hit this before with a [boot storm that pushed the load average to 147](/blog/staggered-vm-boot-load-average-147/).
+
+## Finding the second writer
+
+This incident started with a different fix. On 2026-10-16, PR #908 changed the Vault unseal sidecar to poll `/v1/sys/seal-status` over HTTP instead of exec'ing the `vault` CLI every five seconds. The `hashicorp/vault:2.1.1` binary is about 500 MB, the sidecar has a 64Mi memory limit, so the binary could never stay in page cache and every exec re-read it from the NVMe: a sustained 17 to 28 MB/s read load, 24/7. I describe the HTTP polling version in the [auto-unseal sidecar post](/blog/vault-auto-unseal-polling-sidecar/).
+
+That removed the reads, but the host still showed about 16 MB/s of continuous writes coming from one k3s VM. `pidstat -d` inside the VM put the top writer there, and it traced back to the Trivy Operator's scan jobs.
+
+## What the scan jobs were doing
+
+They were not completing. They were retrying:
+
+```text
+FATAL unable to initialize fs cache: cache may be in use by another process: timeout
+```
+
+The message says it plainly: the scan could not open Trivy's filesystem cache because another process held it, and it timed out waiting. The job failed and the operator ran the scan again. The expensive part is that every retry started from the beginning: download the Trivy DB, re-pull the target image's layers, then hit the same lock timeout. The operator paid the full I/O cost of a scan on every loop and got no report out of it.
+
+I didn't pin down which process was holding the cache when the jobs timed out. For the decision it didn't matter. A setup where a failed cache open means repeating all of the download work is unbounded by construction, and on this disk unbounded I/O does real damage.
+
+## What the saturation did to the cluster
+
+The numbers from the host and the VM during the incident:
+
+- `iostat` showed `w_await` around 200 ms.
+- `/proc/pressure/io` showed `avg60` above 8%.
+- The k3s API server and one node's kubelet were timing out. Lease acquisition failed with `context deadline exceeded`.
+
+The kubelet lease failures were what actually triggered a mass container restart storm on that node. Nothing was wrong with those containers. The disk under them was busy re-downloading a vulnerability database.
+
+## This was a repeat
+
+The manifest already carried the history. In an earlier incident (REL-012c), catch-up scan storms after a node reboot pushed datastore latency on the control plane past its budget and contributed to API server outages. That led to two mitigations that are still in the file: a `trivy-scan` PriorityClass with a value of `-1000000`, so the scheduler evicts scan pods first under pressure, and a cap on concurrent scan jobs.
+
+On 2026-08-16 I also disabled SBOM generation (`OPERATOR_SBOM_GENERATION_ENABLED: "false"`). The `SbomReport` objects were 127 KB to 1.2 MB each, one per workload, and LIST calls on that CRD alone measured at a p99 of 4.98 s.
+
+Then on 2026-08-22 the host sat at a load of 25 to 40+ for the better part of an hour, I/O-bound with the NVMe queue saturated. The operator was respawning scan jobs across a backlog of 40+ app images. I scaled it to zero with `kubectl scale --replicas=0`. It looked like it worked. ArgoCD's `selfHeal` reverted it to `replicas: 1` within one reconcile cycle, and the operator came back. PR #522 put `replicas: 0` into Git instead, which held. Same day, I lowered `OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT` from 3 to 1.
+
+On 2026-10-09 (#863) I re-enabled it with one replica, reasoning that concurrency 1 plus no SBOMs would keep the I/O small. A week later it was the top writer on the host again.
+
+## Why the concurrency limit never bounded it
+
+`OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT=1` caps how many scan jobs run at the same time. It says nothing about how much I/O each job does. A single job still downloads a DB and extracts image layers, and a job that fails and retries does it again. Lowering the limit spread the same work over more time. It never limited the total, and with a retry loop the total has no ceiling.
+
+Scanning on a schedule instead of on every workload change would have helped, but in 0.33.0 that is an open upstream feature request (aquasecurity/trivy-operator#1696 and #744), not an option. Concurrency was the only knob, and the wrong one.
+
+## The fix (#909, ADR-057)
+
+```yaml
+spec:
+  # Paused: scan jobs (per-scan trivy-DB download + image re-pull, retriggered
+  # on every workload change) saturated the single DRAM-less NVMe and stalled
+  # the API server. Trivy already runs on every PR in CI, so this is redundant.
+  replicas: 0
+```
+
+In Git, not via kubectl, for the same reason as in August. If you run [ArgoCD with selfHeal](/blog/argocd-gitops-k3s-homelab/), the manifest is the only place an emergency change can hold.
+
+The other half of the decision was accepting what I lose. ADR-057 argues that the operator was redundant: it rescanned the same 160+ runtime images that CI already scans on every PR with `aquasecurity/trivy-action`, gated by a script that fails the build when the uploaded SARIF has findings. What the operator added on top was continuous rescanning of running images, which catches a CVE disclosed after an image shipped. That is now gone, and the ADR says so explicitly, accepting it because the exposed surface of this lab is narrow.
+
+While writing this post I re-read the CI workflow, and that argument does not hold as written. All three Trivy steps in `ci.yml` use `scan-type: config`. They check the Kubernetes manifests and Terraform for misconfigurations. None of them scans a container image for CVEs. So with the operator paused, nothing in my setup scans images for vulnerabilities at all, neither before they ship nor while they run. Pausing the operator was still the right call for the disk. The claim that CI covers the gap was wrong, and it is the next thing to fix: an image scan in CI, or a scheduled scan job with a bounded I/O profile.
+
+## How I verified it
+
+On the host, after the change:
+
+- `nvme0n1` writes went from 19 to 1.1 MB/s.
+- Host load went from 24 to 2.9.
+- The top writer inside the VM was now the Minecraft server's JVM at about 0.65 MB/s, and Paper TPS was back to 20.0 / 19.8 / 19.7.
+
+The host watchdog's load bar of 50 (ADR-056) now has real slack again.
+
+Two days later I deleted the stale report objects the operator had left behind, roughly 130 MB of datastore state (485 `configauditreports` alone). One catch: my k3s runs on SQLite through kine, and the file does not shrink when rows are deleted. `state.db` stayed at 289 MB and its WAL at 322 MB until a checkpoint and vacuum or a k3s restart, which I left for a maintenance window.
+
+## Before re-enabling it
+
+The operator's ConfigMap and PriorityClass are still in place, so turning it back on is a one-line change. ADR-057 sets the condition: only with a bounded per-job I/O profile. That means a shared, durable cache that scan jobs reuse instead of rebuilding, throttled layer pulls, or a job-level I/O budget. Flipping `replicas` back to 1 with the current setup would just rediscover the same wall a third time.
+
+## What to check on your own cluster
+
+- **Search scan job logs for `cache may be in use by another process`.** If it appears, your scans are retrying, and each retry may be repeating the full download.
+- **Measure per-process disk writes, not just load.** `pidstat -d` inside the VM found the writer. Host-level load only told me something was wrong.
+- **Watch IO pressure.** `/proc/pressure/io` and `w_await` pointed at the disk. Kubernetes only showed lease timeouts.
+- **A concurrency limit is not an I/O limit.** It changes the shape of the load, not its size.
+- **Pause through Git when ArgoCD has selfHeal.** `kubectl scale` will be undone within one reconcile cycle.
+- **Check what your CI scanner actually scans before calling the in-cluster one redundant.** `scan-type: config` and `scan-type: image` are different jobs. I wrote down "CI covers it" without reading the `scan-type` line.
+
+<NewsletterCTA />

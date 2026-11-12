@@ -2,7 +2,7 @@
 title: "The Operating Model: What Should Auto-Update vs. What Needs a Human"
 description: "A written contract for what Renovate auto-merges, what gets a PR, what alerts in Discord, what self-heals and what stays manual, so the homelab runs alone."
 date: "2026-09-24"
-updated: "2026-11-04"
+updated: "2026-11-12"
 tags: ["Kubernetes", "Homelab", "GitOps", "Operations"]
 ---
 
@@ -39,9 +39,11 @@ Stateful and critical services where a bad upgrade can cause data loss or auth o
 - **Databases:** CNPG Postgres, Redis/Valkey
 - **Auth:** [Authelia](/blog/k3s-authelia-proxmox-homelab/), [Vault](/blog/vault-auto-unseal-polling-sidecar/)
 - **Storage:** [Garage S3](/blog/velero-garage-k3s-backup/), Velero
-- **Apps with data migrations:** Nextcloud, Paperless, Gitea, Immich
+- **Apps with data migrations:** Nextcloud, Paperless, Gitea
 
 Every update (patch, minor, or digest) gets a PR that requires manual review. The failure mode for these is "database schema mismatch" or "OIDC keys rotated", not a pod restart.
+
+Immich used to be on this list and had to come off it. The phone app updates itself from the app store, and a server that lags behind the app stops accepting mobile uploads. So Immich server and machine learning now auto-merge minor, patch and digest updates, and only major versions wait for review. A rule that looks safe on paper can be the riskier choice when something outside your control moves faster than your review queue.
 
 ### PR-Only, Always (Major Version Bumps)
 

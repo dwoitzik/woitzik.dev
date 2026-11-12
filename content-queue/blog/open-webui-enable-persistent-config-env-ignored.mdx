@@ -1,0 +1,149 @@
+---
+title: "Open WebUI Ignores Your Environment Variables: ENABLE_PERSISTENT_CONFIG"
+description: "ENABLE_LOGIN_FORM=false had no effect on Open WebUI because a database row overrode it. ENABLE_PERSISTENT_CONFIG=false makes the env vars from Git win again."
+date: "2026-11-18"
+tags: ["Kubernetes", "GitOps", "AI", "Debugging"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+I set `ENABLE_LOGIN_FORM=false` on my Open WebUI deployment, ArgoCD synced it, the pod restarted with the new environment, and the login form was still there. The environment variable was correct and completely ignored. Open WebUI stores most of its UI settings in its database, and by default the database value wins over the environment once a row exists. Setting `ENABLE_PERSISTENT_CONFIG=false` turned that around and made the manifest in Git authoritative again. Two PRs, fourteen minutes apart.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Why I wanted the login form gone
+
+Open WebUI (v0.10.2 in my cluster) is the chat frontend for the Ollama instance on my AI node. It does not handle logins itself. Authentication is delegated to Authelia through a Traefik forwardAuth middleware, and Open WebUI trusts the email header Authelia sets:
+
+```yaml
+        - name: WEBUI_AUTH
+          value: "true"
+        - name: WEBUI_AUTH_TRUSTED_EMAIL_HEADER
+          value: "Remote-Email"
+        - name: WEBUI_AUTH_TRUSTED_NAME_HEADER
+          value: "Remote-Name"
+```
+
+The same pattern covers most apps behind my [Authelia setup](/blog/authelia-oidc-kubernetes-25-services/). The problem was that `ENABLE_LOGIN_FORM` defaults to true, so the frontend still rendered its own signin form and competed with header auth for the same session. The Traefik access log showed what that looked like from the outside:
+
+```text
+1018x POST /api/v1/auths/signin
+ 669x 499  (client aborted the request after the backend answered)
+ 349x 200
+  73x 302  (forwardAuth correctly rejecting an unauthenticated request)
+```
+
+Over a thousand signin POSTs, two thirds of them aborted by the browser. The app's own `/api/config` endpoint confirmed the contradiction: `auth=true` and `auth_trusted_header=true`, while `enable_login_form=true`. Header auth was on and the local form was on at the same time.
+
+## First attempt (#838): set the variable
+
+The obvious fix was one environment variable in `kubernetes/apps/open-webui/open-webui.yml`:
+
+```yaml
+        # Auth is delegated to the Authelia forwardAuth middleware via the
+        # trusted-email header below; the local login form competes with it
+        # for the same session and traps the browser in a signin loop.
+        - name: ENABLE_LOGIN_FORM
+          value: "false"
+```
+
+I wrote the blast radius into the PR before merging. With the form gone, an Authelia outage takes Open WebUI down with it instead of degrading to a usable local login. Traefik forwardAuth fails closed (401/403), so removing the form does not open the app up. That trade was fine for me.
+
+The PR merged, ArgoCD rolled the pod, and the signin form was still enabled while the pod environment said false.
+
+## Why the variable did nothing
+
+Open WebUI has two layers of configuration. The environment is read once at import time, and those values become defaults. Then there is a `config` table in the app's database, and for most settings that table is what the app actually serves. The switch between the two is `ENABLE_PERSISTENT_CONFIG`, which defaults to true.
+
+These are the relevant lines in the v0.10.2 source. In `backend/open_webui/config.py`, the login form flag is a plain environment read:
+
+```python
+ENABLE_LOGIN_FORM = os.getenv('ENABLE_LOGIN_FORM', 'True').lower() == 'true'
+```
+
+Further down it goes into the defaults dictionary under a database key:
+
+```python
+    'ui.enable_login_form': ENABLE_LOGIN_FORM,
+```
+
+At the end of the file the persistence switch is read and handed to the config model:
+
+```python
+ENABLE_PERSISTENT_CONFIG = os.getenv('ENABLE_PERSISTENT_CONFIG', 'True').lower() == 'true'
+
+Config.configure(
+    defaults=DEFAULT_CONFIG,
+    enable_persistent=ENABLE_PERSISTENT_CONFIG,
+    enable_oauth_persistent=ENABLE_OAUTH_PERSISTENT_CONFIG,
+)
+```
+
+In `backend/open_webui/models/config.py`, `seed_defaults` only inserts keys that do not exist yet. Its own docstring says it: "Existing DB values take precedence over defaults." Reads go to the database whenever persistence is on, and fall back to the default only if there is no row:
+
+```python
+    @staticmethod
+    async def get(key: str, default: Any = None) -> Any:
+        """Get a config value by key. Returns default if not set."""
+        if not Config.persistent_enabled_for(key):
+            return Config.default_value(key, default)
+        async with get_async_db() as db:
+            row = await db.get(Config, key)
+            return row.value if row else Config.default_value(key, default)
+```
+
+And `main.py` builds the `/api/config` response from that lookup:
+
+```python
+            'enable_login_form': config.get('ui.enable_login_form'),
+```
+
+So the sequence on my instance was: at some earlier start, with the env var unset, the default `True` was seeded into the database as `ui.enable_login_form = 'true'`. From then on that row existed. My new env var changed the default, the default is only used for missing rows, and the row was not missing. The database won, the pod environment said false, and the form stayed.
+
+Nothing in the logs mentions this. From the outside, the variable looks like it is being ignored.
+
+## The fix (#839): make Git authoritative
+
+There were two ways out. I could flip the flag once in the Admin Panel (or delete the row), which writes the database and fixes this one setting. Or I could turn persistence off so every `ui.*` flag comes from the environment.
+
+I picked the second one, because the first only moves the problem. This instance is managed through ArgoCD, and the whole point of that is that the manifest in Git describes the running app. With persistent config on, any Admin Panel click becomes configuration that exists only in a database file on a PVC, invisible to Git, and it survives a PVC restore. That is config drift by design. I've already written about [merged changes that never took effect](/blog/gitops-merged-not-applied-argocd-drift/) while everything looked synced. This was the same failure inside a single app.
+
+```yaml
+        # Without this, ENABLE_PERSISTENT_CONFIG defaults to true and every
+        # ui.* flag is read from the DB, which silently overrides the env
+        # vars set here. Git has to be the source of truth for this app.
+        - name: ENABLE_PERSISTENT_CONFIG
+          value: "false"
+```
+
+With persistence off, `persistent_enabled_for()` returns false for every key, so `get()` returns the environment-derived default and never looks at the table.
+
+## What changes when you turn it off
+
+There is one behaviour change, and you should know it before flipping the switch: settings toggled in the Admin Panel no longer persist across restarts. In v0.10.2, `upsert()` with persistence off writes the new value into the in-memory defaults only:
+
+```python
+            if Config.persistent_enabled_for(key):
+                persistent_updates[key] = value
+            else:
+                Config.DEFAULTS[key] = value
+```
+
+So the Admin Panel still works for the life of the pod, and the next restart throws the change away. For a GitOps-managed instance that is the behaviour I want. For an instance you configure by clicking, it would be a nasty surprise.
+
+Before merging I checked which settings that could hurt. Every flag the manifest sets is unaffected by definition. The only one I had last changed through the UI was `ui.enable_signup`, and its database value (`false`) matched what the manifest sets, so nothing I relied on was living only in the database.
+
+Rollback for both PRs is a plain revert.
+
+## What to check on your own instance
+
+- **Compare `/api/config` with your pod environment.** The `features` block shows what the frontend actually gets. If `enable_login_form` or `enable_signup` disagree with your env vars, the database is winning.
+- **Assume any env var that maps to a `ui.*` (or similar) key is only a first-boot default** as long as `ENABLE_PERSISTENT_CONFIG` is true. Changing it later does nothing for keys that already have a row.
+- **Decide where your config lives.** If you deploy from Git, set `ENABLE_PERSISTENT_CONFIG=false` and accept that the Admin Panel becomes temporary. If you manage the app by hand, leave it on and stop expecting env changes to take effect.
+- **Audit UI-made changes before switching.** Anything you set only through the Admin Panel disappears from the running config on the next restart. Put it in the manifest first.
+- **OAuth settings have their own switch.** In v0.10.2 there is a separate `ENABLE_OAUTH_PERSISTENT_CONFIG`, and it defaults to false, so `oauth.*` keys already come from the environment. Don't assume both switches share a default.
+- **Write the blast radius of auth changes down first.** Removing the local login form makes the app depend fully on the auth proxy. Make sure the proxy fails closed before you rely on it.
+
+The general lesson is the one this homelab keeps teaching me. The value in Git, the value in the pod spec and the value the app serves are three different things, and only the last one counts. I check it with a request to the running app, not by reading the manifest.
+
+<NewsletterCTA />

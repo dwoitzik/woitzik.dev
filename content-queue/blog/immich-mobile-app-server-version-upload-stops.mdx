@@ -1,0 +1,136 @@
+---
+title: "Immich App Stops Uploading: The Server Must Match the Mobile App Version"
+description: "The Immich app stopped backing up photos while every server signal was green. The app had auto-updated to 3.3.3, the server was v3.2.2. How I found it."
+date: "2026-11-14"
+tags: ["Homelab", "Kubernetes", "Debugging", "Self-Hosted"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+The Immich mobile app on my phone stopped uploading photos. Selecting photos and starting a backup did nothing. On the server side everything looked healthy: all four pods `Running`, storage with plenty of room, ingress answering `200`, no errors in the log. The cause was on the phone. The app had auto-updated from 3.2.1 to 3.3.3, the server was still on v3.2.2, and the app quietly refuses to upload to a server older than itself. Bumping the server to v3.3.3 fixed it. It was also the second time this happened in a month.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The symptom
+
+Immich runs on my k3s cluster as `immich-server`, `immich-ml`, `immich-redis` and `immich-postgres-0`, with the photo library on an NFS export. The phone backs up over the home LAN. On 2026-10-18 I noticed that backups had stopped. No error dialog on the phone that pointed anywhere useful, and nothing on the server side that looked like a failure.
+
+My first suspicion was infrastructure, because that is where things usually break in my setup: storage, the database, or the LAN ingress path.
+
+## Ruling out the infrastructure
+
+I worked through the stack from the bottom:
+
+- **Pods.** `immich-server`, `immich-postgres-0`, `immich-redis` and `immich-ml` were all `Running`.
+- **Storage.** The library export (`10.0.20.100:/usb-immich-library`) was 20% used. A 20 MiB test write from inside the `immich-server` container completed at about 56 MB/s. The volume was writable and not slow.
+- **Ingress.** On the LAN, `photos.woitzik.dev` resolved to Traefik at `10.0.20.200`, which answered `200` on `/api/server/ping` with a valid `*.woitzik.dev` certificate.
+- **Logs.** The server log had no `ERROR` or `WARN` lines, and every `POST /api/assets` that did arrive returned `201` or `200`.
+
+Every one of those checks was green, and none of them could explain the problem. A failing upload would leave a trace somewhere in that list. There was none, which meant the uploads were not failing. They were not happening.
+
+## What the request log showed
+
+The useful signal was in the server's own request log, once I stopped looking for errors and looked at which endpoints the phone actually called. The app was connected and busy:
+
+```text
+/api/sync/stream
+/api/sync/ack
+/api/search/random
+/api/auth/validateToken
+/api/server/version
+```
+
+Authentication worked and sync worked. What was missing was `POST /api/assets`. The app never even tried to upload. Whatever was stopping it had to be on the client side, before any upload request was built.
+
+The one call in that list that reads like a gate is `/api/server/version`. The app asks the server what version it is, every time.
+
+## The session table had the answer
+
+Immich records the client build for every session in its Postgres database. The `session` table has an `appVersion` column, so I queried it:
+
+```text
+ deviceType | deviceOS | appVersion |           updatedAt
+------------+----------+------------+-------------------------------
+            | android  | 3.3.3      | 2026-10-18 13:52:39+00
+            | android  | 3.3.3      | 2026-10-18 14:10:42+00
+            | android  | 3.2.1      | 2026-09-28 08:21:26+00
+```
+
+The last 3.2.1 session dates from 2026-09-28. On 2026-10-18 the phone reported 3.3.3. The app store had updated it in the background. The server reported something older:
+
+```text
+GET /api/server/version -> {"major":3,"minor":2,"patch":2,"prerelease":null}
+```
+
+App 3.3.3, server v3.2.2. The Immich mobile app refuses to sync or upload when the server is older than the app build. That guard lives entirely on the phone. The server never sees a rejected upload because the app never sends one, so every server-side health signal stays green while backups stop.
+
+## I had fixed exactly this a month earlier
+
+The reason the server was on v3.2.2 is PR #747, from 2026-09-17. Its title says it all: "bump immich to v3.2.2 to match mobile app 3.2.1 sync requirement". Back then the app had jumped to 3.2.1 while the server was still on v3.1.0, with the same result: no uploads.
+
+Right after #747 I added a Renovate rule (#748) so the server would never lag the app again. Immich had been in my "stateful, PR-only" group, the same group as databases and Vault, because Immich upgrades can carry database migrations. I moved the server and ML images out of that group into their own rule:
+
+```json
+{
+  "description": "Immich server + ML: MUST follow the mobile app releases. The store auto-updates the app, and an older server blocks mobile backup/sync (2026-09-05 outage: app 3.2.1 vs server 3.1.0). Unlike the generic stateful/critical rule below, minor+patch+digest auto-merge here so the server never lags the app; only major stays PR-only.",
+  "matchManagers": ["kubernetes"],
+  "matchPackageNames": [
+    "ghcr.io/immich-app/immich-server",
+    "ghcr.io/immich-app/immich-machine-learning"
+  ],
+  "matchUpdateTypes": ["minor", "patch", "digest"],
+  "automerge": true,
+  "platformAutomerge": true,
+  "labels": ["immich", "auto-merge"]
+}
+```
+
+That rule should have caught v3.3.3. It didn't, and I only found out why weeks later. My Renovate config uses `minimumReleaseAge` as a soak period, and that setting requires a release timestamp by default. Docker Hub publishes one. GHCR, where Immich lives, does not. So GHCR updates sat in "pending" forever and never became PRs. A debug run on 2026-11-10 listed about 20 of them, `immich-server` v3.3.6 among them. The fix (#1058) lets Docker updates without a timestamp skip the soak:
+
+```json
+{
+  "matchDatasources": ["docker"],
+  "minimumReleaseAgeBehaviour": "timestamp-optional"
+}
+```
+
+CI still has to pass, the stateful PR-only group still applies, and majors are never auto-merged. The v3.3.6 update (#1060) landed the same day. If you run Renovate with `minimumReleaseAge` and pull images from anything other than Docker Hub, check whether your updates actually arrive.
+
+## The fix (#925, ADR-061)
+
+The immediate fix was a manual bump of `immich-server` and `immich-machine-learning` to v3.3.3, pinned by digest, in `kubernetes/apps/immich/immich.yml`:
+
+```yaml
+      containers:
+      - name: immich-server
+        # immich's mobile app refuses to sync/upload while the server is older
+        # than the app, so keep this and the ML image in step with the app's
+        # version (the app reached v3.3.3) -- see ADR-061.
+        image: ghcr.io/immich-app/immich-server:v3.3.3@sha256:bae7664ff3aa4c2c1fcbdcdd86b40b105643c5f861f3e6a770fc760089f25862
+```
+
+The ML image (and its `fix-cache-ownership` init container, which uses the same image) moved to `v3.3.3@sha256:73915f07...` in the same commit. I left the Postgres image alone. v3.3.3 is a patch release with no database image change.
+
+Before applying it I took a `pg_dump` and stored it next to Immich's own daily dumps on the library volume. That dump is the real rollback path. Immich does not support downgrades, so reverting the image tag alone would not undo the upgrade once the server has run its migrations. A rollback means the old image plus the pre-upgrade database dump.
+
+Once app and server versions matched, uploads resumed.
+
+## Writing it down as a standing coupling
+
+This is not a one-off bug, so I recorded it as ADR-061 and as a known gotcha in the Immich README. The coupling is permanent: the phone updates itself whenever the store decides to, the server updates when I (or Renovate) decide to, and any gap where the app is newer means backups stop with no server-side error.
+
+The README entry says where to look: the app checks `/api/server/version` against its own build, and `session.appVersion` records what each client reports. That table is the fastest way to see which builds your users are running, without asking anyone to open the app's settings screen.
+
+It also corrected something in my own documentation. In my [operating model post](/blog/operating-model-auto-update-human/) I listed Immich among the apps with data migrations that stay PR-only. For the server and ML images that is no longer true: minor, patch and digest updates auto-merge, and only majors wait for me. The data migration risk is still real, which is why the pre-upgrade dump habit matters more now, not less.
+
+## What I check now
+
+- **No errors is not the same as no failures.** When a client-driven action stops, look at which endpoints the client calls, not only at error lines. A missing `POST` explains more than a clean log.
+- **Query `session.appVersion` first** when the Immich app misbehaves. Compare it to `GET /api/server/version`. If the app is newer, you have found it.
+- **Treat app store auto-updates as part of your deployment.** The client side of a self-hosted app is the one component you don't control. Either pin the app (not practical for family phones) or make the server follow it automatically.
+- **Verify that your auto-update rule actually fires.** A Renovate rule that never opens a PR looks exactly like a rule with nothing to do. Run Renovate in debug mode once and read the list of pending updates.
+- **Take a database dump before every Immich bump**, even a patch. A downgrade is not an image swap.
+
+The same pattern of a green status hiding a broken function came up in my [health probe post](/blog/kubernetes-health-probes-host-header-trap/): the checks I had were all real, they just measured something other than "can the phone upload a photo".
+
+<NewsletterCTA />
