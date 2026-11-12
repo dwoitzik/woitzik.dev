@@ -68,7 +68,7 @@ vzdump --all 1 --exclude 9000 --storage local-pbs --mode snapshot \
 
 PBS handles deduplication, compression and incremental backups. The USB HDD is a second medium, independent of the NVMe the cluster runs on, so it survives cluster failures.
 
-The weak spot: PBS and the k3s VMs share the same physical host, and the HDD hangs off it by USB. If the NVMe dies, the datastore on the HDD is intact, but I have to rebuild Proxmox VE and PBS before I can restore anything. A power surge, fire or theft takes the primary data and the backup together. Layer 2 protects against software failure (corruption, accidental deletion) and single-disk failure, not against losing the site.
+The weak spot: PBS and the k3s VMs share the same physical host, and the HDD hangs off it by USB. If the NVMe dies, the datastore on the HDD is intact, but I have to rebuild Proxmox VE and PBS before I can restore anything. A power surge, fire or theft takes the primary data and the backup together. Layer 2 protects against software failure (corruption, accidental deletion) and single-disk failure, not against losing the site. If you are building this layer from scratch, a dedicated NAS at least moves the backup disks off the hypervisor host, though it still shares the site; my [NAS comparison for home backup and homelab use](/blog/best-nas-home-backup-2026/) covers five options.
 
 ### Layer 3: Offsite
 

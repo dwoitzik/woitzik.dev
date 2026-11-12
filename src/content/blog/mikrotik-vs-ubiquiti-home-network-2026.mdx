@@ -2,7 +2,7 @@
 title: "MikroTik vs Ubiquiti UniFi: Which Router for a Homelab?"
 description: "MikroTik RB5009 wins for a homelab run as code: Terraform support, deeper firewall and VLAN control, lower price. UniFi Dream Router wins on setup and Wi-Fi."
 date: "2026-07-25"
-updated: "2026-11-04"
+updated: "2026-11-12"
 tags: ["Networking", "MikroTik", "Review"]
 ---
 
@@ -12,7 +12,7 @@ import AffiliateLink from "@components/AffiliateLink.astro";
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-MikroTik or Ubiquiti is the networking debate that never dies in homelab circles. I have run both: a <AffiliateLink href="/go/4w08b21">MikroTik RB5009</AffiliateLink> as my primary router for over two years, with every firewall rule and VLAN managed in Terraform, and Ubiquiti UniFi gear in a friend's lab where I helped with the deployment. This is a practical breakdown of what each platform delivers for a homelab that runs Proxmox VE, k3s, and zero-trust networking, not a spec-sheet comparison.
+MikroTik vs Ubiquiti UniFi is the networking debate that never dies in homelab circles. I have run both: a <AffiliateLink href="/go/4w08b21">MikroTik RB5009</AffiliateLink> as my primary router for over two years, with every firewall rule and VLAN managed in Terraform, and Ubiquiti UniFi gear in a friend's lab where I helped with the deployment. This is a practical breakdown of what each platform delivers for a homelab that runs Proxmox VE, k3s, and zero-trust networking, not a spec-sheet comparison.
 
 ## TL;DR: The Verdict
 
@@ -137,7 +137,7 @@ Whichever you pick, check the VLAN matrix before you configure anything. The [VL
 
 This is where MikroTik pulls away for any homelab running infrastructure-as-code.
 
-The **RouterOS Terraform provider** (`terraform-routeros/routeros`) is mature, actively maintained, and covers nearly every RouterOS resource: interfaces, bridges, VLANs, firewall rules, DHCP, DNS, WireGuard, routing, and more. You can define the whole network stack in HCL, version it in Git, and apply changes through a CI pipeline or Atlantis. That is how I run my homelab: every MikroTik change goes through a PR, gets reviewed, and is applied by Atlantis.
+The **RouterOS Terraform provider** (`terraform-routeros/routeros`) is mature, actively maintained, and covers nearly every RouterOS resource: interfaces, bridges, VLANs, firewall rules, DHCP, DNS, WireGuard, routing, and more. You can define the whole network stack in HCL, version it in Git, and apply changes through a CI pipeline. That is how I run my homelab: every MikroTik change goes through a PR, gets reviewed, and is applied by a GitHub Actions workflow triggered from a PR comment (Atlantis did this job until August 2026).
 
 On the Ubiquiti side there is no official Terraform provider. The community provider `paultyng/unifi` does cover networks, WLANs, port profiles, and firewall rules, but its repository was archived in April 2026, and community forks carry it on with no guarantee they keep up with new UniFi Network releases. Every controller update risks breaking your IaC, and anything the provider does not model has to be clicked in the UI.
 
@@ -203,7 +203,7 @@ MikroTik's firewall is more configurable but needs manual hardening. RouterOS ha
 
 ### Can I manage MikroTik with Terraform?
 
-Yes. The `routeros` provider is mature and actively maintained, at version 1.x, and supports RouterOS 7. It covers interfaces, bridges, VLANs, firewall rules, DHCP, DNS, WireGuard, routing, and more. I manage my entire RB5009 configuration through Terraform: every change goes through Git, gets reviewed, and is applied via Atlantis. See the [Terraform VLAN filtering article](/blog/mikrotik-vlan-filtering-terraform-proxmox/) for a real-world example.
+Yes. The `routeros` provider is mature and actively maintained, at version 1.x, and supports RouterOS 7. It covers interfaces, bridges, VLANs, firewall rules, DHCP, DNS, WireGuard, routing, and more. I manage my entire RB5009 configuration through Terraform: every change goes through Git, gets reviewed, and is applied by a PR-comment GitHub Actions workflow. See the [Terraform VLAN filtering article](/blog/mikrotik-vlan-filtering-terraform-proxmox/) for a real-world example.
 
 ### What is the best MikroTik router for a homelab?
 

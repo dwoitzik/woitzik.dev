@@ -114,7 +114,7 @@ data:
 
 **DERP relays** are left to Tailscale's infrastructure (`controlplane.tailscale.com/derpmap/default`). Running your own DERP server adds operational overhead for little benefit in a homelab.
 
-**OIDC** delegates authentication to [Authelia](/blog/k3s-authelia-proxmox-homelab/). When a new device registers, the user signs in through the Authelia web UI, so there is no separate Headscale user management.
+**OIDC** delegates authentication to [Authelia, the cluster's OIDC provider](/blog/authelia-oidc-kubernetes-25-services/). When a new device registers, the user signs in through the Authelia web UI, so there is no separate Headscale user management.
 
 **`ip_prefixes: 100.64.0.0/10`** is the standard Tailscale CGNAT range. Clients in your mesh will receive addresses from this space.
 

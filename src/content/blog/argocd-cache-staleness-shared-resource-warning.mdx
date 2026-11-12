@@ -10,7 +10,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-`kubectl apply` reports success. You check the resource and the field you just changed is back to its old value. No error, no event. `kubectl get` shows the change applied, then a few seconds later it's gone. I hit this on a k3s cluster on a [BMAX Mini PC\*](/go/4bv3yF1) running ArgoCD with `selfHeal: true`. It's small enough to miss in logs and annoying enough to waste an afternoon.
+`kubectl apply` reports success. You check the resource and the field you just changed is back to its old value. No error, no event. `kubectl get` shows the change applied, then a few seconds later it's gone. I hit this on a k3s cluster on a [BMAX Mini PC\*](/go/4bv3yF1) running ArgoCD with `selfHeal: true` (the [ArgoCD homelab setup with App-of-Apps](/blog/argocd-gitops-k3s-homelab/) shows how that cluster is wired). It's small enough to miss in logs and annoying enough to waste an afternoon.
 
 The cause is ArgoCD's `selfHeal` doing what it's designed to do: re-applying its own rendered idea of what the resource *should* be. That rendered state comes from a cache, and the cache can lag behind a fresh `git push`.
 

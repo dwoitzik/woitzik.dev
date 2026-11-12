@@ -34,11 +34,11 @@ Knowing the idle draw of the entire rack (47W) versus under load (120W) tells yo
 
 This is the workhorse of the entire lab. Everything from the [local AI stack running Ollama](/blog/deploying-gemma-proxmox-iac/) to the bulk of my k3s worker nodes lives here.
 
-I run an older BMAX B5A Pro (Ryzen 7 5825U), but if you are buying one today, the upgraded [BMAX Ryzen 7 8745HS Mini PC\*](/go/4bv3yF1) is the direct successor with a much faster Radeon 780M GPU and DDR5 support.
+I run an older BMAX B5A Pro (Ryzen 7 5825U), but if you are buying one today, the upgraded [BMAX Ryzen 7 8745HS Mini PC\*](/go/4bv3yF1) is the direct successor with a much faster Radeon 780M GPU and DDR5 support. If you are comparing other boxes for the same role, the [best mini PC for homelab comparison](/blog/best-mini-pc-homelab-2026/) covers four current models by spec, idle power and NIC.
 
 **The Memory Upgrade:** Out of the box, these mini PCs usually ship with modest RAM. I upgraded my node to 64GB using a [Crucial 64GB DDR4 SODIMM Kit\*](/go/3QZejZn) (or the [Crucial 64GB DDR5 SODIMM Kit\*](/go/4aUt06I) if you go with the newer DDR5-based BMAX model). I chose Crucial because mini-PC platforms can be picky about memory compatibility, and this box runs 24/7. The 64GB isn't a luxury. It's the minimum for running a k3s control plane, several worker workloads and local LLM inference at the same time without resource contention. The OOM cascade I wrote about in [How a 1 GiB Memory Limit Took Down My Entire k3s Cluster](/blog/k3s-cascading-failure-oomkill-dns-storm/) was partly caused by underestimating how quickly memory fills when Proxmox balloons down and kubelet reads the wrong capacity.
 
-**Backup Storage:** For local backups and raw file storage, I have a [Seagate Portable 2TB External HDD\*](/go/4vxwLpY) connected directly via USB. It's the backup target the [disaster recovery runbook](/blog/backup-restore-test-never-verified-network-conflict/) references, deliberately kept independent of the cluster, because a backup that depends on the thing you're backing up *away from* fails together with it.
+**Backup Storage:** For local backups and raw file storage, I have a [Seagate Portable 2TB External HDD\*](/go/4vxwLpY) connected directly via USB. It's the backup target the [disaster recovery runbook](/blog/backup-restore-test-never-verified-network-conflict/) references, deliberately kept independent of the cluster, because a backup that depends on the thing you're backing up *away from* fails together with it. If you would rather keep backups off the hypervisor host entirely, a NAS is the simpler route; the [best NAS for home backup and homelab use](/blog/best-nas-home-backup-2026/) compares five 2-bay and 4-bay units.
 
 ### Edge Nodes
 

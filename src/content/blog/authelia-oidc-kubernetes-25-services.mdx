@@ -12,7 +12,7 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 Every internal service in my homelab goes through the same authentication gate: Authelia. Proxmox, PBS, Grafana, ArgoCD, Headscale, Uptime Kuma, Paperless, Nextcloud: 25+ web services, one login, one session, one set of access rules. The OIDC provider, the Postgres backend, the session store, and the secrets all run inside k3s, backed by CNPG, Redis, and Vault.
 
-Below is the full implementation: how the pieces fit together, why I made certain design decisions, and the specific bugs that bit me along the way.
+Below is the full implementation: how the pieces fit together, why I made certain design decisions, and the specific bugs that bit me along the way. The first Authelia deployment on this cluster, with its five startup failure modes, is covered in the [k3s, Authelia and Longhorn on Proxmox build log](/blog/k3s-authelia-proxmox-homelab/); this post is the OIDC setup that grew out of it.
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 

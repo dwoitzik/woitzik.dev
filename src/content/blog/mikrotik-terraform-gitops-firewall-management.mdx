@@ -191,6 +191,8 @@ Every rule change is visible in the PR before it touches the live router.
 
 The rule of thumb: anything that affects traffic flow or network behavior is in Terraform. One-time setup and the router's own maintenance stay in RouterOS.
 
+This split only works because the RouterOS provider covers nearly every resource. On UniFi the community Terraform provider was archived in April 2026, which is a large part of why [MikroTik beats Ubiquiti UniFi for a homelab run as code](/blog/mikrotik-vs-ubiquiti-home-network-2026/).
+
 ## The LED Night-Mode
 
 The RB5009's LEDs are bright enough to be annoying in a dark room. RouterOS can switch them on a schedule via the system scheduler, so that went into Terraform too:

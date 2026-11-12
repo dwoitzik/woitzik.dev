@@ -12,7 +12,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 Cloud Kubernetes clusters get LoadBalancers for free. You create a Service of type `LoadBalancer`, and within seconds your cloud provider hands you a public IP. On a bare-metal cluster, nothing answers that request and the Service sits in `<pending>` forever. k3s ships ServiceLB (klipper-lb) to cover the gap, but it publishes services on the node IPs instead of handing out dedicated addresses. My k3s cluster runs on Proxmox VMs (a [BMAX Mini PC\*](/go/4bv3yF1) with 64GB handles the whole cluster), and I wanted real, stable service IPs on the server VLAN.
 
-This is one of the first walls every homelab Kubernetes setup hits. MetalLB fixes it, but wiring it up correctly with Traefik and ArgoCD has a few non-obvious steps. (Unrelated, but learned the hard way: keep the rack tidy from the start. [Velcro Cable Ties\*](/go/4bnvY3K) are worth every cent once you start adding switches and patch panels.)
+This is one of the first walls every homelab Kubernetes setup hits. MetalLB fixes it, but wiring it up correctly with Traefik and ArgoCD has a few non-obvious steps. (How the ArgoCD side is organised, one root Application deploying everything, is in [ArgoCD on k3s: GitOps for a whole homelab](/blog/argocd-gitops-k3s-homelab/).) (Unrelated, but learned the hard way: keep the rack tidy from the start. [Velcro Cable Ties\*](/go/4bnvY3K) are worth every cent once you start adding switches and patch panels.)
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -171,6 +171,8 @@ Three deliberate decisions here:
 **`tlsStore.default.defaultCertificate`** makes the [wildcard certificate](/blog/cert-manager-wildcard-k3s-cloudflare/) the default for every Ingress that doesn't specify its own. Every service behind Traefik gets HTTPS automatically.
 
 **`dashboard.enabled: false`** keeps the Traefik dashboard, which exposes routing configuration and middleware details, off the network. Access it via `kubectl port-forward` when needed.
+
+One setting this Service does not show matters later if you add Traefik middlewares: without `externalTrafficPolicy: Local`, Traefik sees a node address instead of the client IP, and [Traefik rate limiting on k3s](/blog/traefik-rate-limit-middleware-k3s/) then puts every visitor into one bucket.
 
 These value names match chart 27.x. Newer major versions of the Traefik chart renamed some of them (the HTTP redirect in particular), so check the chart's changelog before bumping `targetRevision`.
 

@@ -2,7 +2,7 @@
 title: "Best Mini PC for Homelab 2026"
 description: "A hands-on comparison of the 4 best mini PCs for homelab use in 2026: Intel N100, Ryzen 7, and Intel Core platforms for Proxmox, k3s, and always-on workloads."
 date: "2026-07-25"
-updated: "2026-11-04"
+updated: "2026-11-12"
 tags: ["Hardware", "Homelab", "Review"]
 ---
 
@@ -12,7 +12,7 @@ import AffiliateLink from "@components/AffiliateLink.astro";
 
 I have cycled through more mini PCs in my homelab than I care to admit. Some run 24/7, others were retired after a single disappointing week. For 2026 the ranking is clear: Intel's N100 still owns the efficiency tier, AMD's Ryzen mobile chips win multi-threaded workloads, and the budget options no longer feel like a compromise.
 
-My lab runs Proxmox, k3s, Terraform-managed VMs, and local LLM inference on a single Ryzen 5825U host, and that is the workload I judge these boxes against. I don't own the four machines on this list. The comparison is built from manufacturer specs and the linked listings, not from hands-on testing.
+The same criteria apply whether the box ends up as a homelab node or as an always-on home server for file shares, backups and a few containers. My lab runs Proxmox, k3s, Terraform-managed VMs, and local LLM inference on a single Ryzen 5825U host, and that is the workload I judge these boxes against. I don't own the four machines on this list. The comparison is built from manufacturer specs and the linked listings, not from hands-on testing.
 
 ## TL;DR: The Picks
 
@@ -212,9 +212,13 @@ The N100-based S12 Pro is nearly silent at idle and quiet under moderate load. Y
 
 Multiple cheaper ones, almost always. One box is a single point of failure no matter how powerful it is. Two Beelink S12 Pro units (roughly €700-740 together) give you hardware redundancy and the ability to migrate VMs between hosts during maintenance. The exception is when you need 32GB and two NICs on a single box. In that case the GMKtec M5 Ultra with a 2x16GB kit is the minimum viable platform.
 
-### Do these mini PCs support Proxmox well?
+### Which mini PC is best for Proxmox?
 
-All of them work with Proxmox. The Intel NUC 13 Pro has the smoothest experience thanks to the Intel i226-V NIC and full kernel support. Budget boxes with Realtek 2.5GbE NICs work fine with Proxmox but may need the `r8169` driver tuned under heavy bridged traffic. The Ryzen platforms (Beelink, GMKtec) work well out of the box. I have personally run Proxmox on all of these platforms without blocking issues.
+For a single Proxmox node, the Beelink S12 Pro is enough if 16GB covers your VMs. If you need more than 16GB or separate uplinks, the GMKtec M5 Ultra is the pick: two 2.5GbE ports and two SO-DIMM slots up to 64GB. All four install Proxmox VE. The Intel NUC 13 Pro has the smoothest experience thanks to the Intel i226-V NIC and full kernel support. Budget boxes with Realtek 2.5GbE NICs work fine with Proxmox but may need the `r8169` driver tuned under heavy bridged traffic. The Ryzen platforms (Beelink, GMKtec) use standard x86 chipsets that the Proxmox kernel supports. As said at the top, I have not tested these four units myself; my own Proxmox host is a Ryzen 7 5825U mini PC.
+
+### What is a good Intel NUC alternative in 2026?
+
+The NUC line still exists, but ASUS now builds it, and the NUC 13 Pro is the most expensive box here at €780-820. If you want what the NUC offers for less money, the GMKtec M5 Ultra matches its 64GB memory ceiling and adds a second 2.5GbE port for €520-550. For lighter loads, the Beelink S12 Pro covers Proxmox and containers at €350-370, capped at 16GB. What the cheaper boxes do not give you is the NUC's Intel i226-V NIC and its build quality, which is what the premium pays for.
 
 ### What about the Raspberry Pi 5 as a homelab node?
 

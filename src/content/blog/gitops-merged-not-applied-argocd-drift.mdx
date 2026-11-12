@@ -18,7 +18,7 @@ It doesn't always hold. A drift audit of my k3s cluster turned up three merged f
 
 ## How the Gap Opens: ArgoCD's App-of-Apps Bootstrap Problem
 
-The cluster uses ArgoCD's app-of-apps pattern: a root Application watches a directory, creates child Applications for each manifest it finds, and those child Applications sync the actual workloads. The root Application uses a `directory.include` glob to decide which files to track.
+The cluster uses ArgoCD's app-of-apps pattern ([full ArgoCD homelab setup here](/blog/argocd-gitops-k3s-homelab/)): a root Application watches a directory, creates child Applications for each manifest it finds, and those child Applications sync the actual workloads. The root Application uses a `directory.include` glob to decide which files to track.
 
 That glob is set once, at bootstrap time, and files added to the directory later are only tracked if they match it. A file that doesn't match is invisible to ArgoCD. It won't create an Application for it, won't sync it, and won't alert about it. As far as ArgoCD is concerned, the file doesn't exist.
 

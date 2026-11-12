@@ -73,7 +73,7 @@ curl -s "https://router.lan/rest/ip/dns" | jq '.domain'
 
 The RouterOS DHCP server had no domain/search config anywhere. `domain = ""` matched live state because the live state really was empty. DHCP was never handing out `home.lan`.
 
-## The Real Source: Proxmox Cloud-Init
+## The Real Source: Proxmox Cloud-Init Injects the DNS Search Domain
 
 On the k3s nodes themselves:
 

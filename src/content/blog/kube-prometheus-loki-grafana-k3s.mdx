@@ -104,7 +104,7 @@ spec:
 
 ## Step 2: Grafana OIDC via Authelia
 
-Grafana's generic OAuth provider connects to [Authelia](/blog/k3s-authelia-proxmox-homelab/). Users authenticate once, and the same session covers Grafana and every other service behind Authelia.
+Grafana's generic OAuth provider connects to [Authelia as the OIDC provider](/blog/authelia-oidc-kubernetes-25-services/). Users authenticate once, and the same session covers Grafana and every other service behind Authelia.
 
 ```yaml
         grafana:

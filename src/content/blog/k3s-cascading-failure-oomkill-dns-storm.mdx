@@ -130,6 +130,8 @@ dns:
 
 `cache_optimistic: true` means AdGuard returns the cached (possibly stale) answer immediately while refreshing in the background, which removes the latency spike on cache expiry. Combined, these two changes brought the daily query count down to ~120k.
 
+A separate cause of slow external lookups in the same cluster was a `home.lan` search domain that Proxmox cloud-init wrote into every k3s VM; that one is covered in [the Proxmox cloud-init DNS search domain drift](/blog/proxmox-cloudinit-dns-search-domain-drift/).
+
 ## Failure 4: Worker Nodes Reporting Wrong Allocatable Memory
 
 While fixing the above, I noticed something odd in `kubectl describe node vm-srv-k3s-12`:

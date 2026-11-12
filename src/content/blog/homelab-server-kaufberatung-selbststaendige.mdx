@@ -3,7 +3,7 @@ title: "Server für Selbstständige kaufen: Wo Preis-Leistung wirklich stimmt (2
 description: "Wie viel RAM braucht dein Betrieb, und wann lohnt ein eigener Proxmox-Server statt Cloud? Kaufberatung für Selbstständige mit echten Betriebszahlen."
 lang: de
 date: 2026-09-22
-updated: "2026-11-04"
+updated: "2026-11-12"
 draft: false
 pinned: false
 tags: ["Hardware", "Ratgeber", "Selbstständigkeit"]
@@ -11,7 +11,7 @@ tags: ["Hardware", "Ratgeber", "Selbstständigkeit"]
 
 _Basierend auf einem real betriebenen Homelab mit ~80 Diensten (Kubernetes, Proxmox, eigene Infrastruktur) und den Speicherwerten, die dieser Betrieb über Wochen geliefert hat._
 
-Wenn du selbstständig bist und überlegst, einen eigenen Server zu kaufen statt in die Cloud zu gehen, stehst du vor einer Frage, die kaum ein Testbericht beantwortet: **„Wofür kaufe ich das Ding eigentlich?“**
+Wenn du selbstständig bist und überlegst, einen eigenen Server zu kaufen statt in die Cloud zu gehen, etwa als Entwickler für Testumgebungen oder als kleiner Betrieb für Nextcloud und Dokumentenverwaltung, stehst du vor einer Frage, die kaum ein Testbericht beantwortet: **„Wofür kaufe ich das Ding eigentlich?“**
 
 Datenblätter und Werbung reden über Kerne und GHz. Im Betrieb entscheidet etwas anderes. Hier ist die Rechnung aus meinem eigenen Setup.
 
@@ -36,7 +36,11 @@ Testberichte messen Spitzenleistung, etwa in Spielen oder kurzen Benchmarks. Ein
 
 Meine Empfehlung für 2026: ein **6-Kern-Prozessor mit integrierter Grafik** und 16–32 GiB RAM. Die iGPU wird beim Kauf gern unterschätzt. Intel Quick Sync (Iris Xe/Arc) und die Video-Engines aktueller AMD-iGPUs transkodieren 4K in Hardware, ohne separate Grafikkarte. Ohne Hardware-Transcoding erledigt die CPU diese Arbeit, und genau das frisst die Leistung, die deine anderen Dienste brauchen.
 
-## Proxmox oder Cloud: die Rechnung für Selbstständige
+Konkrete Geräte mit Intel N100 und Ryzen 7 vergleiche ich nach Datenblatt, Leerlaufverbrauch und Netzwerkports im englischsprachigen [Mini-PC-Vergleich für Homelab und Heimserver](/blog/best-mini-pc-homelab-2026/).
+
+## Eigener Server oder Cloud: was kostet ein eigener Server im Monat?
+
+Im laufenden Betrieb kostet ein eigener Server vor allem Strom. Bei mir sind das unter 20 € im Monat für rund 10 VMs, dazu kommt die Hardware als einmalige Ausgabe. Ob sich das gegenüber der Cloud rechnet, hängt davon ab, wie viele Dienste dauerhaft laufen:
 
 | Kriterium | Eigener Server (16 GiB) | Cloud-VM (16 GiB) |
 |---|---|---|
@@ -55,4 +59,4 @@ Aktuelle Preise für Hardware und Cloud-VMs schwanken stark; rechne mit den Ange
 
 ## Fazit
 
-Für Selbstständige ist 2026 die Kombination aus **6 Kernen, 16–32 GiB RAM, iGPU und NVMe** der sinnvolle Bereich, unabhängig davon, wie viel Budget du am Ende ausgibst. **RAM ist der Engpass, der dir den Stack tatsächlich lahmlegt.** Mehr CPU hilft nicht, wenn der Node bei 99 % Speicher steht und der API-Server 8 Sekunden p99 braucht. Kauf nach dieser Rechnung, nicht nach GHz.
+Für Selbstständige ist 2026 die Kombination aus **6 Kernen, 16 bis 32 GiB RAM, iGPU und NVMe** der sinnvolle Bereich, unabhängig davon, wie viel Budget du am Ende ausgibst. **RAM ist der Engpass, der dir den Stack tatsächlich lahmlegt.** Mehr CPU hilft nicht, wenn der Node bei 99 % Speicher steht und der API-Server 8 Sekunden p99 braucht. Kauf nach dieser Rechnung, nicht nach GHz. Und wenn auf dem Server Dienste für Kunden laufen, lies vorher, [wann NIS2 für Homelab und gehostete Dienste gilt](/blog/nis2-homelab-gehostete-dienste/).

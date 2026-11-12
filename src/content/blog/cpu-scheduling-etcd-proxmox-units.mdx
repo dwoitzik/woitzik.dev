@@ -26,9 +26,9 @@ The fix is `cpu.units = 2048` on the k3s VMs, while most other guests keep no ex
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## How Proxmox CPU Scheduling Works
+## What cpuunits Does: How Proxmox CPU Scheduling Works
 
-Proxmox relies on the kernel's fair scheduler (CFS, replaced by EEVDF from kernel 6.6) and cgroup CPU weights. Each guest gets a `cpu.units` value (`cpuunits` in Proxmox terms) that sets its share of CPU time when several guests compete for the same physical cores.
+`cpuunits` (shown as CPU units in the Proxmox UI, `cpu.units` in the Terraform provider) is a relative CPU weight per guest. It only takes effect when guests compete for the same cores. Proxmox relies on the kernel's fair scheduler (CFS, replaced by EEVDF from kernel 6.6) and cgroup CPU weights. Each guest gets a `cpu.units` value (`cpuunits` in Proxmox terms) that sets its share of CPU time when several guests compete for the same physical cores.
 
 Only the ratio matters. When two guests with equal units compete for a single core, each gets 50% of the CPU time. When one has `units = 2048` and the other `units = 1024`, the first gets 2/3 and the second 1/3. Watch the baseline: Proxmox VE's default is 1024 only on cgroup v1. On cgroup v2 (every PVE 7 and 8 install) the default is 100, so a guest with no explicit value weighs about 1/20 of a 2048 guest, not 1/2. Set the value explicitly on every guest if you want a predictable ratio.
 

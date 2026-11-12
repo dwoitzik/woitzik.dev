@@ -12,7 +12,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 MikroTik routers are powerful, but configuring them by hand in WinBox or the CLI leads to configuration drift and security holes. This setup runs on the [RB5009\*](/go/4w08b21): its switch chip handles hardware offloading for VLAN-tagged traffic, which matters once you're carrying multiple VLANs across a Proxmox trunk. If you are building a segmented edge network or a home lab with multiple VLANs, you need a firewall that is version-controlled, reproducible, and strictly default-deny.
 
-Here's how I build that Zero-Trust firewall for RouterOS with the `terraform-routeros` provider.
+Here's how I build that Zero-Trust firewall for RouterOS with the `terraform-routeros` provider. That provider is also the main reason I picked MikroTik over UniFi; the full [MikroTik vs Ubiquiti comparison](/blog/mikrotik-vs-ubiquiti-home-network-2026/) covers the rest of the trade-off.
 
 **[View the complete MikroTik IaC source code on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
