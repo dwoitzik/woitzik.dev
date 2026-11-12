@@ -37,6 +37,20 @@ const DISCLOSURE_DE =
   "markiert). Als Amazon-Partner verdiene ich an qualifizierten Verkäufen. " +
   "Für dich kostet es nichts extra.</em>";
 
+// Posts that link a key with a non-Amazon partner target (DIRECT_DE in the
+// redirect handler) must say that other shops pay commission too.
+const MIXED_EN =
+  "<em>Disclosure: This post contains affiliate links (marked with &#42;). " +
+  "As an Amazon Associate I earn from qualifying purchases, and other partner " +
+  "shops linked here pay me a commission as well. Buying through them costs " +
+  "you nothing extra.</em>";
+
+const MIXED_DE =
+  "<em>Werbung: Dieser Beitrag enthält Affiliate-Links (mit &#42; markiert). " +
+  "Als Amazon-Partner verdiene ich an qualifizierten Verkäufen, und auch " +
+  "andere hier verlinkte Partnershops zahlen mir eine Provision. Für dich " +
+  "kostet es nichts extra.</em>";
+
 // AffiliateLink.astro appends &#42; itself, so a link wrapped in that
 // component is marked by construction and needs no literal asterisk.
 const COMPONENT = /<AffiliateLink\b/;
@@ -55,6 +69,21 @@ function asinKeys() {
 }
 
 const keys = asinKeys();
+
+function directKeys() {
+  const src = readFileSync(MAP_FILE, "utf8");
+  const start = src.indexOf("const DIRECT_DE: Record<string, string> = {");
+  if (start < 0) throw new Error("DIRECT_DE map not found in " + MAP_FILE);
+  const open = src.indexOf("{", start);
+  const close = src.indexOf("}", open);
+  const found = new Set();
+  for (const m of src.slice(open + 1, close).matchAll(/"([a-zA-Z0-9-]+)":/g)) {
+    found.add(m[1]);
+  }
+  return found;
+}
+
+const direct = directKeys();
 
 const problems = [];
 const warnings = [];
@@ -122,7 +151,26 @@ function scan(dir, file, report) {
     }
   }
 
-  if (!body.includes(language === "de" ? DISCLOSURE_DE : DISCLOSURE_EN)) {
+  const usesDirect = [...body.matchAll(/\/go\/([a-zA-Z0-9-]+)/g)].some((m) =>
+    direct.has(m[1]),
+  );
+  const mixed = language === "de" ? MIXED_DE : MIXED_EN;
+  if (usesDirect && !body.includes(mixed)) {
+    report(
+      file +
+        ": links a key with a non-Amazon partner target but lacks the mixed disclosure line",
+    );
+  }
+  if (!usesDirect && body.includes(mixed)) {
+    report(
+      file +
+        ": carries the mixed disclosure but links no non-Amazon partner target",
+    );
+  }
+  if (
+    !usesDirect &&
+    !body.includes(language === "de" ? DISCLOSURE_DE : DISCLOSURE_EN)
+  ) {
     report(
       file +
         ": has affiliate links but no " +

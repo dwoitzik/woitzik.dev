@@ -211,6 +211,13 @@ const VERIFIED: Record<string, Set<string>> = {
   ]),
 };
 
+// Non-Amazon partner deeplinks (Awin: Thalia, Reichelt, Conrad), used only
+// for visitors from Germany, because those programmes pay for German orders.
+// Empty until a merchant approves the account. Once a key has an entry here,
+// every post that links the key must carry the mixed disclosure;
+// scripts/check-affiliates.mjs enforces that.
+const DIRECT_DE: Record<string, string> = {};
+
 function productUrl(domain: string, tag: string, asin: string) {
   const confirmed =
     domain === DEFAULT_MARKETPLACE.domain || VERIFIED[domain]?.has(asin);
@@ -244,20 +251,21 @@ export default async function handler(
   };
   const country = (req.headers["x-vercel-ip-country"] as string) ?? "";
   const { domain, tag } = MARKETPLACES[country] ?? DEFAULT_MARKETPLACE;
+  const direct = country === "DE" ? DIRECT_DE[key] : undefined;
 
   logGoRedirect({
     ts: new Date().toISOString(),
     key,
     asin,
     country,
-    domain,
+    domain: direct ? new URL(direct).hostname : domain,
     ua: req.headers["user-agent"] ?? "",
     referer: req.headers["referer"] ?? req.headers["referrer"] ?? "",
     path: url.pathname,
     query: url.search,
   });
   res.writeHead(302, {
-    Location: productUrl(domain, tag, asin),
+    Location: direct ?? productUrl(domain, tag, asin),
     "Cache-Control": "no-store",
   });
   res.end();
