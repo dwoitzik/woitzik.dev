@@ -10,20 +10,18 @@ import AffiliateLink from "@components/AffiliateLink.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
-
 I have cycled through more mini PCs in my homelab than I care to admit. Some run 24/7, others were retired after a single disappointing week. For 2026 the ranking is clear: Intel's N100 still owns the efficiency tier, AMD's Ryzen mobile chips win multi-threaded workloads, and the budget options no longer feel like a compromise.
 
 My lab runs Proxmox, k3s, Terraform-managed VMs, and local LLM inference on a single Ryzen 5825U host, and that is the workload I judge these boxes against. I don't own the four machines on this list. The comparison is built from manufacturer specs and the linked listings, not from hands-on testing.
 
 ## TL;DR: The Picks
 
-| Model | CPU | RAM | Price (approx.) | Best For |
-|---|---|---|---|---|
-| [Beelink S12 Pro*](/go/4gGnuZ3) | Intel N100 | 16GB | €350-370 | Best Overall |
-| [Beelink SER5 MAX*](/go/4yvrdiy) | Ryzen 7 7735U | 16GB | €450-480 | Best Performance |
-| [GMKtec M5 Ultra*](/go/4gN53Sv) | Ryzen 7 7730U | 16GB | €520-550 | Best for Dual NIC + Upgrades |
-| [Intel NUC 13 Pro*](/go/4yvKX5s) | i5-1340P | 16GB | €780-820 | Best Build Quality |
+| Best For | Model (CPU, RAM) | Price (approx.) |
+|---|---|---|
+| Best Overall | [Beelink S12 Pro*](/go/4gGnuZ3) (Intel N100, 16GB) | €350‑370 |
+| Best Performance | [Beelink SER5 MAX*](/go/4yvrdiy) (Ryzen 7 7735U, 16GB) | €450‑480 |
+| Best for Dual NIC + Upgrades | [GMKtec M5 Ultra*](/go/4gN53Sv) (Ryzen 7 7730U, 16GB) | €520‑550 |
+| Best Build Quality | [Intel NUC 13 Pro*](/go/4yvKX5s) (i5-1340P, 16GB) | €780‑820 |
 
 Amazon prices for mini PCs move constantly and vary by seller, so treat these as bands rather than exact figures and check the listing for the current price. Every link here goes to a specific verified configuration: the memory and storage in the table are what that listing ships, not a minimum you have to upgrade to.
 
@@ -151,17 +149,32 @@ Be aware of two things. First, the 16GB is a preinstalled DDR4 SO-DIMM kit, not 
 
 ## Head-to-Head Comparison
 
-| Feature | Beelink S12 Pro | Beelink SER5 MAX | GMKtec M5 Ultra | Intel NUC 13 Pro |
-|---|---|---|---|---|
-| CPU | N100 (4C/4T) | 7735U (8C/16T) | 7730U (8C/16T) | i5-1340P (12C/16T) |
-| RAM | 16GB DDR4 | 16GB LPDDR5 (soldered) | 16GB DDR4 | 16GB DDR4 (2x SO-DIMM) |
-| Max RAM | 16GB (1x SO-DIMM) | 16GB (fixed) | 64GB | 64GB |
-| M.2 Slots | 1 | 1 | 2 | 1x 2280 + 1x 2242 |
-| SATA Bay | 2.5" | No | No | H-kit only |
-| NIC | 1x 1GbE (Beelink spec; listing says 2.5GbE) | 1x 2.5GbE | 2x 2.5GbE | 1x 2.5GbE (Intel i226-V) |
-| WiFi | WiFi 6 | WiFi 6 | WiFi 6E | WiFi 6E |
-| Idle Power | ~7-9W | ~15-20W | ~15-20W | ~12-15W |
-| Price band | €350-370 | €450-480 | €520-550 | €780-820 |
+**Compute and memory**
+
+| Model | CPU | RAM | Max RAM |
+|---|---|---|---|
+| Beelink S12 Pro | N100 (4C/4T) | 16GB DDR4 | 16GB (1x SO-DIMM) |
+| Beelink SER5 MAX | 7735U (8C/16T) | 16GB LPDDR5 (soldered) | 16GB (fixed) |
+| GMKtec M5 Ultra | 7730U (8C/16T) | 16GB DDR4 | 64GB |
+| Intel NUC 13 Pro | i5-1340P (12C/16T) | 16GB DDR4 (2x SO-DIMM) | 64GB |
+
+**Storage and network**
+
+| Model | M.2 Slots | SATA Bay | NIC |
+|---|---|---|---|
+| Beelink S12 Pro | 1 | 2.5" | 1x 1GbE (Beelink spec; listing says 2.5GbE) |
+| Beelink SER5 MAX | 1 | No | 1x 2.5GbE |
+| GMKtec M5 Ultra | 2 | No | 2x 2.5GbE |
+| Intel NUC 13 Pro | 1x 2280 + 1x 2242 | H-kit only | 1x 2.5GbE (Intel i226-V) |
+
+**Wireless, power and price**
+
+| Model | WiFi | Idle Power | Price band |
+|---|---|---|---|
+| Beelink S12 Pro | WiFi 6 | ~7‑9W | €350‑370 |
+| Beelink SER5 MAX | WiFi 6 | ~15‑20W | €450‑480 |
+| GMKtec M5 Ultra | WiFi 6E | ~15‑20W | €520‑550 |
+| Intel NUC 13 Pro | WiFi 6E | ~12‑15W | €780‑820 |
 
 <em>This list is now four picks rather than five. The previous fifth entry, a budget Beelink S12 Pro at ~€155, pointed at a listing that is now out of stock, and the S12 Pro has moved up to the "Best Overall" slot after the EQ12 disappeared. I would rather list four honest recommendations than pad the list with a product I cannot confirm is purchasable.</em>
 

@@ -1,40 +1,14 @@
 ---
-interface Props {
+// Intentionally renders nothing.
+//
+// Most posts still import this and place it at the end of the MDX body, and a
+// few place it mid-article. The post layout (src/pages/blog/[...slug].astro)
+// already renders the full newsletter form after every article, so the inline
+// "Want the next article by email?" line showed up as a second newsletter
+// block a few hundred pixels above the real one. Keeping the component (and
+// its props) means the 65 MDX imports keep compiling; the layout form is the
+// single newsletter block per post.
+export interface Props {
   variant?: "inline" | "compact";
 }
-
-const { variant = "compact" } = Astro.props;
 ---
-
-{
-  variant === "compact" && (
-    <div class="not-prose my-10 flex items-center gap-3 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] bg-white/60 dark:bg-white/[0.02] p-4">
-      <div class="shrink-0 w-8 h-8 rounded-full bg-sky-500/10 flex items-center justify-center">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          class="text-sky-500"
-        >
-          <rect width="20" height="16" x="2" y="4" rx="2" />
-          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-        </svg>
-      </div>
-      <p class="text-sm text-neutral-600 dark:text-neutral-300 m-0 flex-1">
-        Want the next article by email?
-      </p>
-      <a
-        href="/templates/"
-        class="text-sm font-semibold text-teal-700 dark:text-teal-400 hover:underline whitespace-nowrap"
-      >
-        Subscribe &rarr;
-      </a>
-    </div>
-  )
-}

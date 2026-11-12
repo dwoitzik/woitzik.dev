@@ -1,36 +1,40 @@
 ---
+import { postText, type Lang } from "@lib/utils";
+
 interface Props {
   slug: string;
+  lang?: Lang;
 }
 
-const { slug } = Astro.props;
+const { slug, lang = "en" } = Astro.props;
+const text = postText(lang);
 ---
 
 <div class="not-prose flex flex-wrap items-center gap-3">
   <span class="text-sm text-neutral-500 dark:text-neutral-400 shrink-0">
-    Was this helpful?
+    {text.helpful}
   </span>
   <div class="flex gap-2">
     <button
       data-feedback="up"
       data-slug={slug}
-      class="feedback-btn px-3 py-1.5 text-sm rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-emerald-500 hover:text-emerald-500 transition-colors"
+      class="feedback-btn inline-flex min-h-11 min-w-[3.5rem] items-center justify-center px-4 text-sm rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-emerald-500 hover:text-emerald-500 transition-colors"
     >
-      Yes
+      {text.yes}
     </button>
     <button
       data-feedback="down"
       data-slug={slug}
-      class="feedback-btn px-3 py-1.5 text-sm rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-red-500 hover:text-red-500 transition-colors"
+      class="feedback-btn inline-flex min-h-11 min-w-[3.5rem] items-center justify-center px-4 text-sm rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-red-500 hover:text-red-500 transition-colors"
     >
-      No
+      {text.no}
     </button>
   </div>
   <span
     data-feedback-result
     class="text-xs text-neutral-400 dark:text-neutral-500 hidden"
   >
-    Thanks for the feedback!
+    {text.thanks}
   </span>
 </div>
 

@@ -160,7 +160,7 @@ const nf = new Intl.NumberFormat("en-GB");
           id="out-lowest"
           class="text-xl font-semibold text-black dark:text-white m-0 tabular-nums"
         >
-          {defaultFirstFree ?? "—"}
+          {defaultFirstFree ?? "n/a"}
         </p>
       </div>
       <div>
@@ -171,7 +171,7 @@ const nf = new Intl.NumberFormat("en-GB");
           id="out-lowest100"
           class="text-xl font-semibold text-black dark:text-white m-0 tabular-nums"
         >
-          {defaultFirstFree100 ?? "—"}
+          {defaultFirstFree100 ?? "n/a"}
         </p>
       </div>
     </div>
@@ -217,9 +217,11 @@ const nf = new Intl.NumberFormat("en-GB");
   <h2 class="font-semibold text-lg text-black dark:text-white">
     Planning conventions
   </h2>
-  <div class="overflow-x-auto">
+  <div
+    class="overflow-x-auto rounded border border-neutral-200 dark:border-neutral-800"
+  >
     <table
-      class="w-full text-sm border-collapse border border-neutral-200 dark:border-neutral-800"
+      class="w-full text-sm border-collapse [&_tbody_tr:last-child>*]:border-b-0"
     >
       <thead>
         <tr class="bg-neutral-50 dark:bg-neutral-900/50">
@@ -424,9 +426,9 @@ const nf = new Intl.NumberFormat("en-GB");
 
     out["out-used"].textContent = nf.format(valid.length);
     out["out-free"].textContent = nf.format(total - valid.length);
-    out["out-lowest"].textContent = lowest === null ? "—" : String(lowest);
+    out["out-lowest"].textContent = lowest === null ? "n/a" : String(lowest);
     out["out-lowest100"].textContent =
-      lowest100 === null ? "—" : String(lowest100);
+      lowest100 === null ? "n/a" : String(lowest100);
     out["list-valid"].textContent = valid.length ? valid.join(", ") : "none";
     out["list-invalid"].textContent = invalid.length
       ? invalid.join(", ")

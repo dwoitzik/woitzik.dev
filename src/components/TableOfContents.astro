@@ -1,4 +1,6 @@
 ---
+import { postText, type Lang } from "@lib/utils";
+
 interface Heading {
   depth: number;
   slug: string;
@@ -8,9 +10,10 @@ interface Heading {
 interface Props {
   headings: Heading[];
   sidebar?: boolean;
+  lang?: Lang;
 }
 
-const { headings, sidebar = false } = Astro.props;
+const { headings, sidebar = false, lang = "en" } = Astro.props;
 const filtered = headings.filter((h) => h.depth === 2 || h.depth === 3);
 ---
 
@@ -20,7 +23,7 @@ const filtered = headings.filter((h) => h.depth === 2 || h.depth === 3);
       class={`not-prose ${sidebar ? "border-l border-zinc-900/[0.08] dark:border-white/[0.08] pl-4" : "mb-10 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] bg-white/60 dark:bg-white/[0.02] p-4"}`}
     >
       <div class="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-950 dark:text-white">
-        On this page
+        {postText(lang).onThisPage}
       </div>
       <ul class="space-y-1.5">
         {filtered.map((heading) => (

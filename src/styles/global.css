@@ -96,6 +96,16 @@ article:not(.not-prose) {
   @apply prose-table:text-[0.9rem];
 }
 
+/* Tailwind Typography wraps blockquote paragraphs in curly quotes. Blockquotes
+   here are callouts and disclaimers, not citations, so drop them. */
+article:not(.not-prose) blockquote {
+  quotes: none;
+}
+article:not(.not-prose) blockquote p:first-of-type::before,
+article:not(.not-prose) blockquote p:last-of-type::after {
+  content: none;
+}
+
 /* Tailwind Typography wraps inline code in literal backticks. Render it as a
    quiet chip instead. */
 article:not(.not-prose) :not(pre) > code {
@@ -121,9 +131,87 @@ article:not(.not-prose) pre code {
   @apply font-mono;
 }
 
+/* Long lines scroll sideways. The code element grows to the longest line and
+   carries the end padding, so the last character never sits flush against the
+   edge. A scroll shadow on the right edge hints that there is more to see; it
+   is covered by an opaque layer once the block is scrolled to the end. */
+article:not(.not-prose) pre {
+  @apply overflow-x-auto;
+  background-image:
+    linear-gradient(to left, #111114 40%, rgb(17 17 20 / 0)),
+    radial-gradient(
+      farthest-side at 100% 50%,
+      rgb(255 255 255 / 0.14),
+      rgb(255 255 255 / 0)
+    );
+  background-position:
+    right center,
+    right center;
+  background-size:
+    2.5rem 100%,
+    0.875rem 100%;
+  background-repeat: no-repeat;
+  background-attachment: local, scroll;
+}
+article:not(.not-prose) pre > code {
+  display: inline-block;
+  min-width: 100%;
+  padding-inline-end: 1.25rem;
+}
+
 /* Tables scroll inside their own box on small screens. */
 article:not(.not-prose) table {
   @apply block overflow-x-auto sm:table;
+  --table-bg: theme("colors.zinc.50");
+  --table-shadow: rgb(24 24 27 / 0.16);
+}
+html.dark article:not(.not-prose) table {
+  --table-bg: theme("colors.zinc.950");
+  --table-shadow: rgb(255 255 255 / 0.12);
+}
+/* Scroll shadows: the "local" gradients move with the content and cover the
+   fixed "scroll" shadows once an edge is reached, so a shadow only shows on a
+   side that still has hidden columns. */
+@media (max-width: 639.98px) {
+  article:not(.not-prose) table {
+    background-image:
+      linear-gradient(to right, var(--table-bg) 30%, transparent),
+      linear-gradient(to left, var(--table-bg) 30%, transparent),
+      radial-gradient(farthest-side at 0 50%, var(--table-shadow), transparent),
+      radial-gradient(
+        farthest-side at 100% 50%,
+        var(--table-shadow),
+        transparent
+      );
+    background-position:
+      left center,
+      right center,
+      left center,
+      right center;
+    background-size:
+      2.5rem 100%,
+      2.5rem 100%,
+      0.875rem 100%,
+      0.875rem 100%;
+    background-repeat: no-repeat;
+    background-attachment: local, local, scroll, scroll;
+  }
+}
+/* On wider screens headers and row labels stay on one line so "Idle Power"
+   or a product name never breaks mid-label. On phones that would push the
+   other columns off screen, so labels wrap there and keep a minimum width. */
+@media (min-width: 640px) {
+  article:not(.not-prose) th,
+  article:not(.not-prose) tbody td:first-child {
+    white-space: nowrap;
+  }
+}
+article:not(.not-prose) tbody td:first-child {
+  min-width: 6rem;
+}
+/* Long identifiers in inline code must not hold a table cell open. */
+article:not(.not-prose) td code {
+  overflow-wrap: anywhere;
 }
 article:not(.not-prose) thead {
   @apply border-b border-zinc-300 dark:border-zinc-700;
@@ -206,6 +294,41 @@ article:not(.not-prose) > em {
   .code-block-wrapper pre code .diff-remove {
     @apply bg-red-500/10 text-red-700 dark:text-red-300 line-through opacity-70;
   }
+}
+
+/* ---------- Pagefind search UI ---------- */
+
+/* Pagefind reads its theme from CSS variables. The font is spelled out
+   because "inherit" on a custom property makes the variable itself inherit
+   the :root default (a system font stack) instead of the page font. The html
+   prefix outranks the defaults in search.astro and in pagefind-ui.css. */
+html #pagefind-search {
+  --pagefind-ui-font: theme("fontFamily.sans");
+  --pagefind-ui-text: theme("colors.zinc.900");
+  --pagefind-ui-background: #ffffff;
+  --pagefind-ui-border: rgb(24 24 27 / 0.16);
+  --pagefind-ui-tag: theme("colors.zinc.100");
+  --pagefind-ui-border-width: 1px;
+}
+html.dark #pagefind-search {
+  --pagefind-ui-text: theme("colors.zinc.200");
+  --pagefind-ui-background: #0f0f12;
+  --pagefind-ui-border: rgb(255 255 255 / 0.12);
+  --pagefind-ui-tag: theme("colors.zinc.900");
+}
+html #pagefind-search .pagefind-ui__search-input {
+  font-family: theme("fontFamily.sans");
+  font-weight: 500;
+  color: var(--pagefind-ui-text);
+}
+/* Pagefind dims the placeholder to 20% opacity, which is close to invisible
+   on a white field. */
+html #pagefind-search .pagefind-ui__search-input::placeholder {
+  opacity: 1;
+  color: theme("colors.zinc.500");
+}
+html.dark #pagefind-search .pagefind-ui__search-input::placeholder {
+  color: theme("colors.zinc.500");
 }
 
 /* Global focus-visible ring */

@@ -22,24 +22,29 @@ const { Content } = await project.render();
 
 <PageLayout title={project.data.title} description={project.data.description}>
   <Container>
-    <div class="mx-auto max-w-[46rem]">
+    <div class="max-w-[46rem]">
       <nav class="animate mb-8 text-xs text-zinc-500" aria-label="Breadcrumb">
-        <ol class="flex flex-wrap items-center gap-1.5">
-          <li>
+        <ol class="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+          <li class="shrink-0">
             <a
               href="/"
               class="hover:text-zinc-950 dark:hover:text-white transition-colors"
-              >Home</a>
+              >Home</a
+            >
           </li>
-          <li aria-hidden="true" class="opacity-50">/</li>
-          <li>
+          <li aria-hidden="true" class="shrink-0 opacity-50">/</li>
+          <li class="shrink-0">
             <a
               href="/projects/"
               class="hover:text-zinc-950 dark:hover:text-white transition-colors"
-              >Projects</a>
+              >Projects</a
+            >
           </li>
-          <li aria-hidden="true" class="opacity-50">/</li>
-          <li class="truncate text-zinc-700 dark:text-zinc-300">
+          <li aria-hidden="true" class="shrink-0 opacity-50">/</li>
+          <li
+            class="min-w-0 truncate text-zinc-700 dark:text-zinc-300"
+            aria-current="page"
+          >
             {project.data.title}
           </li>
         </ol>

@@ -36,20 +36,13 @@ A well-built Azure Hub & Spoke environment managed with Terraform addresses all 
 
 ## Mapping NIS2 Requirements to Azure Architecture
 
-```
-NIS2 Article 21 Requirement    →    Azure Control
-─────────────────────────────────────────────────────
-Network Segmentation           →    Hub & Spoke VNet topology
-                                    NSG with Default-Deny
-Access Control (Network)       →    Azure Firewall + Forced Tunneling
-                                    Private Endpoints (no public access)
-Access Control (Identity)      →    Managed Identities + RBAC
-                                    local_auth_enabled = false
-Minimize Attack Surface        →    public_network_access_enabled = false
-                                    Private DNS Zones
-Auditability                   →    Terraform IaC (version-controlled)
-                                    Azure Policy compliance reporting
-```
+| NIS2 Article 21 Requirement | Azure Control |
+|---|---|
+| Network Segmentation | Hub & Spoke VNet topology<br />NSG with Default-Deny |
+| Access Control (Network) | Azure Firewall + Forced Tunneling<br />Private Endpoints (no public access) |
+| Access Control (Identity) | Managed Identities + RBAC<br />`local_auth_enabled = false` |
+| Minimize Attack Surface | `public_network_access_enabled = false`<br />Private DNS Zones |
+| Auditability | Terraform IaC (version-controlled)<br />Azure Policy compliance reporting |
 
 How those controls line up with the actual points of Article 21(2):
 

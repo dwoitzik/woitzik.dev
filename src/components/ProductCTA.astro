@@ -111,6 +111,8 @@ const ctaHref = withUTM(product.repoHref, Astro.url.pathname);
 <style>
   .cta-badge {
     display: inline-block;
+    /* Parents are flex columns; without this the badge stretches full width. */
+    align-self: flex-start;
     font-size: 0.65rem;
     font-weight: 700;
     letter-spacing: 0.12em;

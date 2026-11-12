@@ -1,10 +1,14 @@
 ---
+import { postText, type Lang } from "@lib/utils";
+
 interface Props {
   title: string;
   url: string;
+  lang?: Lang;
 }
 
-const { title, url } = Astro.props;
+const { title, url, lang = "en" } = Astro.props;
+const text = postText(lang);
 const encodedTitle = encodeURIComponent(title);
 const encodedUrl = encodeURIComponent(url);
 
@@ -27,16 +31,16 @@ const shareLinks = [
 ];
 ---
 
-<div class="flex items-center gap-3 text-sm">
-  <span class="text-neutral-400 dark:text-neutral-500">Share</span>
+<div class="flex items-center gap-0.5 text-sm">
+  <span class="mr-1 text-neutral-400 dark:text-neutral-500">{text.share}</span>
   {
     shareLinks.map((link) => (
       <a
         href={link.href}
         target="_blank"
         rel="noopener noreferrer"
-        aria-label={`Share on ${link.name}`}
-        class="p-1.5 rounded-md text-neutral-400 dark:text-neutral-500 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950 transition-colors"
+        aria-label={text.shareOn(link.name)}
+        class="p-2.5 rounded-md text-neutral-400 dark:text-neutral-500 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950 transition-colors"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"

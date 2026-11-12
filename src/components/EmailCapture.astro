@@ -4,6 +4,7 @@ interface Props {
   description?: string;
   buttonText?: string;
   successMessage?: string;
+  lang?: "en" | "de";
 }
 
 const {
@@ -11,7 +12,24 @@ const {
   description = "New Terraform modules and articles by email. No spam.",
   buttonText = "Subscribe",
   successMessage = "Almost done: check your inbox and click the confirmation link.",
+  lang = "en",
 } = Astro.props;
+
+// Form chrome that the props don't cover: aria label, busy state and errors.
+const ui = {
+  en: {
+    label: "Email address",
+    busy: "Subscribing…",
+    error: "Something went wrong. Please try again.",
+    network: "Network error. Please try again.",
+  },
+  de: {
+    label: "E-Mail-Adresse",
+    busy: "Wird gesendet…",
+    error: "Das hat nicht geklappt. Bitte versuch es noch einmal.",
+    network: "Netzwerkfehler. Bitte versuch es noch einmal.",
+  },
+}[lang];
 ---
 
 <div
@@ -34,12 +52,16 @@ const {
     id="email-capture-form"
     class="flex flex-col sm:flex-row gap-2"
     data-success-message={successMessage}
+    data-busy={ui.busy}
+    data-error={ui.error}
+    data-network={ui.network}
+    data-lang={lang}
   >
     <input
       type="email"
       name="email"
       required
-      aria-label="Email address"
+      aria-label={ui.label}
       autocomplete="email"
       placeholder="you@company.com"
       class="flex-1 rounded-lg border border-zinc-900/15 dark:border-white/15 bg-white dark:bg-zinc-950/60 px-3.5 py-2.5 text-sm text-zinc-950 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
@@ -100,8 +122,9 @@ const {
         .value;
       const button = form.querySelector("button") as HTMLButtonElement;
 
+      const idleText = button.textContent ?? "";
       button.disabled = true;
-      button.textContent = "Subscribing…";
+      button.textContent = form.dataset.busy ?? "Subscribing…";
 
       try {
         const res = await fetch("/api/subscribe", {
@@ -120,17 +143,21 @@ const {
           message.className = "text-sm mt-3 text-green-600 dark:text-green-400";
           trackSubscription();
         } else {
+          // The API answers in English; German forms show their own message.
           message.textContent =
-            data.error ?? "Something went wrong. Please try again.";
+            form.dataset.lang === "de"
+              ? (form.dataset.error ?? "")
+              : (data.error ?? form.dataset.error ?? "");
           message.className = "text-sm mt-3 text-red-500 dark:text-red-400";
           button.disabled = false;
-          button.textContent = "Subscribe";
+          button.textContent = idleText;
         }
       } catch {
-        message.textContent = "Network error. Please try again.";
+        message.textContent =
+          form.dataset.network ?? "Network error. Please try again.";
         message.className = "text-sm mt-3 text-red-500 dark:text-red-400";
         button.disabled = false;
-        button.textContent = "Subscribe";
+        button.textContent = idleText;
       }
     });
   }

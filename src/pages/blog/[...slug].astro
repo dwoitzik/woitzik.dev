@@ -3,7 +3,7 @@ import { type CollectionEntry, getCollection } from "astro:content";
 import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
 import FormattedDate from "@components/FormattedDate.astro";
-import { readingTime, tagSlug } from "@lib/utils";
+import { postText, readingTime, tagSlug } from "@lib/utils";
 import TableOfContents from "@components/TableOfContents.astro";
 import EmailCapture from "@components/EmailCapture.astro";
 import ShareButtons from "@components/ShareButtons.astro";
@@ -103,6 +103,8 @@ const { post, prev, next, related, alternates } = Astro.props;
 const { Content, headings } = await post.render();
 const tocHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
 const postUrl = `https://woitzik.dev/blog/${post.slug}/`;
+const lang = post.data.lang;
+const text = postText(lang);
 
 // Only the English side names the German translation in schema.org: on a German
 // page the same field would point at the English original, which is the inverse
@@ -196,21 +198,19 @@ const breadcrumbLd = {
   </div>
 
   <Container>
-    <header
-      class={tocHeadings.length > 1 ? "max-w-3xl" : "mx-auto max-w-[46rem]"}
-    >
+    <header class="max-w-3xl">
       <!-- Breadcrumbs -->
       <nav class="animate text-xs text-zinc-500 mb-8" aria-label="Breadcrumb">
-        <ol class="flex items-center gap-1.5 flex-wrap">
-          <li>
+        <ol class="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+          <li class="shrink-0">
             <a
               href="/"
               class="hover:text-zinc-950 dark:hover:text-white transition-colors"
               >Home</a
             >
           </li>
-          <li aria-hidden="true" class="opacity-50">/</li>
-          <li>
+          <li aria-hidden="true" class="shrink-0 opacity-50">/</li>
+          <li class="shrink-0">
             <a
               href="/blog/"
               class="hover:text-zinc-950 dark:hover:text-white transition-colors"
@@ -220,10 +220,10 @@ const breadcrumbLd = {
           {
             post.data.tags && post.data.tags.length > 0 && (
               <>
-                <li aria-hidden="true" class="opacity-50">
+                <li aria-hidden="true" class="shrink-0 opacity-50">
                   /
                 </li>
-                <li>
+                <li class="shrink-0">
                   <a
                     href={`/blog/tag/${tagSlug(post.data.tags[0])}/`}
                     class="hover:text-zinc-950 dark:hover:text-white transition-colors"
@@ -234,8 +234,11 @@ const breadcrumbLd = {
               </>
             )
           }
-          <li aria-hidden="true" class="opacity-50">/</li>
-          <li class="text-zinc-700 dark:text-zinc-300 truncate max-w-[220px]">
+          <li aria-hidden="true" class="shrink-0 opacity-50">/</li>
+          <li
+            class="min-w-0 truncate text-zinc-700 dark:text-zinc-300"
+            aria-current="page"
+          >
             {post.data.title}
           </li>
         </ol>
@@ -244,9 +247,9 @@ const breadcrumbLd = {
       <div
         class="animate flex items-center gap-2 font-mono text-xs text-zinc-500 flex-wrap"
       >
-        <FormattedDate date={post.data.date} />
+        <FormattedDate date={post.data.date} lang={lang} />
         <span aria-hidden="true" class="opacity-50">/</span>
-        <span>{readingTime(post.body)}</span>
+        <span>{readingTime(post.body, lang)}</span>
         {
           post.data.updated && (
             <>
@@ -254,7 +257,8 @@ const breadcrumbLd = {
                 /
               </span>
               <span>
-                Updated <FormattedDate date={post.data.updated} />
+                {text.updated}{" "}
+                <FormattedDate date={post.data.updated} lang={lang} />
               </span>
             </>
           )
@@ -309,14 +313,14 @@ const breadcrumbLd = {
     {
       tocHeadings.length > 1 && (
         <div class="animate lg:hidden">
-          <TableOfContents headings={headings} />
+          <TableOfContents headings={headings} lang={lang} />
         </div>
       )
     }
 
     <!-- Two-column layout: article + sticky sidebar TOC on desktop -->
     <div
-      class={`${tocHeadings.length > 1 ? "lg:grid lg:grid-cols-[minmax(0,1fr)_220px] lg:gap-12 lg:items-start" : "mx-auto max-w-[46rem]"}`}
+      class={`${tocHeadings.length > 1 ? "lg:grid lg:grid-cols-[minmax(0,1fr)_220px] lg:gap-12 lg:items-start" : "max-w-[46rem]"}`}
     >
       <div>
         <article class="animate">
@@ -327,12 +331,12 @@ const breadcrumbLd = {
         <div
           class="animate mt-14 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] bg-white/60 dark:bg-white/[0.02] px-4 py-3"
         >
-          <FeedbackWidget slug={post.slug} />
-          <ShareButtons title={post.data.title} url={postUrl} />
+          <FeedbackWidget slug={post.slug} lang={lang} />
+          <ShareButtons title={post.data.title} url={postUrl} lang={lang} />
         </div>
 
         <div class="animate mt-6">
-          <AuthorBio />
+          <AuthorBio lang={lang} />
         </div>
 
         <!-- Related Posts -->
@@ -340,7 +344,7 @@ const breadcrumbLd = {
           related.length > 0 && (
             <section class="animate mt-14">
               <h2 class="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-950 dark:text-white">
-                Keep reading
+                {text.keepReading}
               </h2>
               <div class="grid gap-3 sm:grid-cols-3">
                 {related.map((p) => (
@@ -363,20 +367,23 @@ const breadcrumbLd = {
 
         <div class="animate mt-14">
           <EmailCapture
-            title="More like this in your inbox"
-            description="New Terraform modules and articles by email. No spam."
+            title={text.newsletterTitle}
+            description={text.newsletterDescription}
+            buttonText={text.newsletterButton}
+            successMessage={text.newsletterSuccess}
+            lang={lang}
           />
         </div>
 
         <div class="animate">
-          <SupportCTA />
+          <SupportCTA lang={lang} />
         </div>
 
         {
           (prev || next) && (
             <nav
               class="animate mt-6 grid gap-3 sm:grid-cols-2"
-              aria-label="More articles"
+              aria-label={text.moreArticles}
             >
               {prev ? (
                 <a
@@ -384,7 +391,7 @@ const breadcrumbLd = {
                   class="group flex flex-col gap-1 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] p-4 text-sm transition-colors hover:border-teal-500/40"
                 >
                   <span class="text-xs uppercase tracking-wider text-zinc-500">
-                    Previous
+                    {text.previous}
                   </span>
                   <span class="font-medium leading-snug text-zinc-950 transition-colors group-hover:text-teal-700 dark:text-white dark:group-hover:text-teal-400">
                     &larr; {prev.data.title}
@@ -397,7 +404,7 @@ const breadcrumbLd = {
                   class="group flex flex-col gap-1 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] p-4 text-sm text-right transition-colors hover:border-teal-500/40 sm:col-start-2"
                 >
                   <span class="text-xs uppercase tracking-wider text-zinc-500">
-                    Next
+                    {text.next}
                   </span>
                   <span class="font-medium leading-snug text-zinc-950 transition-colors group-hover:text-teal-700 dark:text-white dark:group-hover:text-teal-400">
                     {next.data.title} &rarr;
@@ -413,7 +420,7 @@ const breadcrumbLd = {
       {
         tocHeadings.length > 1 && (
           <aside class="hidden lg:block sticky top-24 animate">
-            <TableOfContents headings={headings} sidebar />
+            <TableOfContents headings={headings} sidebar lang={lang} />
           </aside>
         )
       }

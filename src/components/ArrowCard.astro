@@ -1,5 +1,6 @@
 ---
 import type { CollectionEntry } from "astro:content";
+import { formatDate } from "@lib/utils";
 
 type Props = {
   entry: CollectionEntry<"blog"> | CollectionEntry<"projects">;
@@ -8,6 +9,7 @@ type Props = {
 const { entry } = Astro.props;
 const date = "date" in entry.data ? entry.data.date : null;
 const updated = "updated" in entry.data ? entry.data.updated : null;
+const lang = "lang" in entry.data ? entry.data.lang : "en";
 const pinned = "pinned" in entry.data ? entry.data.pinned : false;
 ---
 
@@ -30,16 +32,9 @@ const pinned = "pinned" in entry.data ? entry.data.pinned : false;
       {
         date && (
           <div class="text-xs opacity-40 shrink-0">
-            {date.toLocaleDateString("en-GB", {
-              day: "2-digit",
-              month: "short",
-              year: "numeric",
-            })}
+            {formatDate(date, lang)}
             {updated && (
-              <span
-                class="ml-1"
-                title={`Updated ${updated.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`}
-              >
+              <span class="ml-1" title={`Updated ${formatDate(updated, lang)}`}>
                 (updated)
               </span>
             )}

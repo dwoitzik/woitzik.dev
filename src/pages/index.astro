@@ -1,5 +1,6 @@
 ---
 import { getCollection } from "astro:content";
+import { Image } from "astro:assets";
 import Container from "@components/Container.astro";
 import PageLayout from "@layouts/PageLayout.astro";
 import ProjectCard from "@components/ProjectCard.astro";
@@ -280,11 +281,12 @@ const viewAll =
                   <li class="flex items-center gap-3 rounded-xl border border-zinc-900/[0.08] dark:border-white/[0.08] bg-white dark:bg-white/[0.02] p-3">
                     {cert.data.image && (
                       <div class="size-10 shrink-0 rounded-lg bg-zinc-100 p-1.5 dark:bg-white/[0.06]">
-                        <img
-                          src={cert.data.image.src}
+                        <Image
+                          src={cert.data.image}
+                          width={80}
                           alt=""
                           class="size-full object-contain"
-                          loading="lazy"
+                          loading="eager"
                         />
                       </div>
                     )}

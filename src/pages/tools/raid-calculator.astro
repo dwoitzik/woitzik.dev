@@ -264,10 +264,12 @@ const related = [
   <h2 class="font-semibold text-lg text-black dark:text-white">
     All RAID levels for this configuration
   </h2>
-  <div class="overflow-x-auto">
+  <div
+    class="overflow-x-auto rounded border border-neutral-200 dark:border-neutral-800"
+  >
     <table
       id="compare-table"
-      class="w-full text-sm border-collapse border border-neutral-200 dark:border-neutral-800"
+      class="w-full text-sm border-collapse [&_tbody_tr:last-child>*]:border-b-0"
     >
       <thead>
         <tr class="bg-neutral-50 dark:bg-neutral-900/50">
@@ -493,10 +495,10 @@ const related = [
     const sizes = parseSizes(sizesInput.value);
 
     if (!level || sizes.length === 0) {
-      usableOut.textContent = "—";
-      rawOut.textContent = "—";
-      overheadOut.textContent = "—";
-      toleranceOut.textContent = "—";
+      usableOut.textContent = "n/a";
+      rawOut.textContent = "n/a";
+      overheadOut.textContent = "n/a";
+      toleranceOut.textContent = "n/a";
       noteOut.textContent =
         "Enter at least one drive size in TB to see the usable capacity.";
       warningOut.classList.add("hidden");
@@ -507,11 +509,11 @@ const related = [
     const tooFewDrives = sizes.length < level.minDrives;
     const usable = tooFewDrives ? 0 : usableFor(sizes, level);
 
-    usableOut.textContent = tooFewDrives ? "—" : `${fmt(usable)} TB`;
+    usableOut.textContent = tooFewDrives ? "n/a" : `${fmt(usable)} TB`;
     rawOut.textContent = `${fmt(raw)} TB`;
-    overheadOut.textContent = tooFewDrives ? "—" : `${fmt(raw - usable)} TB`;
+    overheadOut.textContent = tooFewDrives ? "n/a" : `${fmt(raw - usable)} TB`;
     toleranceOut.textContent = tooFewDrives
-      ? "—"
+      ? "n/a"
       : String(toleranceFor(sizes, level));
     noteOut.textContent = level.note;
 

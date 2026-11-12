@@ -39,7 +39,7 @@ const columns = [
 ];
 
 const themeButton =
-  "grid size-7 place-items-center rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-900/[0.05] dark:hover:bg-white/[0.07] transition-colors";
+  "grid size-10 place-items-center rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-900/[0.05] dark:hover:bg-white/[0.07] transition-colors";
 ---
 
 <footer
@@ -69,7 +69,7 @@ const themeButton =
             <h2 class="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-950 dark:text-white">
               {col.title}
             </h2>
-            <ul class="space-y-2">
+            <ul class="-my-1.5 space-y-0.5">
               {col.links.map((link) => (
                 <li>
                   <a
@@ -77,7 +77,7 @@ const themeButton =
                     {...(link.external
                       ? { target: "_blank", rel: "noopener noreferrer" }
                       : {})}
-                    class="text-sm hover:text-zinc-950 dark:hover:text-white transition-colors"
+                    class="inline-block py-1.5 text-sm hover:text-zinc-950 dark:hover:text-white transition-colors"
                   >
                     {link.label}
                   </a>
@@ -98,12 +98,12 @@ const themeButton =
           {SITE.NAME} &middot;
           <a
             href="/legal/"
-            class="hover:text-zinc-950 dark:hover:text-white transition-colors"
+            class="py-2 hover:text-zinc-950 dark:hover:text-white transition-colors"
             >Legal &amp; Privacy</a
           > &middot;
           <a
             href="/accessibility/"
-            class="hover:text-zinc-950 dark:hover:text-white transition-colors"
+            class="py-2 hover:text-zinc-950 dark:hover:text-white transition-colors"
             >Accessibility</a
           >
         </p>

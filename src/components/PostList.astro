@@ -1,6 +1,6 @@
 ---
 import type { CollectionEntry } from "astro:content";
-import { readingTime } from "@lib/utils";
+import { formatDate, readingTime } from "@lib/utils";
 
 interface Props {
   posts: CollectionEntry<"blog">[];
@@ -8,13 +8,6 @@ interface Props {
   showTranslationLink?: boolean;
 }
 const { posts, showTags = true, showTranslationLink = false } = Astro.props;
-
-const fmt = (d: Date) =>
-  d.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
 ---
 
 <ul class="divide-y divide-zinc-900/[0.07] dark:divide-white/[0.07]">
@@ -23,10 +16,10 @@ const fmt = (d: Date) =>
       <li class="group relative grid gap-1.5 py-5 sm:grid-cols-[7.5rem_1fr] sm:gap-6">
         <div class="font-mono text-xs text-zinc-500 sm:pt-1">
           <time datetime={post.data.date.toISOString()}>
-            {fmt(post.data.date)}
+            {formatDate(post.data.date, post.data.lang)}
           </time>
           <div class="mt-1 hidden opacity-80 sm:block">
-            {readingTime(post.body)}
+            {readingTime(post.body, post.data.lang)}
           </div>
         </div>
         <div class="min-w-0">

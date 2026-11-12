@@ -53,7 +53,17 @@ const related = [
 const reference = Array.from({ length: 15 }, (_, index) => {
   const prefix = index + 16;
   const total = Math.pow(2, 32 - prefix);
-  return { prefix, total, usable: total - 2 };
+  const use =
+    prefix <= 20
+      ? "Transitive routing between sites"
+      : prefix <= 22
+        ? "Department or building segment"
+        : prefix <= 24
+          ? "Office or floor LAN"
+          : prefix <= 26
+            ? "Server or IoT segment"
+            : "Point-to-point link";
+  return { prefix, total, usable: total - 2, use };
 });
 
 // IPv6 side: the usable counts are BigInt, so they are formatted here once
@@ -66,11 +76,22 @@ const reference6 = [
   { prefix: 112, use: "Reserved range" },
   { prefix: 127, use: "Point-to-point link (RFC 6164)" },
   { prefix: 128, use: "Single host (RFC 6164)" },
-].map((row) => ({
-  ...row,
-  total: (1n << BigInt(128 - row.prefix)).toString(),
-  usable: usableHosts6(row.prefix).toString(),
-}));
+].map((row) => {
+  const bits = 128 - row.prefix;
+  const total = 1n << BigInt(bits);
+  const usable = usableHosts6(row.prefix);
+  // Anything past 2^32 is printed as a power of two so the table fits a phone
+  // screen; the exact grouped value stays available in the title attribute.
+  const compact = bits > 32;
+  return {
+    ...row,
+    bits,
+    compact,
+    usableOffset: total - usable,
+    totalExact: total.toLocaleString("en-GB"),
+    usableExact: usable.toLocaleString("en-GB"),
+  };
+});
 
 // ─── IPv4 ────────────────────────────────────────────────────────────────
 
@@ -211,6 +232,9 @@ function parseIpv6(
 
 const DEFAULT_CIDR = "192.168.1.0/24";
 const DEFAULT_CIDR6 = "fd00:10::/64";
+// The "Try" buttons offer a second example instead of repeating the default.
+const EXAMPLE_CIDR = "10.0.20.0/26";
+const EXAMPLE_CIDR6 = "2001:db8:abcd::/48";
 
 const [defaultIp, defaultPrefixText] = DEFAULT_CIDR.split("/");
 const defaultPrefix = Number(defaultPrefixText);
@@ -257,17 +281,17 @@ const default6Usable = usableHosts6(default6.prefix);
       <div class="flex gap-2">
         {
           ["ipv4", "ipv6"].map((family) => (
-            <label class="flex items-center gap-1.5 text-sm cursor-pointer">
+            <label class="flex min-h-10 items-center gap-2 rounded border border-neutral-200 px-3 py-2 text-sm cursor-pointer has-[:checked]:border-teal-500 dark:border-neutral-700 dark:has-[:checked]:border-teal-500">
               <input
                 type="radio"
                 name="family"
                 value={family}
                 checked={family === "ipv4"}
                 data-family-radio
-                class="accent-sky-500"
+                class="h-4 w-4 accent-teal-500"
               />
               <span class="text-black dark:text-white">
-                {family.toUpperCase()}
+                {family === "ipv4" ? "IPv4" : "IPv6"}
               </span>
             </label>
           ))
@@ -310,18 +334,20 @@ const default6Usable = usableHosts6(default6.prefix);
         <button
           type="button"
           data-example="ipv6"
+          data-example-value={EXAMPLE_CIDR6}
           class="text-xs text-sky-600 dark:text-sky-400 hover:underline"
         >
-          Try fd00:10::/64
+          Try {EXAMPLE_CIDR6}
         </button>
       </div>
       <div id="ipv4-example">
         <button
           type="button"
           data-example="ipv4"
+          data-example-value={EXAMPLE_CIDR}
           class="text-xs text-sky-600 dark:text-sky-400 hover:underline"
         >
-          Try 192.168.1.0/24
+          Try {EXAMPLE_CIDR}
         </button>
       </div>
     </div>
@@ -494,146 +520,175 @@ const default6Usable = usableHosts6(default6.prefix);
     </div>
   </div>
 
-  <h2 class="font-semibold text-lg text-black dark:text-white">
-    IPv6 host counts by prefix
-  </h2>
-  <div class="overflow-x-auto">
-    <table
-      class="w-full text-sm border-collapse border border-neutral-200 dark:border-neutral-800"
-    >
-      <thead>
-        <tr>
-          <th
-            scope="col"
-            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
-          >
-            Prefix
-          </th>
-          <th
-            scope="col"
-            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
-          >
-            Usable
-          </th>
-          <th
-            scope="col"
-            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
-          >
-            Total
-          </th>
-          <th
-            scope="col"
-            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
-          >
-            Typical use
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {
-          reference6.map((row) => (
+  <!-- The reference table for the selected family is moved to the top by the
+       client script (order-first on #ref-ipv6). IPv4 is the default. -->
+  <div id="ref-tables" class="flex flex-col gap-8">
+    <section id="ref-ipv4" class="space-y-4">
+      <h2 class="font-semibold text-lg text-black dark:text-white">
+        Host counts by prefix
+      </h2>
+      <div
+        class="overflow-x-auto rounded border border-neutral-200 dark:border-neutral-800"
+      >
+        <table
+          class="w-full text-sm border-collapse [&_tbody_tr:last-child>*]:border-b-0"
+        >
+          <thead>
+            <tr class="bg-neutral-50 dark:bg-neutral-900/50">
+              <th
+                scope="col"
+                class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+              >
+                Prefix
+              </th>
+              <th
+                scope="col"
+                class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+              >
+                Usable hosts
+              </th>
+              <th
+                scope="col"
+                class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+              >
+                Total addresses
+              </th>
+              <th
+                scope="col"
+                class="hidden sm:table-cell text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+              >
+                Typical use
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              reference.map((row) => (
+                <tr>
+                  <th
+                    scope="row"
+                    class="text-left font-normal px-3 py-2 font-mono text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+                  >
+                    /{row.prefix}
+                    <span class="mt-0.5 block font-sans text-xs text-neutral-500 dark:text-neutral-400 sm:hidden">
+                      {row.use}
+                    </span>
+                  </th>
+                  <td class="text-right px-3 py-2 tabular-nums border-b border-neutral-100 dark:border-neutral-800/60">
+                    {row.usable.toLocaleString("en-GB")}
+                  </td>
+                  <td class="text-right px-3 py-2 tabular-nums border-b border-neutral-100 dark:border-neutral-800/60">
+                    {row.total.toLocaleString("en-GB")}
+                  </td>
+                  <td class="hidden sm:table-cell px-3 py-2 text-neutral-500 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800/60">
+                    {row.use}
+                  </td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+        Prefix lengths 0 to 15 are omitted; they exist but no home or small
+        office network uses them.
+      </p>
+    </section>
+    <section id="ref-ipv6" class="space-y-4">
+      <h2 class="font-semibold text-lg text-black dark:text-white">
+        IPv6 host counts by prefix
+      </h2>
+      <div
+        class="overflow-x-auto rounded border border-neutral-200 dark:border-neutral-800"
+      >
+        <table
+          class="w-full text-sm border-collapse [&_tbody_tr:last-child>*]:border-b-0"
+        >
+          <thead>
             <tr>
               <th
-                scope="row"
-                class="text-left font-normal px-3 py-2 font-mono text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+                scope="col"
+                class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
               >
-                /{row.prefix}
+                Prefix
               </th>
-              <td class="text-right px-3 py-2 tabular-nums text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60">
-                {row.usable}
-              </td>
-              <td class="text-right px-3 py-2 tabular-nums text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60">
-                {row.total}
-              </td>
-              <td class="text-left px-3 py-2 text-neutral-600 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800/60">
-                {row.use}
-              </td>
-            </tr>
-          ))
-        }
-      </tbody>
-    </table>
-  </div>
-  <p class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed m-0">
-    IPv6 has no wildcard mask in the sense IPv4 has, because access lists are
-    written in prefix notation rather than against an inverted bitmask. There is
-    no broadcast address either: the highest address of the range is the last
-    usable address and is not excluded, which is why /64 and /127 show different
-    arithmetic than their IPv4 counterparts.
-  </p>
-
-  <h2 class="font-semibold text-lg text-black dark:text-white">
-    Host counts by prefix
-  </h2>
-  <div class="overflow-x-auto">
-    <table
-      class="w-full text-sm border-collapse border border-neutral-200 dark:border-neutral-800"
-    >
-      <thead>
-        <tr class="bg-neutral-50 dark:bg-neutral-900/50">
-          <th
-            scope="col"
-            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
-          >
-            Prefix
-          </th>
-          <th
-            scope="col"
-            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
-          >
-            Usable hosts
-          </th>
-          <th
-            scope="col"
-            class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
-          >
-            Total addresses
-          </th>
-          <th
-            scope="col"
-            class="text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
-          >
-            Typical use
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {
-          reference.map((row) => (
-            <tr>
               <th
-                scope="row"
-                class="text-left font-normal px-3 py-2 font-mono text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+                scope="col"
+                class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
               >
-                /{row.prefix}
+                Usable
               </th>
-              <td class="text-right px-3 py-2 tabular-nums border-b border-neutral-100 dark:border-neutral-800/60">
-                {row.usable.toLocaleString("en-GB")}
-              </td>
-              <td class="text-right px-3 py-2 tabular-nums border-b border-neutral-100 dark:border-neutral-800/60">
-                {row.total.toLocaleString("en-GB")}
-              </td>
-              <td class="px-3 py-2 text-neutral-500 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800/60">
-                {row.prefix <= 20
-                  ? "Transitive routing between sites"
-                  : row.prefix <= 22
-                    ? "Department or building segment"
-                    : row.prefix <= 24
-                      ? "Office or floor LAN"
-                      : row.prefix <= 26
-                        ? "Server or IoT segment"
-                        : "Point-to-point link"}
-              </td>
+              <th
+                scope="col"
+                class="text-right font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+              >
+                Total
+              </th>
+              <th
+                scope="col"
+                class="hidden sm:table-cell text-left font-semibold px-3 py-2 text-black dark:text-white border-b border-neutral-200 dark:border-neutral-800"
+              >
+                Typical use
+              </th>
             </tr>
-          ))
-        }
-      </tbody>
-    </table>
+          </thead>
+          <tbody>
+            {
+              reference6.map((row) => (
+                <tr>
+                  <th
+                    scope="row"
+                    class="text-left font-normal px-3 py-2 font-mono text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+                  >
+                    /{row.prefix}
+                    <span class="mt-0.5 block font-sans text-xs text-neutral-500 dark:text-neutral-400 sm:hidden">
+                      {row.use}
+                    </span>
+                  </th>
+                  <td
+                    class="text-right px-3 py-2 tabular-nums whitespace-nowrap text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+                    title={row.usableExact}
+                  >
+                    {row.compact ? (
+                      <span>
+                        2<sup>{row.bits}</sup> - {row.usableOffset.toString()}
+                      </span>
+                    ) : (
+                      row.usableExact
+                    )}
+                  </td>
+                  <td
+                    class="text-right px-3 py-2 tabular-nums whitespace-nowrap text-neutral-700 dark:text-neutral-300 border-b border-neutral-100 dark:border-neutral-800/60"
+                    title={row.totalExact}
+                  >
+                    {row.compact ? (
+                      <span>
+                        2<sup>{row.bits}</sup>
+                      </span>
+                    ) : (
+                      row.totalExact
+                    )}
+                  </td>
+                  <td class="hidden sm:table-cell text-left px-3 py-2 text-neutral-600 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800/60">
+                    {row.use}
+                  </td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+      <p
+        class="max-w-3xl text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed m-0"
+      >
+        IPv6 has no wildcard mask in the sense IPv4 has, because access lists
+        are written in prefix notation rather than against an inverted bitmask.
+        There is no broadcast address either: the highest address of the range
+        is the last usable address and is not excluded, which is why /64 and
+        /127 show different arithmetic than their IPv4 counterparts.
+      </p>
+    </section>
   </div>
-  <p class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
-    Prefix lengths 0 to 15 are omitted; they exist but no home or small office
-    network uses them.
-  </p>
 </ToolLayout>
 
 <script>
@@ -894,7 +949,7 @@ const default6Usable = usableHosts6(default6.prefix);
       out["out-error"].classList.remove("hidden");
       for (const id of OUT_IDS) {
         if (id === "out-error") continue;
-        out[id].textContent = "—";
+        out[id].textContent = "n/a";
       }
       return;
     }
@@ -941,7 +996,7 @@ const default6Usable = usableHosts6(default6.prefix);
       out["out-error"].classList.remove("hidden");
       for (const id of OUT_IDS_6) {
         if (id === "out-error") continue;
-        out[id].textContent = "—";
+        out[id].textContent = "n/a";
       }
       return;
     }
@@ -974,6 +1029,7 @@ const default6Usable = usableHosts6(default6.prefix);
       document.getElementById("ipv4-splits")?.classList.toggle("hidden", is6);
       document.getElementById("ipv6-result")?.classList.toggle("hidden", !is6);
     }
+    document.getElementById("ref-ipv6")?.classList.toggle("order-first", is6);
 
     const hint4 = document.getElementById("cidr-hint");
     const hint6 = document.getElementById("cidr-hint-6");
@@ -1030,7 +1086,9 @@ const default6Usable = usableHosts6(default6.prefix);
             `[data-family-radio][value="${family}"]`,
           ) as HTMLInputElement | null;
           if (radio) radio.checked = true;
-          input.value = family === "ipv6" ? DEFAULT_CIDR6 : DEFAULT_CIDR;
+          input.value =
+            button.getAttribute("data-example-value") ||
+            (family === "ipv6" ? DEFAULT_CIDR6 : DEFAULT_CIDR);
           render();
         });
       });

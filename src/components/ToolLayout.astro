@@ -45,8 +45,8 @@ const faqLd = {
 
 <PageLayout title={title} description={description}>
   <Container>
-    <div class="max-w-3xl space-y-8">
-      <div class="animate">
+    <div class="space-y-8">
+      <div class="animate max-w-3xl">
         <a
           href="/tools/"
           class="font-mono text-xs uppercase tracking-wider text-teal-700 hover:text-teal-800 dark:text-teal-400 dark:hover:text-teal-300"
@@ -62,12 +62,22 @@ const faqLd = {
         </p>
       </div>
 
-      <slot />
+      <!--
+        Every tool passes its input card first and its result card second. On
+        lg those two sit side by side so the calculator uses the full frame;
+        everything after them (reference tables, notes) spans both columns, and
+        running text keeps a readable measure.
+      -->
+      <div
+        class="space-y-8 lg:grid lg:grid-cols-2 lg:items-start lg:gap-8 lg:space-y-0 lg:[&>*:nth-child(n+3)]:col-span-2 lg:[&>p]:max-w-3xl"
+      >
+        <slot />
+      </div>
 
-      <h2 class="font-semibold text-lg text-black dark:text-white">
+      <h2 class="max-w-3xl font-semibold text-lg text-black dark:text-white">
         Frequently Asked Questions
       </h2>
-      <div class="space-y-4">
+      <div class="max-w-3xl space-y-4">
         {
           faqs.map((faq) => (
             <div>
@@ -84,7 +94,7 @@ const faqLd = {
 
       {
         related.length > 0 && (
-          <div class="space-y-2">
+          <div class="max-w-3xl space-y-2">
             <h2 class="font-semibold text-lg text-black dark:text-white">
               Related
             </h2>

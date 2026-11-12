@@ -1,6 +1,7 @@
 ---
 import PageLayout from "@layouts/PageLayout.astro";
 import Container from "@components/Container.astro";
+import PageHeader from "@components/PageHeader.astro";
 
 const accessibilityFeatures = [
   {
@@ -61,55 +62,62 @@ const accessibilityFeatures = [
   description="Accessibility features and commitments for woitzik.dev"
 >
   <Container>
-    <div class="max-w-2xl space-y-10">
-      <div class="animate space-y-1">
-        <h1 class="page-title">Accessibility Statement</h1>
+    <PageHeader
+      eyebrow="Accessibility"
+      title="Accessibility Statement"
+      description="I want woitzik.dev to work for everyone, including people using a keyboard, a screen reader, or high zoom. This page lists what the site does for that and how to report a problem."
+    />
+
+    <div class="animate max-w-3xl space-y-10">
+      <section class="space-y-4">
+        <h2 class="font-semibold text-lg text-black dark:text-white">
+          Accessibility Features
+        </h2>
+        <div class="space-y-3">
+          {
+            accessibilityFeatures.map((feature) => (
+              <div class="p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50">
+                <h3 class="font-semibold text-sm text-black dark:text-white mb-1">
+                  {feature.title}
+                </h3>
+                <p class="text-sm text-neutral-500 dark:text-neutral-400 m-0 leading-relaxed">
+                  {feature.description}
+                </p>
+              </div>
+            ))
+          }
+        </div>
+      </section>
+
+      <section class="space-y-4">
+        <h2 class="font-semibold text-lg text-black dark:text-white">
+          Standards
+        </h2>
         <p
           class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed"
         >
-          I want woitzik.dev to work for everyone, including people using a
-          keyboard, a screen reader, or high zoom. This page lists what the site
-          does for that and how to report a problem.
+          This site strives to conform to <strong>WCAG 2.2 Level AA</strong> standards.
+          I regularly test with screen readers (VoiceOver, NVDA) and keyboard-only
+          navigation.
         </p>
-      </div>
+      </section>
 
-      <h2 class="font-semibold text-lg text-black dark:text-white">
-        Accessibility Features
-      </h2>
-
-      <div class="space-y-3">
-        {
-          accessibilityFeatures.map((feature) => (
-            <div class="p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/50">
-              <h3 class="font-semibold text-sm text-black dark:text-white mb-1">
-                {feature.title}
-              </h3>
-              <p class="text-sm text-neutral-500 dark:text-neutral-400 m-0 leading-relaxed">
-                {feature.description}
-              </p>
-            </div>
-          ))
-        }
-      </div>
-
-      <h2 class="font-semibold text-lg text-black dark:text-white">
-        Standards
-      </h2>
-      <p class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed">
-        This site strives to conform to <strong>WCAG 2.2 Level AA</strong> standards.
-        I regularly test with screen readers (VoiceOver, NVDA) and keyboard-only navigation.
-      </p>
-
-      <h2 class="font-semibold text-lg text-black dark:text-white">Feedback</h2>
-      <p class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed">
-        If you encounter any accessibility barriers on this site, please contact
-        me at
-        <a
-          href="mailto:david@woitzik.dev"
-          class="text-sky-600 dark:text-sky-400 hover:underline"
-          >david@woitzik.dev</a
-        >. I reply to accessibility reports within 48 hours.
-      </p>
+      <section class="space-y-4">
+        <h2 class="font-semibold text-lg text-black dark:text-white">
+          Feedback
+        </h2>
+        <p
+          class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed"
+        >
+          If you encounter any accessibility barriers on this site, please
+          contact me at
+          <a
+            href="mailto:david@woitzik.dev"
+            class="text-sky-600 dark:text-sky-400 hover:underline"
+            >david@woitzik.dev</a
+          >. I reply to accessibility reports within 48 hours.
+        </p>
+      </section>
 
       <p class="text-xs text-neutral-400 dark:text-neutral-500">
         Last updated: July 2026
