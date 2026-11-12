@@ -1,0 +1,142 @@
+---
+title: "A tmpfs Download Folder Took Down My Proxmox LXC: tmpfs Counts Against the Memory Cgroup"
+description: "A 20 GB tmpfs behind a 4 GB LXC limit: one 8.9 GB download caused 8 million memory.high throttles. Why tmpfs is charged to the container's cgroup."
+date: "2026-11-25"
+tags: ["Proxmox", "Homelab", "Debugging", "Storage"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+<em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
+
+I moved SABnzbd's incomplete-download folder onto a 20 GB tmpfs to get unpacking off a slow disk. The container it served had a 4 GB memory limit. The first large download after the change, an 8.9 GB Blu-ray rip, caused about 8 million `memory.high` throttle events, parked roughly 130 threads in uninterruptible sleep and pushed the Proxmox host's load to around 150. Nothing ran out of memory and the job finished. The cause: tmpfs pages are charged to the memory cgroup of whoever writes them, so the ramdisk was eating the container's own 4 GB budget. Three weeks later the ramdisk went away again, for a different reason.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Why the folder was on a ramdisk at all
+
+SABnzbd runs in `ct-srv-media-acq-01` (LXC 202) alongside the *arr apps, the setup described in [My Media Stack Lives in Two Containers and a Python CronJob](/blog/media-stack-two-containers-python-cronjob/). It writes every download into an *incomplete* directory while fetching, verifying and unpacking, then moves the result to the library. That directory is pure scratch. Its contents are worthless the moment a job completes or fails.
+
+It had already moved twice for I/O reasons:
+
+- **Off the root SSD pool.** SABnzbd's high-rate writes competed with the k3s VM disks on the same pool and caused a real k3s crash (REL-020 in my repo).
+- **Onto the archive HDD**, a [Seagate Expansion 2TB external drive\*](/go/4vxwLpY). That protected the cluster, but parallel download, verify and unpack thrashed a spinning disk that also serves the media library. Unpack throughput sat around 5 MB/s.
+
+So on 2026-10-19, ADR-066 put the incomplete directory on a host tmpfs at `/mnt/sab-incomplete`, bind-mounted into the LXC at `/downloads/incomplete`. The mount lives in `/etc/fstab`, managed by the `pve_host_mounts` Ansible role. The first version used `size=20G`. The container stayed at its existing 4 GB limit. The draft ADR even said tmpfs pressure would be absorbed by the host's RAM. That sentence was wrong, and the next day proved it.
+
+## What the incident looked like
+
+One 8.9 GB Blu-ray rip went into the tmpfs. Its pages filled well past the container's 4 GB limit, and the host stalled:
+
+- about 8 million `memory.high` throttle events for the container
+- roughly 130 threads in uninterruptible sleep, all in `folio_wait_bit_common` called from `filemap_fault` on those tmpfs pages
+- host load near 150
+- the container's `memory.pressure` reporting `full avg10=14.36`
+
+The stuck threads were the whole media stack plus Enshrouded's game process, which runs on the same host and competed for the same reclaim.
+
+What did *not* happen matters as much. No OOM kill was recorded. Nothing was out of memory in the sense the OOM killer cares about. The download completed. The host was simply busy servicing reclaim inside one cgroup, and every process touching those pages waited on it.
+
+## Root cause: tmpfs is shmem, and shmem has an owner
+
+tmpfs pages are shared memory (shmem). The kernel charges shmem to the memory cgroup of the process that writes it. In this case that was SABnzbd inside LXC 202, so every byte in the ramdisk counted against LXC 202's limit, not against the host's free pool.
+
+The host had plenty of RAM. That did not help, because the container could not use it. Once the 4 GB budget was gone, the kernel's response was not "evict some host page cache". It was "reclaim inside this cgroup, then throttle". tmpfs pages cannot simply be dropped like file cache, because there is no backing file to re-read them from. At best they go to swap. With a 20 GB ramdisk behind a 4 GB limit, the container was permanently in reclaim.
+
+A ramdisk does not give a container free memory. It spends the container's own memory.
+
+## The fix (2026-10-20)
+
+Two numbers changed, and they are coupled. The tmpfs cap went from 20 GB to 10 GB:
+
+```yaml
+pve_host_mounts_list:
+  - path: /mnt/sab-incomplete
+    src: tmpfs
+    fstype: tmpfs
+    opts: "size=10G,mode=0755,nosuid,nodev,nofail"
+```
+
+The container's limit went up to 12 GB plus 4 GB swap:
+
+```hcl
+  # Sized against the 10G host tmpfs at /mnt/sab-incomplete: ramdisk pages are
+  # charged to this container's cgroup, so the limit must clear the ramdisk plus
+  # ~2G of stack usage, or SABnzbd throttles in reclaim. See ADR-066.
+  memory {
+    dedicated = 12288
+    swap      = 4096
+  }
+```
+
+Raising the container to 12 GB and capping the ramdisk at 10 GB cleared the stall immediately. On that sizing the same 8.9 GB job unpacked in 151 s, about 59 MB/s, now bound by the HDD's sequential write into the complete directory rather than by the read out of RAM.
+
+The rule I wrote into the ADR:
+
+1. **The tmpfs cap must be strictly below the container's memory limit.** The gap is the stack's own anonymous and page-cache usage, about 2 GB measured here.
+2. **The tmpfs cap is also the maximum size of any single in-flight download.** A larger job stalls at the cap.
+
+One more detail, found only on 2026-11-12: the Terraform `memory` block above landed in the wrong resource. It went into `ct_srv_docker_01` instead of `ct_srv_media_acq_01`. It surfaced while I was reconciling the Proxmox stack against the live host (#1091), and `ct-srv-docker-01` went back to its real 6 GB. Read the resource name around every hunk in a plan, not only the values.
+
+## Why the ramdisk lasted three weeks
+
+Rule 2 was a deliberate trade, and the ADR said so: "a ramdisk big enough for an arbitrary 4K remux does not exist on a 62 GB host."
+
+Radarr's quality profile did not respect it. It allowed 2160p Remux and 2160p Bluray releases of 50 to 80 GB. Such a job fills the 10 GB tmpfs, and SABnzbd pauses itself:
+
+```text
+Too little diskspace forcing PAUSE
+```
+
+With `fulldisk_autoresume = 0`, the default, it never resumes. Aborted unpacks left `_UNPACK_*` folders behind. On 2026-11-11 I found about 27 GB of them, and the queue needed manual intervention.
+
+The obvious move would have been 1080p only. The TV is 4K with Dolby Vision and HDR10+, and the visible gain of a 2160p release is HDR, which 1080p releases almost never carry. What does not pay off here is Remux: bit-exact video and lossless audio at three to four times the size of a good encode, on a pool with about 240 GB free.
+
+## Back to the HDD, with a USB 3 port this time
+
+ADR-073 (#1071) moved the incomplete directory back to the archive HDD, as a ZFS dataset mounted at the same host path, so the container's bind mount did not change:
+
+```yaml
+pve_host_mounts_list: []
+
+pve_host_mounts_absent:
+  - /mnt/sab-incomplete
+
+pve_host_mounts_datasets:
+  - name: archive/sab-incomplete
+    mountpoint: /mnt/sab-incomplete
+    owner: "101000"
+    group: "101000"
+    mode: "0777"
+```
+
+`101000` is the host-side UID of container UID 1000 in an unprivileged LXC. The role first unmounts the old tmpfs and removes it from fstab, then creates the dataset.
+
+What made the HDD acceptable again was a cable. When the 5 MB/s unpack numbers were measured, the disk was on a USB 2 port. My hardware notes now record about 60 MB/s read on USB 3 against 3 to 13 MB/s on USB 2 for the same drive. The original reason for the ramdisk was mostly a port.
+
+The same day, #1070 changed what gets downloaded so the pipeline can always finish it:
+
+- Radarr's profile allows WEB 2160p, Bluray-2160p, WEB 1080p and Bluray-1080p, never Remux.
+- 2160p is capped at 220 MB per minute of runtime (about 26 GB for two hours), 1080p at 50.
+- Radarr refuses imports below 100 GB free on `/media`, so 4K cannot fill the pool shared with backups.
+- `fulldisk_autoresume` is set to `1` through SABnzbd's API from Ansible:
+
+```yaml
+- name: Let SABnzbd resume on its own after a full-disk pause
+  ansible.builtin.uri:
+    url: "http://localhost:8080/api?mode=set_config&section=misc&keyword=fulldisk_autoresume&value=1&output=json&apikey={{ media_acquisition_sabnzbd_api_key }}"
+  when: (media_acquisition_sab_misc.json.config.misc.fulldisk_autoresume | int) != 1
+```
+
+With the scratch off RAM, LXC 202 no longer needs the 12 GB reservation. It is back at 4096 MB in code, with a comment that the stack itself uses about 1 GB.
+
+## Checklist if you want a ramdisk in a container
+
+- **tmpfs written from inside a container is charged to that container.** Size the container's memory limit above the tmpfs cap plus the workload's own usage. Host free memory is irrelevant.
+- **No OOM does not mean no memory problem.** Look at `memory.pressure` and `memory.events` (`high` counter) in the container's cgroup. A climbing `high` count with threads in D state on `filemap_fault` is reclaim, not a disk problem.
+- **The tmpfs size is a per-job ceiling.** If anything upstream can produce a job larger than the cap, it will stall. Enforce the limit where the job is chosen (here: Radarr size caps), not only where it lands.
+- **Turn on auto-resume for full-disk pauses.** `fulldisk_autoresume = 0` turns one full disk into a queue that stays paused until a human looks.
+- **Check the USB port before redesigning storage.** A USB 2 port turned a usable HDD into a 5 MB/s bottleneck, and I built a ramdisk around it.
+- **Read the resource name in every Terraform hunk.** A correct value in the wrong block applies cleanly and fixes nothing in code.
+
+<NewsletterCTA />
