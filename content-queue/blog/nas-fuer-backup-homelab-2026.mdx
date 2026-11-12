@@ -1,0 +1,265 @@
+---
+title: "NAS für Backup und Homelab 2026: 5 Modelle im Vergleich"
+description: "NAS für Backup 2026: Die Synology DS225+ ist die beste Wahl, im Vergleich mit QNAP TS-264, TerraMaster F2-425, Synology DS425+ und UGREEN DXP2800."
+lang: de
+translationOf: "best-nas-home-backup-2026"
+date: "2026-11-27"
+tags: ["Backup", "Hardware", "Homelab"]
+---
+
+<em>Werbung: Dieser Beitrag enthält Amazon-Affiliate-Links (mit &#42; markiert). Als Amazon-Partner verdiene ich an qualifizierten Verkäufen. Für dich kostet es nichts extra.</em>
+
+**[Kompletten Homelab-Infrastruktur-Code auf GitHub ansehen](https://github.com/dwoitzik/homelab-infrastructure)**
+
+In den meisten Haushalten ist ein NAS das Zentrum einer 3-2-1-Backup-Strategie: drei Kopien der wichtigen Daten, auf zwei verschiedenen Medientypen, eine davon außer Haus. Mein eigenes Homelab nutzt keins. Die Backups gehen vom Proxmox Backup Server auf eine per USB angeschlossene HDD am Proxmox-Host, und der erste vollständige Restore-Test dieses Setups hat Probleme zutage gefördert, die im Runbook nirgends standen. Das habe ich in [The Disaster Recovery Runbook Nobody Had Actually Run](/blog/backup-restore-test-never-verified-network-conflict/) (englischer Artikel) aufgeschrieben. Für einen Haushalt, der Backups will, ohne einen Hypervisor zu betreiben, ist ein NAS die einfachere Lösung.
+
+Der NAS-Markt ist 2026 voll. Synology prägt weiterhin die Wahrnehmung, QNAP punktet mit Funktionen, TerraMaster kämpft über den Preis, und UGREEN greift als Neuling beide an. Keines dieser fünf Geräte besitze ich. Der Vergleich beruht auf den Datenblättern und Produktseiten der Hersteller, nicht auf eigenen Tests, und wo eine Angabe nicht veröffentlicht ist, sage ich das, statt zu raten.
+
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [Best NAS for Home Backup and Homelab 2026: 5 Picks →](/blog/best-nas-home-backup-2026/).
+
+## Kurzfassung: Die Empfehlungen
+
+| Modell | Schächte | CPU | RAM | Preisspanne | Am besten für |
+|---|---|---|---|---|---|
+| [Synology DS225+*](/go/4hmdcNX) | 2 | Intel Celeron J4125 | 2GB (max. 6GB) | 320‑350 € | Gesamtsieger |
+| [QNAP TS-264*](/go/3T4phNT) | 2 | Intel Celeron N5095 | 8GB (max. 16GB) | 480‑510 € | Funktionen |
+| [TerraMaster F2-425*](/go/3T4phgR) | 2 | Intel Celeron N5095 | 4GB (max. 16GB) | 290‑320 € | Budget |
+| [Synology DS425+*](/go/4ptIiVP) | 4 | Intel Celeron J4125 | 2GB (max. 6GB) | 580‑620 € | Wachstum |
+| [UGREEN DXP2800*](/go/4fqnkmc) | 2 | Intel N100 | 8GB (max. 16GB) | 340‑370 € | Neueinsteiger |
+
+<em>Das sind Preisspannen, keine Angebote. NAS-Preise bewegen sich mit Festplatten-Bundles und Drittanbietern, prüf deshalb vor dem Kauf das Angebot. Ich habe bei jedem Modell das leere Gehäuse verlinkt und kein Bundle, weil Bundles mit unterschiedlichen Festplatten kommen, und dieser Unterschied ist mehr wert als der Gehäusepreis.</em>
+
+<em><strong>Hinweis zur Verfügbarkeit von Synology, geprüft im September 2026:</strong> Sowohl die DS225+ als auch die DS425+ waren zum Zeitpunkt des Schreibens auf amazon.de nicht sofort lieferbar, mit Lieferzeiten in Monaten statt Tagen. An der Hardware-Empfehlung ändert das nichts. Brauchst du aber diese Woche ein NAS, bekommst du die Geräte von QNAP, TerraMaster oder UGREEN tatsächlich jetzt.</em>
+
+Kurz gesagt: Die **[Synology DS225+*](/go/4hmdcNX)** bleibt die Standardempfehlung für alle, die ein NAS wollen, das 5 Jahre und länger mit minimaler Wartung läuft. Brauchst du mehr Schächte und Platz zum Wachsen, ist die **[Synology DS425+*](/go/4ptIiVP)** die Investition. Zählt das Budget und kannst du mit weniger Feinschliff leben, leistet die **[TerraMaster F2-425*](/go/3T4phgR)** mehr, als ihr Preis vermuten lässt.
+
+## Auswahlkriterien: Worauf es bei einem NAS für Backups zu Hause ankommt
+
+Ein NAS für Backups zu Hause hat andere Prioritäten als eines für Medien-Streaming oder Unternehmensspeicher.
+
+**Zuverlässigkeit vor Funktionen.** Du brauchst ein Gerät, das rund um die Uhr online bleibt, Stromausfälle sauber übersteht und bei Firmware-Updates keine Daten beschädigt. Synology liegt hier deutlich vorn. QNAP bietet mehr Funktionen, hat bei Updates aber die holprigere Bilanz.
+
+**Festplatten-Kompatibilität.** Nicht jedes Gehäuse arbeitet mit jeder Festplatte gut zusammen. Synologys Kompatibilitätsliste ist restriktiv (das Unternehmen drängt auf seine eigenen HAT5300-Festplatten), wobei diese Vorsicht weniger überraschende Ausfälle bedeutet. Mit DSM 7.3 (Oktober 2025) hat Synology einen Teil der Sperre von 2024 zurückgenommen: 3,5-Zoll-HDDs und 2,5-Zoll-SATA-SSDs von Drittherstellern funktionieren auf den Plus-Modellen der Generation 2025 wieder, ohne bei Installation oder Pool-Erstellung blockiert zu werden. M.2-NVMe-SSDs bleiben auf validierte Laufwerke beschränkt. QNAP und TerraMaster sind weiterhin durchgehend offener.
+
+**Backup-Software.** Die mitgelieferten Backup-Anwendungen zählen mehr als die Hardware. Synology Active Backup for Business, Hyper Backup und Snapshot Replication sind das Beste, was es bei Consumer-NAS gibt. QNAPs Hybrid Backup Sync ist leistungsfähig, aber komplexer. Die Software von TerraMaster und UGREEN ist jünger und weniger erprobt.
+
+**RAID-Unterstützung.** Bei 2-Bay-Geräten ist RAID 1 (Spiegelung) das Minimum. Bei 4-Bay-Geräten gibt dir RAID 5 oder RAID 6 Redundanz plus Kapazität. Synology Hybrid RAID (SHR) erlaubt unterschiedliche Festplattengrößen ohne verschwendeten Platz. Das zählt, wenn du Festplatten einzeln nacheinander aufrüstest.
+
+**Stromverbrauch.** Das NAS läuft rund um die Uhr, also summiert sich ein Leerlaufverbrauch von 10 W gegenüber 25 W übers Jahr. Die Zahl der Festplatten zählt mehr als das Gehäuse: Zwei HDDs mit 7200 U/min können mehr ziehen als das NAS-Board selbst.
+
+**Erweiterbarkeit.** RAM-Upgrades, NVMe-Slots, 10GbE-Erweiterung und USB-Ports für externe Backup-Ziele verlängern die Nutzungsdauer eines NAS.
+
+## Die Geräte im Einzelnen
+
+### 1. Synology DS225+: Gesamtsieger
+
+2-Bay · Intel Celeron J4125 · 2GB DDR4 (erweiterbar auf 6GB) · 320‑350 €
+
+Die DS225+ ist das NAS, das ich den meisten Leuten empfehle, die fragen. Sie ist die direkte Nachfolgerin der DS224+, mit derselben J4125-CPU und 2GB Grund-RAM und einem echten Upgrade: einem 2,5GbE-Port neben dem 1GbE-Port, statt der zwei 1GbE-Ports des Vorgängers. Sie ist weder die günstigste noch die schnellste noch die mit den meisten Funktionen. Sie ist die, die jahrelang ohne Drama läuft.
+
+DSM ist der Grund, dieses NAS zu kaufen. Die Oberfläche ist ausgereift, die Backup-Anwendungen sind erprobt, und der Paketkatalog (Container Manager, Surveillance Station, Medienserver) deckt die üblichen Anwendungsfälle ab, ohne überladen zu wirken. Hyper Backup erledigt verschlüsselte, deduplizierte Backups auf lokale Laufwerke, auf ein entferntes Synology-NAS und in die Cloud (S3, Backblaze B2, Google Drive), alles aus einer Anwendung.
+
+Der J4125 ist nicht schnell. Er ist ein eingebetteter Chip mit 4 Kernen, ausgelegt auf niedrigen Verbrauch. Für Dateifreigaben, Backups und Docker-Container mit schlanken Diensten reicht er völlig. Beim Plex-Transcoding von 4K-HEVC-Inhalten geht ihm die Luft aus. Die 2GB Grund-RAM sind knapp, wenn du mehrere Pakete betreibst. Nutzt du Docker oder mehr als zwei oder drei Dienste, plane ein Upgrade auf 6GB über den SO-DIMM-Slot ein. M.2-Slots gibt es nicht, NVMe-Cache ist bei diesem Modell also keine Option.
+
+Der Stromverbrauch ist niedrig. Synologys Datenblatt nennt 16,98 W im Zugriffsbetrieb und 6,08 W mit Festplatten im Ruhezustand.
+
+**Vorteile:**
+- DSM, das beste verfügbare NAS-Betriebssystem
+- Sehr effizient
+- Ausgereiftes Hyper Backup und Active Backup
+- SHR erlaubt unterschiedliche Festplattengrößen
+- Große Community und gute Dokumentation
+
+**Nachteile:**
+- Drängt auf eigene Festplatten (HAT5300 sind teuer)
+- Nur 2GB Grund-RAM, für Docker ist ein Upgrade nötig
+- J4125 ist in die Jahre gekommen und schwach beim 4K-HEVC-Transcoding
+- Keine M.2-Slots
+- Aufpreis gegenüber Konkurrenten mit ähnlichen Eckdaten
+
+### 2. QNAP TS-264: Funktionen
+
+2-Bay · Intel Celeron N5095 · 8GB DDR4 (erweiterbar auf 16GB) · 480‑510 €
+
+Die TS-264 ist die Option mit den meisten Funktionen. Wo Synology auf Zuverlässigkeit und Feinschliff setzt, packt QNAP alles hinein: HDMI-2.1-Ausgang, zwei 2,5GbE-Ports, zwei M.2-NVMe-Slots, USB 3.2 Gen 2 und einen PCIe-Gen-3-x2-Slot. Ein NAS, das ein kleiner Server sein will.
+
+Der N5095 ist schneller als Synologys J4125, und mit 8GB Grund-RAM kannst du Docker-Container, VMs über Virtualization Station und QNAPs eigene Apps ohne sofortiges Upgrade betreiben. Die zwei 2,5GbE-Ports unterstützen Link Aggregation, was hilft, wenn dein Switch das kann.
+
+QTS 5 ist leistungsfähig, aber weniger intuitiv als DSM. Die Oberfläche ist voller, Einstellungen sind über mehr Menüs verteilt, und die Sicherheit ab Werk ist schwächer. QNAP hatte in den letzten Jahren mehrere schwere Sicherheitslücken, und die Ransomware-Kampagne Deadbolt hat QNAP-Nutzer hart getroffen. Härte ein QNAP-NAS am ersten Tag: Standard-Admin-Konto deaktivieren, 2FA einschalten, Firewall konfigurieren.
+
+Der PCIe-Slot ist das zweite Unterscheidungsmerkmal. Es ist das einzige Gerät in dieser Liste, das eine 10GbE-Karte aufnimmt.
+
+**Vorteile:**
+- Die meisten Funktionen pro Euro (HDMI, zwei 2,5GbE, zwei M.2)
+- 8GB Grund-RAM, kein sofortiges Upgrade nötig
+- Virtualization Station für schlanke VMs
+- HDMI 2.1 für direkte Medienwiedergabe
+- PCIe-Slot für 10GbE-Erweiterung
+
+**Nachteile:**
+- QTS ist weniger ausgereift als DSM
+- Sicherheitsbilanz (Deadbolt, Qlocker)
+- Höherer Leerlaufverbrauch als Synology (~15‑18 W ohne Festplatten)
+- Lauterer Lüfter als Synology bei vergleichbarer Last
+- Dünnere Support-Dokumentation
+
+### 3. [TerraMaster F2-425*](/go/3T4phgR): Budget
+
+2-Bay · Intel Celeron N5095 · 4GB DDR4 (erweiterbar auf 16GB) · 290‑320 €
+
+Die F2-425 ist die Budget-Empfehlung, die bei den Kernfunktionen keine Abstriche macht. Sie ersetzt die F2-223, die auf amazon.de nicht mehr verkauft wird. Laut TerraMasters Datenblatt hat sie einen Celeron N5095 mit vier Kernen (2,0 GHz, 2,9 GHz Burst), 4GB DDR4 in einem einzelnen SO-DIMM-Slot, der bis 16GB aufnimmt, einen 2,5GbE-Port und einen HDMI-Ausgang. Gegenüber der F2-223 ist das ein Tausch, kein reines Upgrade: Das alte Gerät hatte einen Celeron N4505 mit zwei Kernen, aber zwei 2,5GbE-Ports und zwei M.2-NVMe-Slots. Die F2-425 verdoppelt die Kerne und verzichtet auf die zweite NIC und die M.2-Slots. Für ein Backup-Gerät helfen die zusätzlichen Kerne bei leichter Docker-Last und Integritätsprüfungen, und ein 2,5GbE-Port reicht für zwei SATA-Festplatten.
+
+TerraMasters TOS (die Produktseite wirbt aktuell mit TOS 7) ist die Schwachstelle. Seit TOS 4 hat es sich stark verbessert, aber ihm fehlen weiterhin Feinschliff und Erfahrungswerte von DSM oder QTS. Docker funktioniert, die Backup-Anwendungen sind vorhanden, und SMB, NFS und WebDAV laufen, aber insgesamt fühlt es sich an wie ein Produkt der ersten Generation. Die Community ist kleiner, die Dokumentation dünner, und Probleme in Randfällen dauern länger.
+
+Gewinnen kann sie beim reinen Preis-Leistungs-Verhältnis. 4GB Grund-RAM sind doppelt so viel wie Synologys 2GB, du kannst also ein paar Container betreiben, bevor du aufrüsten musst, und der einzelne 2,5GbE-Port entspricht dem schnelleren der beiden NICs der DS225+. Bei etwa 300 € kosten zwei Stück weniger als eine DS225+, ein echtes Argument, wenn du Redundanz willst.
+
+<em>Angaben im November 2026 mit TerraMasters eigener Produktseite abgeglichen: Celeron N5095, 4GB DDR4 (ein Slot, max. 16GB), ein 2,5GbE-Port, zwei SATA-Schächte und keine M.2-Slots aufgeführt, NVMe-Cache ist also keine Option. TerraMaster veröffentlicht keinen Wert zum Stromverbrauch, nur ein 48-W-Netzteil. Verwechsle sie nicht mit der F2-425 Plus, einem anderen Gerät mit N150 und mehr RAM.</em>
+
+**Vorteile:**
+- Bestes Verhältnis von Preis zu Hardware
+- N5095 mit vier Kernen, doppelt so viele wie bei der F2-223
+- 4GB Grund-RAM (mehr als Synologys 2GB), erweiterbar auf 16GB
+- HDMI-Ausgang
+- Kompaktes, leises Design
+- Ausreichend für einfache Datei-Backups und Docker
+
+**Nachteile:**
+- TOS ist deutlich weniger ausgereift als DSM
+- Keine M.2-Slots und nur eine NIC, beides weniger als bei der F2-223
+- Kleinere Community und dünnere Dokumentation
+- Kein Gegenstück zu Hyper Backup, die Backup-Einrichtung ist mehr Handarbeit
+- Langfristiger Software-Support ungewiss
+
+### 4. [Synology DS425+*](/go/4ptIiVP): Wachstum
+
+4-Bay · Intel Celeron J4125 · 2GB DDR4 (erweiterbar auf 6GB) · 580‑620 €
+
+Die DS425+ ist das NAS, das du kaufst, wenn du weißt, dass dein Speicherbedarf wachsen wird. Vier Schächte mit SHR bedeuten: Du startest mit zwei Festplatten, fügst später eine dritte hinzu, dann eine vierte, ohne das Array jedes Mal neu aufzubauen.
+
+Die CPU ist derselbe J4125 wie in der DS225+, mit denselben Grenzen. Dateifreigaben und Backups gehen problemlos, schweres Medien-Transcoding nicht. Der Wert der DS425+ liegt in den vier Schächten und im Synology-Ökosystem in einer Größe, die mit deinen Daten mitwächst.
+
+Frühere Versionen dieses Ratgebers hatten zwei Angaben falsch. Laut Synologys Datenblatt:
+
+- **Der RAM endet bei 6GB** (2GB onboard plus ein SO-DIMM-Slot für ein 4GB-Modul). Ein Ausbau mit viel Speicher ist nicht möglich.
+- **Es gibt zwei M.2-2280-NVMe-Slots.** Sie dienen als SSD-Cache oder als Speicherpool, wenn du von Synology verifizierte SSDs nutzt.
+
+Neben einem 1GbE-Port hat sie einen 2,5GbE-Port, bei einem 4-Bay-HDD-Array sind also meist die Festplatten der Flaschenhals, bevor es das Netzwerk ist. Einen PCIe-Slot gibt es nicht, 10GbE ist bei diesem Modell also kein Upgrade-Pfad.
+
+Der Stromverbrauch steigt mit den Festplatten: etwa 15 bis 20 W im Leerlauf mit vier Festplatten im Ruhezustand, 35 bis 45 W unter Last mit vier aktiven Festplatten. Plane dein Strombudget entsprechend.
+
+**Vorteile:**
+- SHR mit 4 Schächten, die größte Flexibilität für gemischte Festplatten
+- 2,5GbE + 1GbE
+- Zwei NVMe-Slots für Cache oder einen SSD-Pool
+- Dasselbe DSM wie bei der DS225+
+
+**Nachteile:**
+- 580‑620 € für ein 4-Bay-Consumer-NAS, und bei meiner Prüfung war sie nicht sofort lieferbar
+- RAM endet bei 6GB
+- M.2-Speicherpools nur mit von Synology verifizierten SSDs
+- Kein PCIe-Slot, keine 10GbE-Option
+- J4125-CPU ist in die Jahre gekommen, wie bei der günstigeren DS225+
+
+### 5. [UGREEN DXP2800*](/go/4fqnkmc): Neueinsteiger
+
+2-Bay · Intel N100 · 8GB DDR5 (erweiterbar auf 16GB) · 340‑370 €
+
+UGREEN ist der Neuling, der das Duopol aus Synology und QNAP angreift. Die DXP2800 ist das 2-Bay-Modell, und auf dem Papier ist sie beeindruckend: ein Intel N100 (derselbe Chip wie in vielen aktuellen Mini-PCs), 8GB DDR5-RAM, zwei M.2-NVMe-Slots, ein 4K-HDMI-Ausgang und ein Metallgehäuse, das hochwertiger wirkt, als der Preis vermuten lässt.
+
+UGOS ist die Unbekannte. Es ist neu, wird noch aktiv entwickelt und hat nicht die Reife von DSM oder QTS. Die Kernfunktionen laufen (Dateifreigaben, Docker, einfache Backups), aber der App-Katalog ist begrenzt, und die langfristige Support-Zusage ist nicht belegt. UGREEN ist ein Hardware-Unternehmen, kein Software-Unternehmen, und das merkt man.
+
+Die Hardware ist für den Preis hervorragend. Der N100 ist schneller als Synologys J4125, und 8GB DDR5 ersparen dir das sofortige Upgrade. Eine Korrektur zu dem, was dieser Abschnitt früher behauptet hat: **Die DXP2800 hat einen einzelnen 2,5GbE-Port, nicht zwei.** Sind dir Link Aggregation oder ein zweiter Uplink wichtig, kauf stattdessen die QNAP TS-264.
+
+Das Gehäuse liegt im Leerlauf bei etwa 8 bis 10 W, konkurrenzfähig mit Synology, und der effiziente N100 hält die Temperaturen bei andauernden Dateioperationen niedrig.
+
+**Vorteile:**
+- Die beste Hardware pro Euro in der 2-Bay-Klasse
+- Intel N100, schneller als jede Synology in diesem Bereich
+- 8GB DDR5 Grund-RAM
+- 2,5GbE-Port und 4K-HDMI-Ausgang
+- Metallgehäuse, solide Verarbeitung
+
+**Nachteile:**
+- Nur ein 2,5GbE-Port, keine Link Aggregation
+- UGOS ist unausgereift, mit begrenztem App-Katalog
+- Langfristiger Software-Support ungewiss (neues Unternehmen im NAS-Markt)
+- Backup-Software nicht mit Hyper Backup vergleichbar
+- Kurze Firmware-Historie, keine belegte Erfolgsbilanz
+
+## Direktvergleich
+
+| Merkmal | DS225+ | TS-264 | F2-425 | DS425+ | DXP2800 |
+|---|---|---|---|---|---|
+| CPU | J4125 (4C) | N5095 (4C) | N5095 (4C) | J4125 (4C) | N100 (4C) |
+| Grund-RAM | 2GB | 8GB | 4GB | 2GB | 8GB |
+| Max. RAM | 6GB | 16GB | 16GB | 6GB | 16GB |
+| Schächte | 2 | 2 | 2 | 4 | 2 |
+| NIC | 1x 2,5GbE + 1x 1GbE | 2x 2,5GbE | 1x 2,5GbE | 1x 2,5GbE + 1x 1GbE | 1x 2,5GbE |
+| M.2-Slots | Keine | 2 | Keine | 2 (Cache oder Pool) | 2 |
+| HDMI | Nein | Ja (2.1) | Ja | Nein | Ja (4K) |
+| PCIe-Slot | Nein | Ja | Nein | Nein | Nein |
+| Leerlauf | 6,08 W (HDD im Ruhezustand) | ~15‑18 W | Nicht veröffentlicht | ~15‑20 W | ~8‑10 W |
+| Betriebssystem | DSM 7.3 | QTS 5 | TOS 7 | DSM 7.3 | UGOS |
+| Preisspanne | 320‑350 € | 480‑510 € | 290‑320 € | 580‑620 € | 340‑370 € |
+
+<em>Die Angaben stammen aus den Datenblättern der Hersteller. TerraMaster veröffentlicht für die F2-425 keinen Leerlaufwert, deshalb steht das so in der Zelle, statt zu raten.</em>
+
+## Kaufberatung
+
+**Kauf die Synology DS225+, wenn:** du ein NAS willst, das 5 Jahre und länger mit minimaler Wartung läuft. DSM ist das beste NAS-Betriebssystem, Hyper Backup deckt jedes übliche Backup-Szenario ab, und das Ökosystem ist erprobt. Das ist die Standardempfehlung für die meisten Haushalte.
+
+**Kauf die QNAP TS-264, wenn:** du die meisten Funktionen im 2-Bay-Format willst: HDMI-Ausgang für direkte Medienwiedergabe, zwei 2,5GbE-Ports, 8GB RAM für viel Docker und einen PCIe-Slot für späteres 10GbE. Stell dich darauf ein, am ersten Tag die Sicherheit zu härten.
+
+**Kauf die TerraMaster F2-425, wenn:** das Budget die wichtigste Grenze ist und du mit weniger ausgereifter Software leben kannst. Der Chip mit vier Kernen, die RAM-Obergrenze von 16GB und 2,5GbE machen die Hardware gut, und TOS funktioniert, auch wenn es nicht begeistert. Es gibt keinen M.2-Slot, lass sie also aus, wenn du NVMe-Cache willst.
+
+**Kauf die Synology DS425+, wenn:** du weißt, dass dein Speicher über zwei Festplatten hinauswachsen wird. Vier Schächte mit SHR geben dir das flexibelste RAID-Layout bei einem Consumer-NAS. Kleine VMs sind möglich, aber die RAM-Obergrenze von 6GB hält sie klein. Plane die Wartezeit ein: Bei meiner Prüfung war sie auf amazon.de nicht sofort lieferbar.
+
+**Kauf die UGREEN DXP2800, wenn:** du darauf setzt, dass UGOS reift, und heute das beste Preis-Leistungs-Verhältnis bei der Hardware willst. Die Kombination aus N100 und 8GB DDR5 ist in dieser Preisklasse schwer zu schlagen, solange du keine zweite NIC brauchst. Du bist Early Adopter.
+
+**Für Homelab-Leser:** Eine Synology DS225+ mit zwei 4TB-Festplatten in SHR-1 (Spiegelung) ist der Kern einer 3-2-1-Backup-Strategie. Kombiniere sie mit einem Cloud-Ziel (Backblaze B2 oder dein eigener S3-kompatibler Endpunkt außer Haus), und du hast eine Backup-Architektur, die Feuer, Diebstahl und Ransomware übersteht, solange du den Restore testest. Warum dieser letzte Punkt zählt, steht in meinem [Bericht zum Disaster-Recovery-Runbook](/blog/backup-restore-test-never-verified-network-conflict/) (englischer Artikel).
+
+## Häufige Fragen
+
+### Welches NAS ist am besten fürs Homelab?
+
+Das hängt davon ab, was das NAS im Lab macht. Als Backup-Ziel hinter deinen Servern bleibt die Synology DS225+ die Wahl, weil die Backup-Software mehr zählt als die CPU. Betreibt das NAS auch Docker-Container oder kleine VMs, sind QNAP TS-264 und UGREEN DXP2800 die besseren Homelab-NAS: Beide kommen mit 8GB RAM (bis 16GB) und zwei M.2-Slots, gegenüber 2GB mit einer Obergrenze von 6GB bei der DS225+. Willst du später Festplatten nachrüsten, ist die Synology DS425+ mit vier Schächten das Gerät, das mitwächst.
+
+### Welches QNAP-NAS ist am besten fürs Homelab?
+
+Aus dem QNAP-Angebot vergleicht dieser Ratgeber nur die TS-264, und sie ist das homelab-freundlichste Gerät der Liste: zwei 2,5GbE-Ports, 8GB RAM, Virtualization Station für kleine VMs und der einzige PCIe-Slot hier für eine 10GbE-Karte. Der Haken ist die Sicherheit von QTS. Deaktiviere das Standard-Admin-Konto, schalte 2FA ein und konfiguriere die Firewall, bevor das Gerät in dein Netz kommt.
+
+### Wie viel Speicher brauche ich für Backups zu Hause?
+
+Für die meisten Haushalte decken 2 bis 4TB Dokumente, Fotos, Handy-Backups und wichtige System-Images ab. Archivierst du Videos oder betreibst einen Medienserver, plane mit 8 bis 16TB. Starte mit zwei Festplatten im Spiegel (RAID 1 oder SHR-1) und erweitere später. Bei einem NAS kannst du Festplatten einzeln durch größere ersetzen. Rechne deine Festplattengrößen mit dem [RAID-Kapazitätsrechner](https://woitzik.dev/tools/raid-calculator/) durch, um zu sehen, was ein Array nach Abzug der Redundanz liefert.
+
+### Welche Festplatten gehören in ein NAS?
+
+NAS-Festplatten (Seagate IronWolf, WD Red Plus) sind für den Dauerbetrieb gebaut und für die Vibrationen in Gehäusen mit mehreren Schächten ausgelegt. Desktop-Festplatten (WD Blue, Seagate Barracuda) sind günstiger, aber nicht für den Dauerbetrieb spezifiziert. Sie funktionieren, aber du verzichtest auf die Workload-Spezifikation und die Garantiebedingungen, die in einem Gerät zählen, das nie schläft. Für ein Gerät, das du einrichtest und dann vergisst, kauf NAS-Festplatten.
+
+### Ist RAID dasselbe wie ein Backup?
+
+Nein. RAID schützt vor dem Ausfall einer Festplatte, nicht vor Löschen, Datenkorruption, Ransomware oder Feuer. Ein NAS im RAID 1 ohne Kopie außer Haus ist ein `rm -rf /` davon entfernt, alles zu verlieren. RAID sorgt für Verfügbarkeit, ein Backup für Wiederherstellbarkeit. Du brauchst beides.
+
+### Synology Hybrid RAID oder Standard-RAID?
+
+Nimm SHR, wenn du Synology nutzt. Damit kannst du unterschiedliche Festplattengrößen mischen, ohne Kapazität zu verschwenden. Mit zwei Festplatten verhält sich SHR-1 wie RAID 1. Mit vier Festplatten bietet SHR-1 Ausfallsicherheit für eine Festplatte und lässt dich später größere Festplatten einsetzen, ohne das ganze Array neu aufzubauen.
+
+### Laufen auf diesen NAS-Geräten Docker-Container?
+
+Ja, alle fünf unterstützen Docker. Synologys Container Manager (früher das Docker-Paket) ist die ausgereifteste Umsetzung. QNAPs Container Station funktioniert gut, hat aber eine komplexere Oberfläche. Die Docker-Unterstützung von TerraMaster und UGREEN funktioniert, ist aber weniger integriert. Ist Docker ein Hauptzweck, gibt dir die QNAP TS-264 (8GB RAM, N5095) oder die UGREEN DXP2800 (8GB RAM, N100) die beste Hardware dafür.
+
+### Wie lange hält ein NAS?
+
+Ein gutes NAS (Synology, QNAP) hält typischerweise 5 bis 8 Jahre, bevor die Hardware veraltet oder der Software-Support endet. Plane vorsorglich ein, die Festplatten alle 3 bis 4 Jahre zu tauschen, weil Festplatten nicht zuverlässig warnen, bevor sie ausfallen. Das Gehäuse selbst überlebt meist zwei oder drei Festplattensätze.
+
+### Lohnt sich ein NAS gegenüber einer externen Festplatte?
+
+Für einen einzelnen Computer mit unkritischen Daten reicht eine externe Festplatte. Für einen Haushalt mit mehreren Geräten, Daten, deren Verlust du dir nicht leisten kannst, oder ein Homelab mit Diensten, die gemeinsamen Speicher brauchen, lohnt sich ein NAS. Der Unterschied ist die Automatisierung: Ein NAS erledigt RAID, Snapshots, Cloud-Sync und Mehrbenutzerzugriff selbstständig. Eine externe Festplatte funktioniert nur als Backup, wenn du daran denkst, sie anzuschließen, und diese Strategie scheitert beim ersten Mal, wenn du es vergisst.
+
+## Fazit
+
+Der NAS-Markt läuft 2026 auf eine Frage hinaus: Vertraust du eher der Software oder der Hardware? Die DS225+ von Synology hat in die Jahre gekommene Hardware und die verlässlichste Software. Die UGREEN DXP2800 hat hervorragende Hardware und unerprobte Software. Die QNAP TS-264 liegt dazwischen, mit starker Hardware und Software, die aktive Pflege bei der Sicherheit braucht.
+
+Für ein NAS, das in den nächsten fünf Jahren rund um die Uhr deine Backups zu Hause hält, zählt Vertrauen mehr als Datenblätter. Die DS225+ ist die langweilige Wahl, und langweilig ist genau das, was du von dem Gerät willst, auf dem die einzige Kopie deiner Familienfotos und wichtigen Dokumente liegt.
+
+Kauf die DS225+. Bau zwei IronWolf-Festplatten ein. Richte Hyper Backup mit einem Cloud-Ziel ein. Prüf einmal, ob der Restore funktioniert. Dann lass das Gerät in Ruhe, so wie sich ein Backup-System verhalten sollte.

@@ -88,18 +88,24 @@ const TAG_LASTMOD = (() => {
   return map;
 })();
 
-// English slug -> German slug. Kept in sync with the translationOf field in
-// src/content/blog/*.mdx; the sitemap needs it in config-time, where the
-// content collection isn't available yet.
-const DE_TRANSLATIONS = {
-  "hardening-azure-acmebot-iso27001":
-    "hardening-azure-acmebot-iso27001-nis2-deutsch",
-  "mikrotik-wireguard-vpn-terraform":
-    "mikrotik-wireguard-vpn-terraform-deutsch",
-  "velero-garage-k3s-backup": "velero-garage-s3-backup-k3s-deutsch",
-  "kubernetes-securitycontext-hardening-broke-9-containers":
-    "securitycontext-haertung-brach-9-container-kubernetes",
-};
+// English slug -> German slug, read from each German article's
+// `translationOf` frontmatter. The sitemap needs it at config time, before the
+// content collection exists, so the files are read directly. Deriving it here
+// (instead of a hand-kept list) means a German article that the daily publish
+// job moves out of content-queue/ gets its sitemap hreflang automatically.
+const DE_TRANSLATIONS = (() => {
+  const map = {};
+  const dir = join(contentRoot, "blog");
+  for (const file of readdirSync(dir)) {
+    if (!file.endsWith(".mdx") && !file.endsWith(".md")) continue;
+    const source = readFileSync(join(dir, file), "utf8");
+    const fm = source.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!fm || !/^lang:\s*"?de"?\s*$/m.test(fm[1])) continue;
+    const parent = fm[1].match(/^translationOf:\s*"?([a-z0-9-]+)"?\s*$/m);
+    if (parent) map[parent[1]] = file.replace(/\.mdx?$/, "");
+  }
+  return map;
+})();
 
 const DE_TO_ENGLISH = Object.fromEntries(
   Object.entries(DE_TRANSLATIONS).map(([en, de]) => [de, en]),

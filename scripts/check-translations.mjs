@@ -1,20 +1,15 @@
 #!/usr/bin/env node
-// Guards the dual source of truth for translation pairs.
+// Checks translation metadata on German articles.
 //
-// hreflang in the page head is derived from each German article's `translationOf`
-// frontmatter. The sitemap's xhtml:link alternates come from the hardcoded
-// DE_TRANSLATIONS map in astro.config.mjs, because astro.config is evaluated
-// before content collections are readable. Nothing connects the two, so
-// promoting a German article without editing that map silently ships a page whose
-// head advertises a complete hreflang cluster while the sitemap omits it.
-//
-// This check fails the build when the two disagree.
+// hreflang in the page head and the sitemap's xhtml:link alternates are both
+// derived from each German article's `translationOf` frontmatter (astro.config.mjs
+// reads the files at config time). This check makes sure every pair it builds is
+// valid: the target exists, is English, and is claimed by only one German article.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const BLOG_DIR = "src/content/blog";
-const CONFIG = "astro.config.mjs";
 
 function frontmatter(file) {
   const raw = readFileSync(join(BLOG_DIR, file), "utf8");
@@ -27,32 +22,6 @@ function frontmatter(file) {
     fm[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, "");
   }
   return fm;
-}
-
-function configMap() {
-  const src = readFileSync(CONFIG, "utf8");
-  const start = src.indexOf("const DE_TRANSLATIONS = {");
-  if (start < 0) throw new Error("DE_TRANSLATIONS not found in " + CONFIG);
-  const open = src.indexOf("{", start);
-  const close = src.indexOf("};", open);
-  const body = src.slice(open + 1, close);
-  const map = {};
-  for (const entry of body.split(",")) {
-    const t = entry.trim();
-    if (!t) continue;
-    const ci = t.indexOf(":");
-    if (ci < 0) continue;
-    const k = t
-      .slice(0, ci)
-      .trim()
-      .replace(/^["']|["']$/g, "");
-    const v = t
-      .slice(ci + 1)
-      .trim()
-      .replace(/^["']|["']$/g, "");
-    map[k] = v;
-  }
-  return map;
 }
 
 const files = readdirSync(BLOG_DIR).filter((f) => f.endsWith(".mdx"));
@@ -99,68 +68,24 @@ for (const f of files) {
     );
     continue;
   }
+  if (expected[fm.translationOf]) {
+    problems.push(
+      slug +
+        ": translationOf -> " +
+        fm.translationOf +
+        " is already claimed by " +
+        expected[fm.translationOf],
+    );
+    continue;
+  }
   expected[fm.translationOf] = slug;
-}
-
-const configured = configMap();
-const DE_TO_ENGLISH = {};
-for (const [en, de] of Object.entries(configured)) DE_TO_ENGLISH[de] = en;
-
-for (const [en, de] of Object.entries(expected)) {
-  if (!(en in configured)) {
-    problems.push(
-      "astro.config.mjs: missing DE_TRANSLATIONS entry " + en + " -> " + de,
-    );
-  } else if (configured[en] !== de) {
-    problems.push(
-      "astro.config.mjs: " +
-        en +
-        " -> " +
-        configured[en] +
-        " but content says " +
-        de,
-    );
-  }
-}
-for (const [en, de] of Object.entries(configured)) {
-  if (!(en in expected)) {
-    problems.push(
-      "astro.config.mjs: stale DE_TRANSLATIONS entry " +
-        en +
-        " -> " +
-        de +
-        " (no German article claims it)",
-    );
-  }
-  if (!slugs.has(en))
-    problems.push(
-      "astro.config.mjs: key " + en + " is not a published article",
-    );
-  if (!slugs.has(de))
-    problems.push(
-      "astro.config.mjs: value " + de + " is not a published article",
-    );
 }
 
 console.log("German articles:            " + deCount);
 console.log("translation pairs (content): " + Object.keys(expected).length);
-console.log("DE_TRANSLATIONS entries:     " + Object.keys(configured).length);
 console.log("German originals (unpaired): " + germanOriginals.length);
 for (const s of germanOriginals) console.log("  - " + s);
 console.log("");
-
-// Every German original must stay out of the sitemap map. Adding one would make
-// the sitemap emit an xhtml:link to a URL that is never generated, since no
-// English page exists to carry the reciprocal.
-for (const s of germanOriginals) {
-  if (s in DE_TO_ENGLISH) {
-    problems.push(
-      "astro.config.mjs: German original " +
-        s +
-        " is mapped as a translation but no English article claims it",
-    );
-  }
-}
 
 if (problems.length === 0) {
   console.log("translation metadata consistent");

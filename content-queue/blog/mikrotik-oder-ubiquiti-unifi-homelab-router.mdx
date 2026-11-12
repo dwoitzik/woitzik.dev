@@ -1,0 +1,223 @@
+---
+title: "MikroTik oder Ubiquiti UniFi: Welcher Router fürs Homelab?"
+description: "MikroTik oder Ubiquiti: Der RB5009 gewinnt fürs Homelab als Code (Terraform, Firewall, VLANs, Preis), der UniFi Dream Router bei Einrichtung und WLAN."
+lang: de
+translationOf: "mikrotik-vs-ubiquiti-home-network-2026"
+date: "2026-12-04"
+tags: ["Networking", "MikroTik", "Review"]
+---
+
+import AffiliateLink from "@components/AffiliateLink.astro";
+
+<em>Werbung: Dieser Beitrag enthält Amazon-Affiliate-Links (mit &#42; markiert). Als Amazon-Partner verdiene ich an qualifizierten Verkäufen. Für dich kostet es nichts extra.</em>
+
+**[Kompletten Homelab-Infrastruktur-Code auf GitHub ansehen](https://github.com/dwoitzik/homelab-infrastructure)**
+
+MikroTik oder Ubiquiti UniFi: Diese Netzwerk-Debatte stirbt in Homelab-Kreisen nie aus. Ich habe beides betrieben: einen <AffiliateLink href="/go/4w08b21">MikroTik RB5009</AffiliateLink> seit über zwei Jahren als meinen Hauptrouter, mit jeder Firewall-Regel und jedem VLAN in Terraform verwaltet, und Ubiquiti-UniFi-Hardware im Lab eines Freundes, bei dessen Einrichtung ich geholfen habe. Das hier ist eine praktische Gegenüberstellung dessen, was jede Plattform für ein Homelab mit Proxmox VE, k3s und Zero-Trust-Netzwerk leistet, kein Vergleich von Datenblättern.
+
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [MikroTik vs Ubiquiti UniFi: Which Router for a Homelab? →](/blog/mikrotik-vs-ubiquiti-home-network-2026/).
+
+## Kurzfassung: Das Urteil
+
+**MikroTik RB5009**, wenn du maximale Kontrolle, Automatisierung direkt über Terraform und das beste Preis-Leistungs-Verhältnis bei Router-Hardware willst. Die Lernkurve ist steil, die Obergrenze liegt dafür viel höher.
+
+**Ubiquiti UniFi Dream Router**, wenn du eine Einrichtung nach dem Prinzip „anschließen und loslegen“ willst, eine ausgereifte Oberfläche und ein Ökosystem, in dem Access Points, Switches und Kameras in einem Dashboard zusammenlaufen. Du zahlst einen Aufpreis und verzichtest auf Tiefe bei der Kontrolle.
+
+MikroTik ist für Engineers, die ihren Netzwerk-Stack selbst in der Hand haben wollen. Ubiquiti ist für Leute, die ein Netzwerk wollen, das ohne tiefes Netzwerkwissen funktioniert. Beides ist eine legitime Wahl, aber für ein Homelab, das als Infrastructure-as-Code betrieben wird, gewinnt MikroTik klar.
+
+## Schnellvergleich
+
+| Merkmal | MikroTik RB5009 | Ubiquiti UniFi Dream Router |
+|---|---|---|
+| Preis | ~180 € | ~300 € |
+| CPU | Marvell Armada 88F7040, Quad-Core ARM64, 1,4 GHz | Dual-Core ARM Cortex-A53, 1,35 GHz |
+| RAM | 1GB | 2GB |
+| Ports | 7x GbE + 1x 2,5GbE + 1x 10G SFP+ | 4x GbE LAN (2x PoE) + 1x GbE WAN |
+| Switch-Chip | Marvell 88E6393X (Hardware-Offloading) | Integriert, nicht vom Nutzer konfigurierbar |
+| Betriebssystem | RouterOS 7 | UniFi Network |
+| Verwaltung | CLI, WinBox, API, Terraform | UniFi-Network-Anwendung (UI) |
+| VLAN-Unterstützung | Vollständig (Bridge VLAN Filtering) | Vollständig (VLAN-Netzwerke) |
+| VPN | WireGuard, OpenVPN, IPsec, L2TP, PPTP | WireGuard, OpenVPN, L2TP, Teleport |
+| WLAN | Keins (eigener AP nötig) | Eingebautes Wi-Fi 6 |
+| Preis/Leistung | Hervorragend | Mittel |
+
+## Die Kategorien im Einzelnen
+
+### Design und Verarbeitung
+
+Der **RB5009** ist eine Metallbox im Industrie-Look. Kein WLAN, keine Antennen, kein RGB. Er hat sieben Gigabit-Ethernet-Ports, einen 2,5-Gigabit-Port, einen 10G-SFP+-Schacht und einen USB-3.0-Port. CPU und Switch-Chip liegen am Gehäuse an, das als Kühlkörper dient: kein Lüfter, kein Geräusch. Er ist dafür gebaut, in einem Rack oder Regal zu stehen, ohne dass ihn jemand bemerkt. Mit 220 x 125 x 22 mm passt er auf einen Fachboden in einem 10-Zoll-Rack (meiner steht in einem [DIGITUS-10"-Rack\*](/go/4pGBkxb)).
+
+Der **UniFi Dream Router** (UDR) ist dafür gemacht, gesehen zu werden. Er ist ein weißes, zylindrisches Gerät mit eingebautem Wi-Fi-6-Access-Point und einem kleinen LED-Statusring. Er sieht aus, als gehöre er ins Wohnzimmer, nicht in den Serverschrank. Die Verarbeitung ist gut (solider Kunststoff, gut belüftet), aber er ist für Schreibtisch oder Regal gemacht, nicht fürs Rack. Die Bauform sagt „Consumer-Produkt“, der RB5009 sagt „Netzwerk-Equipment“.
+
+**Sieger: MikroTik RB5009** fürs Homelab. Das lüfterlose Design, die rackfreundliche Form und der 10G-SFP+-Port machen ihn zur besseren Infrastruktur-Komponente. Der UDR gewinnt beim Aussehen im Wohnzimmer, falls dir das wichtig ist.
+
+### Funktionen und Flexibilität
+
+Hier wird der Abstand groß.
+
+RouterOS 7 auf dem RB5009 ist ein Linux-basierter Netzwerk-Stack, den MikroTik über eigene CLI und API bereitstellt. Du bekommst Bridging mit VLAN Filtering, eine Stateful Firewall, Source- und Destination-NAT, Queues (HTB, PCQ, CAKE, fq_codel), MPLS, BGP, OSPF, VPLS, Bonding, Traffic Shaping, einen DHCP-Server mit statischen Leases, einen DNS-Cache mit statischen und weiterleitenden Einträgen, CAPsMAN zur zentralen AP-Verwaltung und mehr. Der Funktionsumfang liegt näher an Enterprise-Hardware von Cisco oder Juniper als an Consumer-Routern.
+
+Der UDR läuft mit UniFi Network, einer Plattform für Software-defined Networking. Sie bietet VLAN-Segmentierung, Firewall-Regeln, IDS/IPS (Intrusion Detection und Prevention), Traffic-Erkennung, ein Gästeportal und DPI (Deep Packet Inspection). Die UniFi-Network-Anwendung, die auf dem UDR selbst oder auf einem separaten Server läuft, verwaltet das alles über eine grafische Oberfläche.
+
+Der UniFi-Funktionsumfang ist für das, was er ist, beeindruckend, aber er ist eine kuratierte Auswahl. Du bekommst die Funktionen, die Ubiquiti bauen wollte, so konfiguriert, wie Ubiquiti sie konfigurieren wollte. MikroTik gibt dir den ganzen Werkzeugkasten. Für ein Homelab mit per Terraform verwalteter Infrastruktur entscheidet dieser Unterschied die Sache: MikroTiks API und CLI lassen dich alles automatisieren, während die offizielle API von UniFi deutlich weniger abdeckt als die Oberfläche und der Rest der Controller-API undokumentiert ist.
+
+**Sieger: MikroTik RB5009** bei Tiefe und Automatisierung. **UniFi UDR** bei verwalteten Funktionen ab Werk (IDS/IPS, DPI, Traffic-Erkennung).
+
+### Bedienung
+
+Ubiquiti gewinnt diese Kategorie eindeutig, und es ist nicht knapp.
+
+Das UniFi-Dashboard zeigt Netzwerktopologie, verbundene Clients, Traffic-Flüsse und Sicherheitsereignisse. Ein VLAN anzulegen ist ein Formular. Firewall-Regeln sind ein geführter Assistent. Firmware-Updates sind ein Klick. Hast du noch nie einen Router konfiguriert, hat der UDR dein Netzwerk in unter 30 Minuten segmentiert und abgesichert.
+
+RouterOS ist eine andere Welt. Die WinBox-GUI gibt es und sie funktioniert, aber sie bildet die CLI-Struktur ab: Die Menüs sind nach Protokoll und Funktion sortiert, nicht nach Aufgabe. Ein VLAN anzulegen heißt: eine Bridge anlegen, Ports hinzufügen, VLAN-Einträge an der Bridge anlegen, ein VLAN-Interface anlegen, eine IP-Adresse zuweisen, einen DHCP-Server anlegen und Firewall-Regeln für das neue Netz schreiben. Jeder Schritt ist eine eigene Ressource. Die CLI (oder Terraform) macht das wiederholbar, die GUI macht es mühsam.
+
+RouterOS hat eine steilere Lernkurve als jedes Consumer-Router-Betriebssystem. Beim ersten Mal, wenn du Bridge VLAN Filtering konfigurierst, sperrst du dich selbst aus. Beim zweiten Mal nicht mehr. Beim dritten Mal verstehst du L2-Netzwerke besser als fast jeder Heimnetz-Nutzer, und dieses Wissen lässt sich auf andere Plattformen übertragen.
+
+**Sieger: Ubiquiti UDR** bei der Ersteinrichtung und im Alltag. **MikroTik** für Leute, die ihr Netzwerk verstehen wollen.
+
+### Sicherheit und Firewall
+
+Beide Plattformen unterstützen Stateful Packet Inspection, NAT und regelbasierte Firewalls. Die Unterschiede liegen in Philosophie und Tiefe.
+
+**MikroTik** gibt dir volle Kontrolle über jede Firewall-Regel. Die RouterOS-Firewall arbeitet mit Chains (input, forward, output), und die Reihenfolge der Regeln zählt. Du kannst auf Quell- und Ziel-IP, Port, Protokoll, Verbindungsstatus, Interface, VLAN, Paketinhalt und mehr filtern. Der Zero-Trust-Ansatz, den ich in [MikroTik Zero Trust Firewall with Terraform](/blog/mikrotik-zero-trust-firewall-terraform/) (englischer Artikel) dokumentiert habe, baut komplett darauf auf: Default-Drop auf input und forward, mit einer expliziten Allow-Regel für jeden Dienst.
+
+Hier ist der echte Terraform-Code, der die letzte Drop-Regel in meiner Firewall anlegt:
+
+```hcl
+resource "routeros_ip_firewall_filter" "fwd_99_drop_all" {
+  action  = "drop"
+  chain   = "forward"
+  comment = "99: Global - Final Drop (Zero Trust Policy)"
+}
+```
+
+Diese eine Regel, als letzte in der Chain platziert, setzt Zero Trust für den gesamten weitergeleiteten Traffic durch. Jeder erlaubte Dienst braucht eine explizite Regel darüber. Die Komplexität steckt in diesen Regeln, aber das Prinzip ist einfach: alles verbieten, per Ausnahme erlauben.
+
+**Ubiquiti** liefert IDS/IPS als eingebaute Funktion, die MikroTik nativ nicht hat. UniFis IDS/IPS prüft den Traffic auf bekannte Angriffssignaturen und kann bei verdächtiger Aktivität blockieren oder alarmieren. In einem Heimnetz ist das eine zusätzliche Schicht, die dir eine MikroTik-Firewall allein nicht gibt, es sei denn, du betreibst Suricata oder Snort als separates IDS an einem Mirror-Port.
+
+Der Haken: UniFis IDS/IPS ist eine Blackbox. Eigene Signaturen kannst du nicht schreiben, das Tuning beschränkt sich auf grobe Kategorien, und du siehst die Alarme, die der Controller dir zeigen will. MikroTiks Firewall ist transparent: Jede Regel ist sichtbar, Logging lässt sich pro Regel konfigurieren, und du kannst Logs an einen externen Syslog-Server oder einen Loki-Stack schicken.
+
+**Sieger: Unentschieden.** MikroTik gewinnt bei transparenten, automatisierbaren Zero-Trust-Firewall-Regeln. UniFi gewinnt bei IDS/IPS, das keine Konfiguration braucht. Ein gutes kombiniertes Setup nutzt MikroTik als Router und Firewall, UniFi-APs fürs WLAN und ein externes IDS wie Suricata für Deep Packet Inspection.
+
+### VPN
+
+Beide Plattformen unterstützen WireGuard und OpenVPN. Die Unterschiede in der Umsetzung zählen.
+
+**MikroTik RB5009** betreibt WireGuard nativ in RouterOS 7, mit mehreren Peers, erlaubten Adressen pro Peer, Preshared Keys und Persistent Keepalive. Das deckt Site-to-Site und Fernzugriff ab. Ich habe WireGuard auf meinem RB5009 für den [Fernzugriff aufs Homelab](/blog/mikrotik-wireguard-vpn-terraform-deutsch/) betrieben, bis es im Mai 2026 durch [Headscale](/blog/headscale-oidc-k3s-authelia/) (englischer Artikel) ersetzt wurde. Der Terraform-Code sah so aus:
+
+```hcl
+resource "routeros_interface_wireguard" "wg0" {
+  listen_port = 13231
+  name        = "wg0"
+}
+```
+
+RouterOS unterstützt außerdem IPsec (IKEv1 und IKEv2) für Site-to-Site-Tunnel zu anderen Herstellern, OpenVPN für ältere Clients und PPTP (das du nie verwenden solltest). Der RB5009 verschlüsselt WireGuard-Traffic auf der CPU, ohne Hardware-Offload.
+
+**UniFi UDR** unterstützt WireGuard und OpenVPN über die Controller-Oberfläche. Die Einrichtung ist einfacher: ein paar Formulare ausfüllen, und der Tunnel steht. Der UDR bietet außerdem Teleport, Ubiquitis eigenes VPN für den Fernzugriff, das unter der Haube WireGuard mit vereinfachtem Peer-Austausch nutzt.
+
+UniFis VPN-Integration ist flach. Für WireGuard-Parameter wie MTU und Keepalive bekommst du deutlich weniger Stellschrauben als bei MikroTik, und Site-to-Site-Tunnel zwischen UniFi- und Nicht-UniFi-Geräten sind möglich, aber schlecht dokumentiert. Braucht dein Homelab VPN-Zugriff, der auf bestimmte VLANs oder Subnetze beschränkt ist, zählt MikroTiks feingranulare Kontrolle.
+
+**Sieger: MikroTik RB5009** bei VPN-Flexibilität und feingranularer Kontrolle. UniFi gewinnt bei der schnellen Einrichtung des Fernzugriffs.
+
+### VLAN-Unterstützung
+
+Beide Plattformen unterstützen VLAN-Tagging, Trunk-Ports und Access-Ports. Der Ansatz bei der Umsetzung unterscheidet sich.
+
+**MikroTik** behandelt VLANs über Bridge VLAN Filtering auf einer einzigen Bridge. Alle physischen Ports gehören zu einer Bridge, und VLANs sind Einträge in der VLAN-Tabelle der Bridge. Auf dem RB5009 wird das an den Switch-Chip Marvell 88E6393X ausgelagert, getaggter Traffic zwischen Ports im selben VLAN wird also in Hardware mit voller Leitungsgeschwindigkeit geswitcht. Routing zwischen VLANs läuft weiterhin über die CPU.
+
+Der Terraform-Code für meine gesamte VLAN-Matrix (fünf VLANs, Trunk-Ports, Access-Ports, IP-Adressen und DHCP-Server) umfasst etwa 100 Zeilen HCL. Ein VLAN hinzuzufügen heißt, eine Map zu ändern und `terraform apply` auszuführen.
+
+**UniFi** behandelt VLANs als „Networks“ im Controller. Jedes VLAN ist ein eigenes Netzwerkobjekt mit eigenem Subnetz, DHCP-Bereich und eigenen Firewall-Regeln. Trunk-Ports werden pro Switch-Port in der Oberfläche konfiguriert. Jedes VLAN als eigenständiges Objekt zu behandeln ist intuitiv, bindet dich bei der Verwaltung aber an den Controller.
+
+Beide Ansätze funktionieren. Der von MikroTik ist flexibler und automatisierbar, der von UniFi visueller und dokumentiert sich selbst. Die übliche Homelab-Segmentierung (Management, Server, DMZ, IoT, Admin) bewältigen beide problemlos.
+
+Egal, wofür du dich entscheidest: Prüf die VLAN-Matrix, bevor du irgendetwas konfigurierst. Der [VLAN-ID-Planer](https://woitzik.dev/tools/vlan-planner/) markiert doppelte IDs und IDs außerhalb des gültigen Bereichs, bevor du eine Nummer in die Matrix übernimmst.
+
+**Sieger: Unentschieden.** MikroTik bei Automatisierung und Hardware-Offloading. UniFi bei visueller Verwaltung und Einfachheit.
+
+### Terraform und Automatisierung
+
+Hier zieht MikroTik für jedes Homelab davon, das als Infrastructure-as-Code läuft.
+
+Der **RouterOS-Terraform-Provider** (`terraform-routeros/routeros`) ist ausgereift, wird aktiv gepflegt und deckt fast jede RouterOS-Ressource ab: Interfaces, Bridges, VLANs, Firewall-Regeln, DHCP, DNS, WireGuard, Routing und mehr. Du kannst den gesamten Netzwerk-Stack in HCL beschreiben, in Git versionieren und Änderungen über eine CI-Pipeline anwenden. So betreibe ich mein Homelab: Jede MikroTik-Änderung läuft über einen PR, wird geprüft und von einem GitHub-Actions-Workflow angewendet, den ein Kommentar im PR auslöst (bis August 2026 hat Atlantis diese Aufgabe erledigt).
+
+Auf der Ubiquiti-Seite gibt es keinen offiziellen Terraform-Provider. Der Community-Provider `paultyng/unifi` deckt zwar Networks, WLANs, Port-Profile und Firewall-Regeln ab, aber sein Repository wurde im April 2026 archiviert, und Community-Forks führen ihn ohne Garantie weiter, dass sie mit neuen UniFi-Network-Versionen Schritt halten. Jedes Controller-Update kann deine IaC kaputt machen, und alles, was der Provider nicht abbildet, musst du in der Oberfläche zusammenklicken.
+
+Für ein Homelab, das Terraform bereits für Proxmox-VMs, MikroTik-Firewall-Regeln und Kubernetes-Ressourcen nutzt, ist das ein K.-o.-Kriterium. Du landest bei zwei Workflows fürs Netzwerk: das, was der Provider abdeckt, und manuelle Klicks in der Oberfläche für den Rest. Genau diesen Konfigurationsdrift soll IaC verhindern.
+
+**Sieger: MikroTik RB5009**, ohne echte Konkurrenz in dieser Kategorie.
+
+### Ökosystem und Erweiterbarkeit
+
+**Ubiquiti** gewinnt bei der Breite des Ökosystems. UniFi umfasst Switches, Access Points, Kameras (Protect), Telefone (Talk), Displays (Connect) und einen Controller, der das alles verwaltet. Willst du Router, Switches, APs und Kameras von einem einzigen Hersteller, liefert UniFi das. Der Lock-in ist real, die Qualität der Integration aber auch.
+
+**MikroTik** hat eine breitere Produktpalette, als die meisten denken: Router, Switches, Access Points, Antennen und Outdoor-Funktechnik. Mit CAPsMAN verwaltest du MikroTik-APs vom Router aus. Die Teile sind aber nicht so eng integriert wie bei UniFi. Jedes Gerät läuft eigenständig mit RouterOS, und es gibt kein zentrales Controller-Dashboard (The Dude gibt es, ist aber nicht mit dem UniFi-Controller vergleichbar).
+
+Für ein Homelab, das hauptsächlich einen Router und ein paar Switches braucht, reicht MikroTiks Ökosystem. Für eine Installation im ganzen Haus mit Kameras, mehreren APs und Managed Switches ist UniFi stimmiger.
+
+**Sieger: Ubiquiti UDR** beim integrierten Ökosystem. **MikroTik** bei eigenständigen Router- und Switch-Installationen.
+
+### Preis und Gegenwert
+
+Der RB5009 kostet etwa 180 €. Der UniFi Dream Router kostet etwa 300 €. Für die 120 € Unterschied bekommst du eingebautes Wi-Fi 6 (bei MikroTik brauchst du einen separaten AP, etwa 50 bis 100 € für einen hAP ac3 oder cAP ax), die UniFi-Network-Anwendung und IDS/IPS.
+
+Nimmst du einen MikroTik-AP zum RB5009 dazu, nähert sich die Summe dem UDR. Dafür bekommst du einen deutlich leistungsfähigeren Router und einen separaten, eigenen AP, was ich einem Gerät für beide Aufgaben vorziehe.
+
+Für ein Homelab, das kein WLAN vom Router braucht (die meisten Homelabs haben einen separaten AP oder laufen komplett kabelgebunden), ist der RB5009 für 180 € der klare Sieger beim Gegenwert. Für ein Setup im ganzen Haus, bei dem ein Gerät Routing und WLAN übernimmt, ist der UDR schwer zu schlagen.
+
+**Sieger: MikroTik RB5009** fürs Homelab. **UDR** für WLAN und Routing im ganzen Haus aus einem Gerät.
+
+## Wer was kaufen sollte
+
+**Kauf den MikroTik RB5009, wenn:**
+- du Terraform für die Infrastrukturverwaltung nutzt und Netzwerk-Automatisierung willst
+- du Zero-Trust-Firewall-Regeln mit voller Kontrolle über jedes Paket willst
+- du lieber Netzwerktechnik lernst, als sie vorkonfiguriert zu bekommen
+- du kein WLAN vom Router selbst brauchst
+- das Budget zählt: 180 € bringen dir Routing auf Enterprise-Niveau
+
+**Kauf den UniFi Dream Router, wenn:**
+- du eine Einrichtung nach dem Prinzip „anschließen und loslegen“ mit ausgereifter Oberfläche willst
+- du eingebautes Wi-Fi 6 ohne separaten AP brauchst
+- du IDS/IPS willst, ohne eine separate Appliance aufzustellen
+- du ein UniFi-Ökosystem fürs ganze Haus aufbaust (Switches, APs, Kameras)
+- du keine CLI-basierte Netzwerkkonfiguration lernen willst
+
+**Kauf beides (MikroTik-Router + UniFi-AP), wenn** du MikroTik-Routing und Firewall-Automatisierung zusammen mit der WLAN-Verwaltung von UniFi willst. Das würde ich tun, wenn ich heute ein neues Homelab aufbauen würde. Der MikroTik übernimmt VLANs, Firewall und VPN über Terraform, der UniFi-AP das WLAN über seinen Controller. Jeder Hersteller macht den Teil, den er am besten kann.
+
+## Häufige Fragen
+
+### Können MikroTik- und UniFi-Geräte im selben Netzwerk laufen?
+
+Ja, problemlos. MikroTik übernimmt Routing und VLAN-Segmentierung, UniFi-APs strahlen VLAN-getaggte SSIDs aus. Der entscheidende Punkt: Der Switch-Port zum UniFi-AP muss ein Trunk sein, der jedes VLAN mit einer SSID führt. Das konfigurierst du auf MikroTik-Seite (Bridge VLAN Filtering) und auf UniFi-Seite (Port-Profil mit VLAN-Tagging). Beide Plattformen beherrschen dieses Standard-Setup gut.
+
+### Ist MikroTik wirklich schwerer einzurichten als Ubiquiti?
+
+Ja, am Anfang. Bis du RouterOS sicher in den Grundlagen beherrschst, vergehen einige Wochen regelmäßiger Nutzung. UniFi ist an einem Nachmittag konfiguriert. Langfristig zahlt es sich aus: Wenn du RouterOS verstehst, kannst du fast jedes Netzwerkszenario selbst bauen, und die L2/L3-Konzepte lassen sich auf Cisco, Juniper und andere Plattformen übertragen. UniFi-Wissen bleibt größtenteils im UniFi-Ökosystem.
+
+### Sollte ich MikroTik fürs WLAN zu Hause nutzen?
+
+Nicht als Haupt-WLAN. MikroTik baut Access Points (hAP ac3, cAP ax), aber WLAN-Verwaltung und Roaming sind bei UniFi die ausgereiftere Option. MikroTik glänzt bei Routing und Switching, das WLAN überlässt du besser einem eigenen AP. Ein RB5009 mit einem UniFi U6 Lite oder U6 Pro ist eine starke Kombination.
+
+### Wie schneidet MikroTik bei der Sicherheit gegenüber Ubiquiti ab?
+
+MikroTiks Firewall ist konfigurierbarer, muss aber manuell gehärtet werden. RouterOS hat eine Geschichte von Sicherheitslücken, am bekanntesten die WinBox-Lücke von 2018 (CVE-2018-14847) und der Exploit Chimay Red, beide gegen RouterOS 6. MikroTik patcht schnell, und die Angriffsfläche bleibt überschaubar, wenn du RouterOS aktuell hältst, die input-Chain per Firewall absicherst und ungenutzte Dienste deaktivierst. UniFis IDS/IPS bietet dir automatische Bedrohungserkennung, die MikroTik nativ fehlt, aber als Blackbox taugt sie wenig für alle, die volle Transparenz wollen.
+
+### Kann ich MikroTik mit Terraform verwalten?
+
+Ja. Der `routeros`-Provider ist ausgereift, wird aktiv gepflegt, steht bei Version 1.x und unterstützt RouterOS 7. Er deckt Interfaces, Bridges, VLANs, Firewall-Regeln, DHCP, DNS, WireGuard, Routing und mehr ab. Ich verwalte meine gesamte RB5009-Konfiguration über Terraform: Jede Änderung läuft über Git, wird geprüft und von einem GitHub-Actions-Workflow angewendet, den ein PR-Kommentar auslöst. Ein Praxisbeispiel zeigt der [Artikel zu VLAN Filtering mit Terraform](/blog/mikrotik-vlan-filtering-terraform-proxmox/) (englischer Artikel).
+
+### Welcher MikroTik-Router ist am besten fürs Homelab?
+
+Der RB5009 ist der ideale Mittelweg. Er hat sieben Gigabit-Ports plus einen 2,5G-Port (genug für die meisten Homelabs), einen 10G-SFP+-Uplink, einen Switch-Chip, der VLAN Filtering übernimmt, und RouterOS 7 mit vollem Funktionsumfang. Der hEX S (70 €) ist die Budget-Option, hat aber nur einen 1G-SFP-Port und eine deutlich schwächere CPU und einen schwächeren Switch-Chip. Der CCR2004 (ab 300 €) ist für zu Hause überdimensioniert, außer du brauchst 10 Gbit/s Routing-Durchsatz.
+
+## Fazit
+
+Der Vergleich hat fürs Homelab einen klaren Sieger, ist aber nicht einseitig.
+
+MikroTik gewinnt für jedes Homelab, das als Infrastructure-as-Code läuft. Der Terraform-Provider, die feingranulare Firewall-Kontrolle, das VLAN-Switching mit Hardware-Offloading und der 10G-SFP+-Uplink machen den RB5009 zur richtigen Wahl für Engineers, die ihren Netzwerk-Stack selbst in der Hand haben wollen. Für 180 € ist er auch beim Routing der bessere Gegenwert.
+
+Ubiquiti gewinnt beim Netzwerk fürs ganze Haus, wo einfache Bedienung, ein integriertes Ökosystem und eingebautes WLAN wichtiger sind als IaC. Der UniFi-Controller ist die beste Consumer-Plattform zur Netzwerkverwaltung, die ich benutzt habe, und die Auswahl an Switches, APs und Kameras ist ein guter Grund, in einem Ökosystem zu bleiben.
+
+Für ein Homelab mit Proxmox VE, k3s und Terraform: Kauf den MikroTik RB5009. Die Lernkurve zahlt sich aus, durch Flexibilität, Kontrolle und die Möglichkeit, dein Netzwerk so zu verwalten wie deine Server, als Code.
