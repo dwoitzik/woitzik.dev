@@ -71,9 +71,7 @@ spec:
 
 In Git, not via kubectl, for the same reason as in August. If you run [ArgoCD with selfHeal](/blog/argocd-gitops-k3s-homelab/), the manifest is the only place an emergency change can hold.
 
-The other half of the decision was accepting what I lose. ADR-057 argues that the operator was redundant: it rescanned the same 160+ runtime images that CI already scans on every PR with `aquasecurity/trivy-action`, gated by a script that fails the build when the uploaded SARIF has findings. What the operator added on top was continuous rescanning of running images, which catches a CVE disclosed after an image shipped. That is now gone, and the ADR says so explicitly, accepting it because the exposed surface of this lab is narrow.
-
-While writing this post I re-read the CI workflow, and that argument does not hold as written. All three Trivy steps in `ci.yml` use `scan-type: config`. They check the Kubernetes manifests and Terraform for misconfigurations. None of them scans a container image for CVEs. So with the operator paused, nothing in my setup scans images for vulnerabilities at all, neither before they ship nor while they run. Pausing the operator was still the right call for the disk. The claim that CI covers the gap was wrong, and it is the next thing to fix: an image scan in CI, or a scheduled scan job with a bounded I/O profile.
+The other half of the decision was accepting what I lose. What the operator adds is continuous rescanning of running images, which catches a CVE disclosed after an image has already shipped. Pausing it gives that up for as long as it stays paused. That is a real trade-off, not a free fix, and it only makes sense together with a plan for how image vulnerabilities get covered in the meantime. Pausing the operator was still the right call for the disk.
 
 ## How I verified it
 
@@ -98,6 +96,6 @@ The operator's ConfigMap and PriorityClass are still in place, so turning it bac
 - **Watch IO pressure.** `/proc/pressure/io` and `w_await` pointed at the disk. Kubernetes only showed lease timeouts.
 - **A concurrency limit is not an I/O limit.** It changes the shape of the load, not its size.
 - **Pause through Git when ArgoCD has selfHeal.** `kubectl scale` will be undone within one reconcile cycle.
-- **Check what your CI scanner actually scans before calling the in-cluster one redundant.** `scan-type: config` and `scan-type: image` are different jobs. I wrote down "CI covers it" without reading the `scan-type` line.
+- **Check what your CI scanner actually scans before calling the in-cluster one redundant.** In `trivy-action`, `scan-type: config` checks manifests and Terraform for misconfigurations, while `scan-type: image` checks container images for CVEs. They are different jobs.
 
 <NewsletterCTA />
