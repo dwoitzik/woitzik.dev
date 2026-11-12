@@ -40,9 +40,14 @@ export function dateRange(start: Date | string, end?: Date | string) {
 
   return `${startFormatted} - ${endFormatted}`;
 }
-// URL slug for a tag: lowercase, whitespace to hyphens. Tags with spaces used
-// to produce /blog/tag/chaos engineering/ style URLs; vercel.json redirects
-// those old forms to the hyphenated ones.
+// URL slug for a tag: lowercase, whitespace and slashes to hyphens. Tags with
+// spaces used to produce /blog/tag/chaos engineering/ style URLs; vercel.json
+// redirects those old forms to the hyphenated ones. A slash ("CI/CD") would
+// split the [tag] route param into two segments and fail the build.
+// Keep in sync with the tag key in astro.config.mjs.
 export function tagSlug(tag: string) {
-  return tag.toLowerCase().trim().replace(/\s+/g, "-");
+  return tag
+    .toLowerCase()
+    .trim()
+    .replace(/[\s/]+/g, "-");
 }
