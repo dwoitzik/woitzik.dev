@@ -139,7 +139,9 @@ const ctaHref = withUTM(product.repoHref, Astro.url.pathname);
     transition:
       background 0.2s ease,
       transform 0.15s ease;
-    white-space: nowrap;
+    /* Wraps on narrow screens: long module names pushed the button past the
+       viewport and made the whole page scroll sideways on phones. */
+    max-width: 100%;
   }
   .cta-button:hover {
     background: oklch(0.28 0 0);
