@@ -6,33 +6,6 @@ const QUEUE_DIR = resolve(ROOT, "content-queue/blog");
 const BLOG_DIR = resolve(ROOT, "src/content/blog");
 
 const SITE_URL = "https://woitzik.dev";
-// Key file lives at public/<key>.txt (served at the site root) - IndexNow
-// verifies ownership by fetching it, no account/registration involved.
-const INDEXNOW_KEY = "d3fa48a9db675c01bf0a0863f0672b6d";
-
-// Pings the shared IndexNow endpoint, which fans out to every participating
-// engine (Bing, Yandex, etc - not Google, which doesn't support the
-// protocol). Best-effort: a failed ping here shouldn't fail the publish step,
-// the article is already live either way and will get crawled eventually.
-async function pingIndexNow(slugs) {
-  if (slugs.length === 0) return;
-  const urlList = slugs.map((slug) => `${SITE_URL}/blog/${slug}/`);
-  try {
-    const res = await fetch("https://api.indexnow.org/indexnow", {
-      method: "POST",
-      headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({
-        host: new URL(SITE_URL).hostname,
-        key: INDEXNOW_KEY,
-        keyLocation: `${SITE_URL}/${INDEXNOW_KEY}.txt`,
-        urlList,
-      }),
-    });
-    console.log(`IndexNow: submitted ${urlList.length} URL(s), status ${res.status}`);
-  } catch (err) {
-    console.warn(`IndexNow submission failed (non-fatal): ${err.message}`);
-  }
-}
 
 function frontmatterDate(content) {
   const match = content.match(/^date:\s*"([^"]+)"/m);
@@ -84,9 +57,21 @@ if (withDates.length > 0) {
   console.log("Nothing due for publishing today.");
 }
 
-await pingIndexNow(published.map((file) => file.replace(/\.mdx$/, "")));
+// URLs to announce via IndexNow once the deploy is live (the workflow does
+// that after the push, because pinging before Vercel has built the commit
+// sends crawlers to a 404). A German translation also changes the hreflang
+// cluster of its English original, so that page is announced too.
+const urls = [];
+for (const file of published) {
+  urls.push(`${SITE_URL}/blog/${file.replace(/\.mdx$/, "")}/`);
+  const parent = readFileSync(resolve(BLOG_DIR, file), "utf8").match(
+    /^translationOf:\s*"?([a-z0-9-]+)"?\s*$/m,
+  );
+  if (parent) urls.push(`${SITE_URL}/blog/${parent[1]}/`);
+}
 
 // Emit for GitHub Actions to decide whether to commit/push
 if (process.env.GITHUB_OUTPUT) {
   appendFileSync(process.env.GITHUB_OUTPUT, `published_count=${published.length}\n`);
+  appendFileSync(process.env.GITHUB_OUTPUT, `urls=${urls.join(" ")}\n`);
 }

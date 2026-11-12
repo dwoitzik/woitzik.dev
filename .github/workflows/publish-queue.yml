@@ -35,3 +35,21 @@ jobs:
           git add content-queue/blog src/content/blog
           git commit -m "chore: publish queued article(s) [scheduled]"
           git push
+
+      # Announce the new pages to Bing/Yandex only after Vercel has deployed
+      # the push: wait (up to 10 minutes) until the first new URL answers 200,
+      # then submit. Best effort: a failed ping must not fail the publish.
+      - name: Announce published pages via IndexNow
+        if: steps.publish.outputs.published_count != '0'
+        continue-on-error: true
+        env:
+          URLS: ${{ steps.publish.outputs.urls }}
+        run: |
+          first=$(echo "$URLS" | cut -d' ' -f1)
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$first" || true)
+            [ "$code" = "200" ] && break
+            sleep 15
+          done
+          echo "first URL status: $code"
+          node scripts/indexnow.mjs $URLS
