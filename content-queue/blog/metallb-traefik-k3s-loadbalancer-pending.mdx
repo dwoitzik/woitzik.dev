@@ -1,0 +1,213 @@
+---
+title: "MetalLB und Traefik auf k3s: LoadBalancer hängt in Pending"
+description: "MetalLB auf k3s: Auf Bare Metal bleibt ein LoadBalancer-Service in <pending>. ServiceLB abschalten, L2-IP-Pool anlegen, Traefik dahinter, alles per ArgoCD."
+lang: "de"
+translationOf: "metallb-traefik-k3s-argocd"
+date: "2026-12-16"
+tags: ["Kubernetes", "Homelab", "Networking"]
+---
+
+<em>Werbung: Dieser Beitrag enthält Amazon-Affiliate-Links (mit &#42; markiert). Als Amazon-Partner verdiene ich an qualifizierten Verkäufen. Für dich kostet es nichts extra.</em>
+
+Kubernetes-Cluster in der Cloud bekommen LoadBalancer geschenkt. Du legst einen Service vom Typ `LoadBalancer` an, und innerhalb von Sekunden gibt dir der Cloud-Provider eine öffentliche IP. Auf einem Bare-Metal-Cluster beantwortet niemand diese Anfrage, und der Service bleibt für immer in `<pending>`. k3s bringt ServiceLB (klipper-lb) mit, um die Lücke zu füllen, veröffentlicht Services aber auf den IPs der Nodes, statt eigene Adressen zu vergeben. Mein k3s-Cluster läuft in Proxmox-VMs (ein [BMAX Mini PC\*](/go/4bv3yF1) mit 64 GB trägt den ganzen Cluster), und ich wollte echte, stabile Service-IPs im Server-VLAN.
+
+Das ist eine der ersten Hürden, an die jedes Kubernetes-Setup im Homelab stößt. MetalLB löst sie, aber MetalLB sauber mit Traefik und ArgoCD zu verdrahten hat ein paar Schritte, die nicht offensichtlich sind. (Wie die ArgoCD-Seite organisiert ist, eine Root-Application, die alles deployt, steht in [ArgoCD auf k3s: GitOps fürs ganze Homelab](/blog/argocd-k3s-gitops-app-of-apps/).) (Hat nichts damit zu tun, aber auf die harte Tour gelernt: Halt das Rack von Anfang an ordentlich. [Velcro Cable Ties\*](/go/4bnvY3K) sind jeden Cent wert, sobald Switches und Patchpanels dazukommen.)
+
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [MetalLB + Traefik on k3s: Fix LoadBalancer Stuck in Pending →](/blog/metallb-traefik-k3s-argocd/).
+
+**[Den kompletten Quellcode der Homelab-Infrastruktur gibt es auf GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Warum der LoadBalancer in `<pending>` hängt
+
+Kubernetes überlässt das Bereitstellen von `LoadBalancer`-Services einem Cloud-Controller. Auf Bare Metal gibt es keinen, also wartet der Service ewig auf eine externe IP, die nie kommt.
+
+MetalLB füllt diese Lücke. Sein Controller vergibt IPs aus einem Pool, den du festlegst, und im L2-Modus beantworten seine Speaker-Pods ARP-Anfragen für jede vergebene IP im lokalen Netz. Der Service ist damit erreichbar wie jedes andere Gerät im Subnetz. Jede IP gehört zur selben Zeit genau einem Node, der den gesamten Traffic dafür empfängt; kube-proxy verteilt ihn von dort auf die Pods. Fällt dieser Node aus, übernimmt ein anderer Speaker die Ankündigung.
+
+Auf k3s schaltest du zuerst ServiceLB ab (`--disable servicelb` auf den Servern), sonst konkurriert es mit MetalLB um dieselben Services. Mein Cluster läuft außerdem mit `--disable traefik`, aus Gründen, die in Schritt 3 stehen.
+
+## Die Architektur
+
+```
+External Request (10.0.20.200)
+        │
+        ▼
+MetalLB (L2 ARP - announces IP on VLAN 20)
+        │
+        ▼
+Traefik Service (LoadBalancer type)
+        │
+        ├── Ingress: auth.yourdomain.com → Authelia
+        ├── Ingress: vault.yourdomain.com → Vaultwarden
+        └── Ingress: *.yourdomain.com → Wildcard TLS
+```
+
+MetalLB gehört die IP. Traefik gehört das Routing. ArgoCD gehört beides.
+
+## Schritt 1: MetalLB per ArgoCD installieren
+
+MetalLB kommt als Helm-Chart. Die ArgoCD-Application ist minimal:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metallb
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://metallb.github.io/metallb
+    targetRevision: 0.14.3
+    chart: metallb
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: metallb-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+```
+
+Das deployt die Controller- und Speaker-Pods von MetalLB, konfiguriert aber noch keinen IP-Pool. Die Konfiguration liegt in einer eigenen ArgoCD-Application, die auf dein Git-Repository zeigt.
+
+## Schritt 2: IP-Pool für MetalLB konfigurieren
+
+Seit v0.13 wird MetalLB über Kubernetes-CRDs konfiguriert statt über eine ConfigMap. Du brauchst zwei Ressourcen: einen `IPAddressPool`, der den Bereich festlegt, und eine `L2Advertisement`, die MetalLB anweist, diese IPs per ARP im lokalen Netz anzukündigen.
+
+```yaml
+# kubernetes/system/metallb-config/pool.yaml
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: first-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 10.0.20.200-10.0.20.240
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: example
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - first-pool
+```
+
+Der Bereich `10.0.20.200-10.0.20.240` liegt in VLAN 20 (dem Server-VLAN), aber außerhalb des DHCP-Bereichs, und kann deshalb nicht mit dynamisch vergebenen Geräten kollidieren. Der Pool umfasst 41 nutzbare Adressen. Der [IPv4-Subnetzrechner](https://woitzik.dev/tools/subnet-calculator/) zeigt dir, was ein Präfix tatsächlich hergibt, bevor du einen Bereich für einen Pool festlegst.
+
+Die eigene ArgoCD-Application, die diese Konfiguration anwendet:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metallb-config
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dwoitzik/homelab-infrastructure.git
+    targetRevision: HEAD
+    path: kubernetes/system/metallb-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: metallb-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+Das Deployment des Helm-Charts und die CRD-Konfiguration auf zwei Applications aufzuteilen ist Absicht. Die CRDs von MetalLB müssen existieren, bevor die Konfigurationsressourcen angewendet werden können. Sync Waves können diese Reihenfolge innerhalb einer Application herstellen, mit zwei Applications ist die Abhängigkeit aber ausdrücklich sichtbar: Auf einem frischen Cluster versucht es `metallb-config` einfach erneut, bis das Chart die CRDs installiert hat.
+
+## Schritt 3: Traefik als Ingress Controller
+
+k3s bringt Traefik standardmäßig mit, aber über ArgoCD verwaltet bekommst du Versionskontrolle und deklarative Konfiguration. Mit abgeschaltetem mitgeliefertem Traefik (`--disable traefik`) deployst du dein eigenes:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://helm.traefik.io/traefik
+    targetRevision: 27.0.2
+    chart: traefik
+    helm:
+      values: |
+        ports:
+          web:
+            redirectTo:
+              port: websecure
+          websecure:
+            tls:
+              enabled: true
+        ingressRoute:
+          dashboard:
+            enabled: false
+        tlsStore:
+          default:
+            defaultCertificate:
+              secretName: wildcard-yourdomain-tls
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+Drei bewusste Entscheidungen stecken darin:
+
+**`web.redirectTo: websecure`** leitet sämtlichen HTTP-Traffic schon am Ingress auf HTTPS um, keine Anwendung muss sich darum kümmern.
+
+**`tlsStore.default.defaultCertificate`** macht das [Wildcard-Zertifikat](/blog/cert-manager-wildcard-k3s-cloudflare/) (englischer Artikel) zum Standard für jedes Ingress, das kein eigenes angibt. Jeder Dienst hinter Traefik bekommt automatisch HTTPS.
+
+**`dashboard.enabled: false`** hält das Traefik-Dashboard, das Routing-Konfiguration und Details zu Middlewares zeigt, aus dem Netz heraus. Bei Bedarf erreichst du es per `kubectl port-forward`.
+
+Eine Einstellung, die dieser Service nicht zeigt, wird später wichtig, wenn du Traefik-Middlewares ergänzt: Ohne `externalTrafficPolicy: Local` sieht Traefik eine Node-Adresse statt der Client-IP, und [Rate Limiting mit Traefik auf k3s](/blog/traefik-rate-limit-middleware-k3s/) (englischer Artikel) steckt dann jeden Besucher in denselben Bucket.
+
+Diese Value-Namen passen zu Chart 27.x. Neuere Major-Versionen des Traefik-Charts haben einige davon umbenannt (vor allem die HTTP-Umleitung). Lies deshalb das Changelog des Charts, bevor du `targetRevision` hochsetzt.
+
+## Schritt 4: IP-Vergabe durch MetalLB prüfen
+
+Wenn beide Applications deployt und synchronisiert sind, prüfst du, ob Traefik eine externe IP bekommen hat:
+
+```bash
+kubectl get svc -n kube-system traefik
+```
+
+Erwartete Ausgabe:
+```
+NAME      TYPE           CLUSTER-IP     EXTERNAL-IP    PORT(S)
+traefik   LoadBalancer   10.43.x.x      10.0.20.200    80:xxx/TCP,443:xxx/TCP
+```
+
+Zeigt `EXTERNAL-IP` weiterhin `<pending>`, läuft MetalLB noch nicht oder der IP-Pool ist nicht konfiguriert. Dann schau in die Logs der MetalLB-Speaker:
+
+```bash
+kubectl logs -n metallb-system -l app.kubernetes.io/component=speaker
+```
+
+## Das Ergebnis
+
+Sobald MetalLB und Traefik laufen:
+
+- Jeder Service vom Typ `LoadBalancer` im Cluster bekommt eine echte IP aus dem Pool `10.0.20.200-10.0.20.240`
+- Jede Ingress-Ressource bekommt automatisch HTTPS über das Wildcard-Zertifikat
+- HTTP wird am Rand auf HTTPS umgeleitet, ohne Konfiguration in den Anwendungen
+- Alles läuft per GitOps: Ein `git push` ist der einzige Weg zum Deployment
+
+Lass deinen DNS-Wildcard-Eintrag (`*.yourdomain.com`) auf `10.0.20.200` zeigen, und jedes Ingress, das du anlegst, ist sofort mit gültigem TLS erreichbar. Weil der Wildcard-Eintrag an genau dieser Adresse hängt, pinnst du sie am Traefik-Service mit der MetalLB-Annotation `loadBalancerIPs`, statt dich darauf zu verlassen, dass Traefik zufällig die erste IP aus dem Pool bekommt.
+
+---
+
+Dieselben Prinzipien (zentraler Ingress, TLS-Terminierung am Rand, deklarative Konfiguration) gelten direkt auch für Azure-Umgebungen im Unternehmen. In einem privaten AKS-Cluster übernimmt ein interner Azure Load Balancer die Rolle von MetalLB für den Service des Ingress Controllers, meist mit Application Gateway oder Azure Firewall davor.

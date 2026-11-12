@@ -1,0 +1,458 @@
+---
+title: "k3s Monitoring mit kube-prometheus-stack, Loki und Grafana SSO"
+description: "k3s Monitoring per ArgoCD: kube-prometheus-stack, Loki auf Garage S3, Promtail auf Nicht-k8s-Nodes, MikroTik per SNMP und Grafana-Login über Authelia."
+lang: "de"
+translationOf: "kube-prometheus-loki-grafana-k3s"
+date: "2026-12-05"
+tags: ["Kubernetes", "Homelab", "Monitoring"]
+---
+
+<em>Werbung: Dieser Beitrag enthält Amazon-Affiliate-Links (mit &#42; markiert). Als Amazon-Partner verdiene ich an qualifizierten Verkäufen. Für dich kostet es nichts extra.</em>
+
+Wenn um zwei Uhr nachts etwas kaputtgeht, brauchst du Metriken, Logs und Alerts, die dir sagen, was passiert ist. Das hier ist der Observability-Stack auf meinem Bare-Metal-k3s-Cluster: `kube-prometheus-stack` für Metriken und Alerting, Loki mit Garage S3 als Log-Speicher, Promtail, das per Ansible Logs von Nodes außerhalb von Kubernetes einsammelt, SNMP-Metriken vom MikroTik-Router und Grafana mit Authelia OIDC, damit ein Login für alles reicht. Das Ganze läuft auf einem [BMAX Mini PC\*](/go/4bv3yF1), das Netzwerk übernimmt ein [MikroTik RB5009\*](/go/4w08b21).
+
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [kube-prometheus-stack and Loki on k3s with Grafana SSO →](/blog/kube-prometheus-loki-grafana-k3s/).
+
+**[Den kompletten Quellcode der Homelab-Infrastruktur gibt es auf GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Die Architektur
+
+```
+Metrics                          Logs
+───────                          ────
+kube-prometheus-stack            Promtail (k8s DaemonSet)
+  ├── Prometheus (30d retention)   ├── All pod logs
+  ├── Alertmanager                 └── System logs
+  └── node-exporter (k8s)
+                                 Promtail (Ansible, bare-metal)
+SNMP Exporter                      ├── /var/log/syslog
+  └── MikroTik RB5009 → Prometheus └── /var/log/auth.log
+                                   └── Docker container logs
+node_exporter (Ansible)
+  └── RPi + LXC nodes → Prometheus
+
+                    Grafana (OIDC via Authelia)
+                         │
+                    ┌────┴────┐
+               Prometheus    Loki → Garage S3
+```
+
+Alles landet in Grafana. Eine URL, ein SSO-Login, Metriken und Logs nebeneinander.
+
+## Schritt 1: kube-prometheus-stack per ArgoCD installieren
+
+Das Helm-Chart kube-prometheus-stack bündelt den Prometheus Operator, Prometheus, Alertmanager, Grafana und die CRDs des Operators in einem Release.
+
+```yaml
+# kubernetes/system/monitoring/kube-prometheus-stack.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    targetRevision: 61.3.2
+    chart: kube-prometheus-stack
+    helm:
+      values: |
+        crds:
+          enabled: true         # top-level key; prometheusOperator.crds is not a chart value
+
+        prometheus:
+          prometheusSpec:
+            retention: 30d
+            dnsConfig:
+              options:
+                - name: ndots
+                  value: "1"
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: nfs-client
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 20Gi
+
+        grafana:
+          enabled: true
+          sidecar:
+            datasources:
+              enabled: true
+              searchNamespace: ALL
+            dashboards:
+              enabled: true
+              searchNamespace: ALL
+              label: grafana_dashboard
+              labelValue: "1"
+          additionalDataSources:
+            - name: Loki
+              type: loki
+              access: proxy
+              url: http://loki.monitoring.svc.cluster.local:3100
+              jsonData:
+                maxLines: 1000
+```
+
+**`crds.enabled`**: Der Schalter für die CRDs ist ein Chart-Value auf oberster Ebene und gehört nicht in den Block `prometheusOperator`. Helm ignoriert unbekannte Keys ohne Fehlermeldung, `prometheusOperator.crds.enabled: false` bewirkt also nichts, und das Chart installiert die CRDs trotzdem. Ich lasse das Chart sie installieren und synchronisiere die Application mit `ServerSideApply=true`: Die CRDs des Prometheus Operators sind zu groß für die Annotation `last-applied-configuration`, die ein clientseitiges Apply schreibt, und ohne die Option schlägt der Sync fehl. Wenn du die CRDs selbst verwalten willst, setz `crds.enabled: false` auf oberster Ebene.
+
+**`retention: 30d`** auf einem PVC mit `nfs-client`: Die Prometheus-Daten überstehen Pod-Neustarts und Node-Reboots. Ohne `storageSpec` liegen die Metriken nur im flüchtigen Speicher des Pods.
+
+**`ndots: 1`**: spart unnötige DNS-Anfragen. Mit dem Kubernetes-Standardwert 5 wird jeder Name mit weniger als fünf Punkten (zum Beispiel `api.github.com`) zuerst gegen jede Suchdomain aus der `resolv.conf` des Pods probiert, jeder Versuch ein NXDOMAIN, bevor die eigentliche Abfrage kommt. Mit `ndots: 1` werden Namen, die einen Punkt enthalten, zuerst so aufgelöst, wie sie dastehen. Einteilige Service-Namen wie `loki` laufen weiterhin über die Suchliste.
+
+## Schritt 2: Grafana-Login per OIDC über Authelia
+
+Der generische OAuth-Provider von Grafana verbindet sich mit [Authelia als OIDC-Provider](/blog/authelia-oidc-kubernetes-25-services/) (englischer Artikel). Nutzer melden sich einmal an, und dieselbe Session gilt für Grafana und jeden anderen Dienst hinter Authelia.
+
+```yaml
+        grafana:
+          grafana.ini:
+            server:
+              domain: monitoring.yourdomain.com
+              root_url: https://monitoring.yourdomain.com
+
+            auth:
+              oauth_auto_login: true
+
+            auth.generic_oauth:
+              enabled: true
+              name: Authelia
+              client_id: grafana
+              client_secret: "<your-oidc-client-secret>"
+              scopes: openid profile email groups
+              auth_url: https://auth.yourdomain.com/api/oidc/authorization
+              token_url: https://auth.yourdomain.com/api/oidc/token
+              api_url: https://auth.yourdomain.com/api/oidc/userinfo
+              login_attribute_path: preferred_username
+              groups_attribute_path: groups
+              role_attribute_path: >
+                contains(groups[*], 'admins') && 'Admin' || 'Viewer'
+```
+
+`role_attribute_path` bildet per JMESPath die Gruppenmitgliedschaft in Authelia auf Grafana-Rollen ab. Mitglieder der Gruppe `admins` bekommen Admin, alle anderen nur lesenden Zugriff als Viewer. Rollen pro Nutzer in Grafana zu pflegen entfällt.
+
+In Authelia legst du den Client an:
+
+```yaml
+identity_providers:
+  oidc:
+    clients:
+      - client_id: grafana
+        client_name: Grafana
+        client_secret: "<bcrypt-hash>"
+        authorization_policy: one_factor
+        redirect_uris:
+          - https://monitoring.yourdomain.com/login/generic_oauth
+        scopes:
+          - openid
+          - profile
+          - email
+          - groups
+```
+
+## Schritt 3: Loki mit Garage als S3-Speicher
+
+Loki braucht dauerhaften Object Storage. Logs auf einem lokalen PVC verschwinden mit dem Node. Das übernimmt Garage, dieselbe schlanke S3-Instanz, die [schon für die Velero-Backups läuft](/blog/velero-garage-s3-backup-k3s-deutsch/).
+
+```yaml
+# kubernetes/system/monitoring/loki.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    targetRevision: 6.6.2
+    chart: loki
+    helm:
+      values: |
+        deploymentMode: SingleBinary
+
+        loki:
+          auth_enabled: false
+          commonConfig:
+            replication_factor: 1
+
+          storage:
+            type: s3
+            bucketNames:
+              chunks: loki-data
+              ruler: loki-data
+              admin: loki-data
+            s3:
+              endpoint: http://garage.apps.svc.cluster.local:3900
+              region: homelab
+              s3ForcePathStyle: true
+              insecure: true
+
+          limits_config:
+            retention_period: 30d
+            ingestion_rate_mb: 2
+            ingestion_burst_size_mb: 4
+
+          compactor:
+            working_directory: /var/loki/compactor
+            retention_enabled: true
+            compaction_interval: 10m
+            retention_delete_delay: 2h
+            delete_request_store: s3   # required in Loki 3 when retention is enabled
+
+          schemaConfig:
+            configs:
+              - from: "2024-04-01"
+                object_store: s3
+                store: tsdb
+                schema: v13
+                index:
+                  prefix: index_
+                  period: 24h
+
+        singleBinary:
+          replicas: 1
+          extraEnv:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: loki-s3-secrets
+                  key: access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: loki-s3-secrets
+                  key: secret-access-key
+
+        # disable unused replicated components
+        read:
+          replicas: 0
+        write:
+          replicas: 0
+        backend:
+          replicas: 0
+
+        chunksCache:
+          allocatedMemory: 512
+        resultsCache:
+          allocatedMemory: 512
+
+        lokiCanary:
+          enabled: false
+        test:
+          enabled: false
+```
+
+`s3ForcePathStyle: true` und `insecure: true` sind beide Pflicht. Garage liefert Bucket-URLs im Virtual-Host-Stil nur aus, wenn du eine Root-Domain dafür konfigurierst, Path-Style ist deshalb die verlässliche Wahl. `insecure: true` sagt Loki, dass es reines HTTP verwenden soll, passend zum clusterinternen Garage-Endpunkt.
+
+Die Retention läuft in Loki 3 im Compactor. Mit `retention_enabled: true` braucht Loki zusätzlich `delete_request_store` (den Object Store, in dem Löschanfragen liegen) und startet ohne diesen Wert nicht. `retention_period` unter `limits_config` legt fest, wie lange Chunks erhalten bleiben.
+
+Vor dem Deployment legst du den Loki-Bucket in Garage an:
+
+```bash
+kubectl exec -it -n apps deploy/garage -- /garage bucket create loki-data
+kubectl exec -it -n apps deploy/garage -- /garage key create loki-key
+kubectl exec -it -n apps deploy/garage -- \
+  /garage bucket allow loki-data --read --write --owner --key loki-key
+```
+
+Danach das Secret mit den Zugangsdaten:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: loki-s3-secrets
+  namespace: monitoring
+type: Opaque
+stringData:
+  access-key-id: "<garage-key-id>"
+  secret-access-key: "<garage-secret-key>"
+```
+
+## Schritt 4: Promtail als DaemonSet
+
+Promtail hat ein eigenes Helm-Chart und läuft als DaemonSet, ein Pod pro Node, der alle Container-Logs einsammelt:
+
+```yaml
+# kubernetes/system/monitoring/promtail.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: promtail
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    targetRevision: 6.16.4
+    chart: promtail
+    helm:
+      values: |
+        config:
+          clients:
+            - url: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
+```
+
+Promtail findet alle Pods über die Kubernetes-API, eine Konfiguration pro Dienst ist nicht nötig.
+
+Beachte, dass Grafana Promtail zugunsten von Grafana Alloy abgekündigt hat. Der Long-Term-Support für Promtail endete Anfang 2026. Die Konfiguration hier funktioniert weiterhin, eine neue Installation sollte aber gleich mit Alloy beginnen.
+
+## Schritt 5: node_exporter und Promtail auf Bare-Metal-Nodes
+
+Die Raspberry-Pi-Nodes und der Docker-LXC-Container gehören nicht zum k3s-Cluster, deshalb installiert Ansible dort den Monitoring-Agent.
+
+Die Rolle `monitoring_agent` deployt node_exporter und Promtail als Docker-Container:
+
+```yaml
+# ansible/roles/monitoring_agent/tasks/main.yml
+- name: Deploy node_exporter
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: /opt/docker/node_exporter/docker-compose.yml
+
+- name: Deploy promtail configuration
+  ansible.builtin.template:
+    src: promtail.yml.j2
+    dest: /opt/docker/promtail/promtail.yml
+  notify: Restart promtail
+```
+
+Das Compose-Template für node_exporter stellt die Systemmetriken auf Port 9100 bereit:
+
+```yaml
+services:
+  node_exporter:
+    image: prom/node-exporter:latest
+    container_name: node_exporter
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - "9100:9100"
+```
+
+Die Promtail-Konfiguration schickt Systemlogs, Auth-Logs und Docker-Container-Logs an Loki:
+
+```yaml
+clients:
+  - url: http://{{ monitoring_core_host }}:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: system
+    static_configs:
+      - targets: [localhost]
+        labels:
+          host: {{ inventory_hostname }}
+          __path__: /var/log/syslog
+
+  - job_name: auth
+    static_configs:
+      - targets: [localhost]
+        labels:
+          host: {{ inventory_hostname }}
+          __path__: /var/log/auth.log
+
+  - job_name: docker
+    static_configs:
+      - targets: [localhost]
+        labels:
+          host: {{ inventory_hostname }}
+          __path__: /var/lib/docker/containers/*/*-json.log
+    pipeline_stages:
+      - json:
+          expressions:
+            output: log
+            stream: stream
+            container: attrs.name
+      - labels:
+          stream:
+          container:
+      - output:
+          source: output
+```
+
+## Schritt 6: MikroTik per SNMP überwachen
+
+Der MikroTik-Router spricht SNMP, liefert aber von Haus aus keine Prometheus-Metriken. Der SNMP Exporter schließt die Lücke: Er fragt den Router per SNMP ab und übersetzt die Ergebnisse ins Prometheus-Format.
+
+In der Prometheus-Konfiguration (in den `additionalScrapeConfigs` von kube-prometheus-stack):
+
+```yaml
+scrape_configs:
+  - job_name: 'mikrotik_snmp'
+    static_configs:
+      - targets:
+          - '10.0.10.1'     # MikroTik management IP
+    metrics_path: /snmp
+    params:
+      module: [if_mib]
+      auth: [public_v2]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: snmp-exporter:9116
+```
+
+Damit bekommst du für jeden Port des Routers Traffic-Zähler, Fehlerzähler und Betriebsstatus pro Interface, alles in Grafana sichtbar.
+
+## Schritt 7: Grafana-Dashboard als ConfigMap
+
+Der Grafana-Sidecar beobachtet ConfigMaps mit dem Label `grafana_dashboard: "1"` und importiert sie. So liegen die Dashboards versioniert in Git:
+
+```yaml
+# kubernetes/system/monitoring/loki-dashboard.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  loki-logs.json: |
+    {
+      "title": "Loki: Kubernetes Logs",
+      "uid": "loki-kubernetes-logs",
+      "panels": [
+        {
+          "title": "Log Stream",
+          "type": "logs",
+          "targets": [
+            {
+              "expr": "{namespace=~\"$namespace\", pod=~\"$pod\"}"
+            }
+          ]
+        }
+      ]
+    }
+```
+
+Kein manueller Dashboard-Import, keine Dashboards, die nach einem Container-Neustart weg sind. Das JSON liegt in Git, ArgoCD wendet es an, und der Sidecar übernimmt es.
+
+## Das Ergebnis
+
+Nach dem Deployment aller Komponenten:
+
+- **Metriken**: Prometheus scrapt jeden k3s-Node, jeden Bare-Metal-Node und den MikroTik-Router. 30 Tage Historie auf einem PVC auf NFS.
+- **Logs**: Alle Pod-Logs und Systemlogs aller Nodes fließen in Loki und liegen dauerhaft auf Garage S3. 30 Tage Retention mit automatischer Compaction.
+- **Dashboards**: Grafana zeigt Metriken und Logs in einer Ansicht, die Loki-Datenquelle ist vorkonfiguriert. Eigene Dashboards kommen per ArgoCD, ganz ohne Handarbeit.
+- **Zugriff**: Ein SSO-Login über Authelia. Die Gruppenmitgliedschaft bestimmt die Grafana-Rolle.
+- **Speichereffizienz**: Garage bedient Velero-Backups und Loki-Chunks aus einem einzigen schlanken Deployment.
+
+---
+
+Wenn du Metriken, Logs und Traces als drei getrennte Schichten behandelst, werden die Werkzeuge austauschbar: Azure Monitor, Log Analytics und Application Insights folgen demselben Modell wie dieser Stack, Dashboards und Alert-Regeln lassen sich also fast unverändert übertragen.

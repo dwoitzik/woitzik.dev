@@ -1,0 +1,116 @@
+---
+title: "ArgoCD SharedResourceWarning und veralteter Cache: Wenn selfHeal Änderungen zurückdreht"
+description: "ArgoCD dreht Änderungen nach Sekunden zurück: zwei Ursachen, der veraltete Cache des repo-server und die SharedResourceWarning bei zwei Owner-Applications."
+lang: "de"
+translationOf: "argocd-cache-staleness-shared-resource-warning"
+date: "2026-12-14"
+tags: ["Kubernetes", "GitOps", "Homelab"]
+---
+
+<em>Werbung: Dieser Beitrag enthält Amazon-Affiliate-Links (mit &#42; markiert). Als Amazon-Partner verdiene ich an qualifizierten Verkäufen. Für dich kostet es nichts extra.</em>
+
+`kubectl apply` meldet Erfolg. Du schaust dir die Ressource an, und das Feld, das du gerade geändert hast, steht wieder auf dem alten Wert. Kein Fehler, kein Event. `kubectl get` zeigt die Änderung, ein paar Sekunden später ist sie weg. Passiert ist mir das auf einem k3s-Cluster auf einem [BMAX Mini PC\*](/go/4bv3yF1), auf dem ArgoCD mit `selfHeal: true` läuft (wie dieser Cluster aufgebaut ist, steht im Artikel [ArgoCD auf k3s mit App-of-Apps](/blog/argocd-k3s-gitops-app-of-apps/)). Das Problem ist klein genug, um es in den Logs zu übersehen, und lästig genug, um einen Nachmittag zu kosten.
+
+Die Ursache ist `selfHeal` in ArgoCD, das genau das tut, wofür es gebaut ist: Es wendet immer wieder seine eigene gerenderte Vorstellung davon an, wie die Ressource aussehen *soll*. Dieser gerenderte Zustand kommt aus einem Cache, und der Cache kann einem frischen `git push` hinterherhinken.
+
+Im selben Homelab ist mir das an einem Tag dreimal passiert, bei drei Ressourcen, die nichts miteinander zu tun hatten. Unten stehen das Muster, der Fix und ein zweiter Fallstrick, der anders aussieht, aber eine verwandte Ursache hat.
+
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [ArgoCD Gotchas: Cache Staleness and the SharedResourceWarning Nobody Explains →](/blog/argocd-cache-staleness-shared-resource-warning/).
+
+**[Den kompletten Quellcode der Homelab-Infrastruktur gibt es auf GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Das Symptom: ArgoCD macht Änderungen rückgängig
+
+Drei getrennte Vorfälle, immer dasselbe Bild:
+
+- Die `storageClassName` eines Tempo-`PersistentVolumeClaim` sprang nach jeder Änderung zurück.
+- `tlsStore` und Dashboard-Konfiguration von Traefik sprangen nach einem Update der Helm-Values zurück.
+- Die `volumeMounts` eines `paperless-gpt`-Deployments sprangen nach einer direkten Änderung zurück.
+
+Jedes Mal lief es gleich ab: die Live-Ressource ändern oder eine Änderung nach Git pushen → bestätigen, dass die Änderung live ist → später wiederkommen → der alte Wert ist zurück, und an keiner naheliegenden Stelle steht ein Fehler.
+
+## Warum das passiert: `selfHeal` plus veralteter Cache
+
+ArgoCD gleicht mit `selfHeal: true` den Live-Zustand im Cluster laufend gegen sein *gerendertes* Verständnis davon ab, was die Manifeste oder das Helm-Chart einer Application erzeugen sollten. Das ist der Sinn von GitOps: Drift wird automatisch korrigiert, damit ein manuelles `kubectl edit` nie stillschweigend zum neuen Dauerzustand wird. Eine Handänderung, die nicht in Git steht, wird absichtlich zurückgesetzt, mit oder ohne Cache.
+
+Überraschend ist der Fall, wenn die Änderung *in* Git steht. Das **gerenderte Verständnis**, gegen das ArgoCD abgleicht, kommt aus dem Cache für Manifeste und Helm-Charts im `argocd-repo-server`, und dieser Cache wird nach einem frischen `git push` nicht immer sofort invalidiert. Für eine gewisse Zeit, meist kurz, aber lang genug, um dich zu verwirren, ist die Vorstellung von ArgoCD, wie alles aussehen soll, veraltet, und `selfHeal` setzt deine Änderung treu auf diesen Stand zurück.
+
+Von außen sieht das genau so aus, als würde ArgoCD deine Änderung ignorieren. Tatsächlich setzt ArgoCD eine veraltete, gecachte Version dessen durch, was du seiner Meinung nach willst.
+
+## Der Fix: Hard Refresh erzwingen
+
+```bash
+kubectl patch application <name> -n argocd --type merge \
+  -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
+```
+
+Der Refresh-Wert `hard` (im Gegensatz zu `normal`) sagt ArgoCD, dass es den Manifest-Cache des repo-server umgehen und neu aus der Quelle rendern soll. Warte etwa 15 Sekunden und prüf dann noch einmal.
+
+Reicht das allein nicht, muss der Cache selbst neu gestartet werden, nicht nur für eine Application invalidiert:
+
+```bash
+kubectl rollout restart deployment argocd-repo-server -n argocd
+```
+
+Das ist der größere Hammer. Er betrifft die nächste Reconciliation jeder Application, nicht nur die, die du gerade debuggst. Probier deshalb zuerst die gezielte Annotation für den `hard` Refresh.
+
+## Die Ausnahme bei StatefulSets
+
+Beim Tempo-PVC hat keins von beidem auf Anhieb geholfen, denn `volumeClaimTemplates` eines `StatefulSet` sind **unveränderlich**: Kubernetes lehnt jeden Versuch ab, sie an einem bestehenden Objekt zu ändern. Den veralteten Cache von ArgoCD zu leeren korrigiert die *Absicht* von ArgoCD für die Zukunft, kann aber kein Feld nachträglich reparieren, das am Live-Objekt nie änderbar war.
+
+Der Fix ist dort, das StatefulSet selbst zu löschen und neu anzulegen (das PVC darunter und seine Daten überleben das Löschen des StatefulSet, solange du das PVC nicht mitlöschst):
+
+```bash
+kubectl delete statefulset <name> -n <namespace> --cascade=orphan
+# re-sync from ArgoCD to recreate the StatefulSet with the new template
+```
+
+`--cascade=orphan` löscht das StatefulSet-Objekt, ohne die Pods oder PVCs zu löschen, die ihm gehören. Der nächste Sync von ArgoCD legt das StatefulSet mit dem korrigierten Template neu an und übernimmt das bestehende PVC wieder.
+
+Damit ist das Template repariert, nicht das Volume. Das wieder übernommene PVC behält seine alte `storageClassName`, weil sich auch dieses Feld an einem bestehenden PVC nicht ändern lässt. Um die Daten wirklich in die neue Klasse zu bringen, kopierst du sie auf ein neues PVC und löschst das alte. Erst PVCs, die nach der Änderung entstehen, bekommen das neue Template.
+
+## SharedResourceWarning: ein anderer Fehler mit verwandter Ursache
+
+Ein verwandtes, aber eigenes Symptom: Eine Ressource springt zwischen zwei verschiedenen Specs hin und her oder wird ganz gepruned, und `.status.conditions` einer der Applications zeigt eine `SharedResourceWarning`.
+
+Das ist ein **Ownership-Konflikt**, kein Cache-Problem. Zwei ArgoCD-Applications verwalten beide eine Ressource mit demselben Namen im selben Namespace. Bei mir hat das Flag `ingressRoute.dashboard.enabled` im Traefik-Helm-Chart eine Dashboard-`IngressRoute` erzeugt, während eine von Hand geschriebene `IngressRoute` mit demselben Namen in den Manifesten einer anderen Application lag. Beide beanspruchten dasselbe Objekt.
+
+ArgoCD vermerkt den Owner über ein Tracking-Label oder eine Annotation am Live-Objekt. Rendern zwei Applications dasselbe Objekt, überschreibt jeder Sync diese Markierung, und die Application, der das Objekt gerade nicht gehört, meldet `SharedResourceWarning`. ArgoCD kann nicht wissen, welche Definition die "richtige" ist, und meldet den Konflikt, statt zu raten.
+
+Der Fix: genau einen Owner festlegen und dafür sorgen, dass der andere die Ressource nicht mehr beansprucht:
+
+```yaml
+# kubernetes/system/traefik/application.yml - Helm chart's own dashboard route, disabled
+helm:
+  values: |
+    ingressRoute:
+      dashboard:
+        enabled: false  # the manual, Authelia-protected route below is canonical
+```
+
+```yaml
+# kubernetes/system/other-ingressroute.yml - the manually-defined route, kept
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: traefik
+spec:
+  # ... Authelia-protected route - this is the one that stays
+```
+
+Sobald nur noch eine Application das Objekt definiert, löschst du die Live-Ressource und lässt den verbliebenen Owner sie beim nächsten Sync mit seiner eigenen Tracking-Markierung neu anlegen. Die Warnung verschwindet.
+
+## Cache-Problem oder Ownership-Konflikt unterscheiden
+
+| Symptom | Wahrscheinliche Ursache | Fix |
+|---|---|---|
+| Ein Feld springt Sekunden nach einer per Git gepushten Änderung zurück, nirgends ein Fehler | Veralteter Cache im repo-server | Annotation für `hard` Refresh, bei Bedarf `argocd-repo-server` neu starten |
+| Ein Feld springt zurück, betroffen sind `volumeClaimTemplates` eines StatefulSet | Veralteter Cache *plus* ein unveränderliches Feld, das sich nicht direkt patchen lässt | Derselbe Cache-Fix, dazu das StatefulSet mit `--cascade=orphan` löschen und neu anlegen |
+| Eine Ressource springt zwischen zwei Specs hin und her oder wird gepruned, `SharedResourceWarning` in `.status.conditions` | Zwei Applications beanspruchen dieselbe Ressource | Den Anspruch eines Owners entfernen (Helm-Flag oder Manifest löschen), den anderen behalten |
+
+Das diagnostische Unterscheidungsmerkmal: Ein veralteter Cache ist ein *zeitliches* Problem. Dieselbe Application setzt eine Änderung von eben zurück, und ein Refresh behebt es. Ein Ownership-Konflikt ist *strukturell*. Schau zuerst in `.status.conditions` nach `SharedResourceWarning`. Steht sie dort, hilft kein Cache-Refresh: Nichts ist veraltet, beide Applications rendern ihre eigenen Manifeste korrekt, und die Manifeste selbst widersprechen sich.
+
+---
+
+Das Muster mit dem veralteten Cache ist eine Eigenheit der repo-server-Architektur von ArgoCD. Der Ownership-Konflikt betrifft jedes GitOps-Werkzeug: Flux zeigt denselben Fehler, wenn zwei Kustomizations oder HelmReleases eine Ressource mit derselben Identität definieren. Wer `.status.conditions` prüft, bevor er ein Sync- oder Cache-Problem annimmt, spart viel Zeit, die sonst in den falschen Fix fließt.

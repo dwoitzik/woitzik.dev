@@ -1,0 +1,155 @@
+---
+title: "Longhorn vs. NFS im k3s-Cluster auf einem Host: Warum ich gewechselt habe"
+description: "Longhorn vs. NFS auf einem einzigen Proxmox-Host: Alle drei Replicas liegen auf derselben NVMe. Ein Node-Ausfall brachte Multi-Attach-Fehler, NFS löste das."
+lang: "de"
+translationOf: "longhorn-to-nfs-distributed-storage"
+date: "2026-12-11"
+tags: ["Kubernetes", "Storage", "Homelab", "Debugging"]
+---
+
+<em>Werbung: Dieser Beitrag enthält Amazon-Affiliate-Links (mit &#42; markiert). Als Amazon-Partner verdiene ich an qualifizierten Verkäufen. Für dich kostet es nichts extra.</em>
+
+Longhorn ist für Kubernetes-Cluster mit mehreren Nodes gebaut. Es repliziert die Daten von PersistentVolumes über Nodes hinweg, sodass die Daten auf den anderen Nodes überleben, wenn einer ausfällt. Auf echter Hardware mit mehreren Hosts macht es diesen Job gut.
+
+Ich betreibe drei k3s-Nodes auf einem einzigen physischen Host. Alle drei Nodes teilen sich dieselbe NVMe. Repliziert Longhorn ein PVC über drei Nodes, liegen alle drei Replicas auf derselben physischen Platte. Es gibt also weder echte Verteilung noch echte Redundanz. Und als ein Node ausfiel, verursachte das Failover der Block-Volumes ein Problem, das ich ohne Longhorn gar nicht gehabt hätte.
+
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [Longhorn vs NFS on a Single-Host k3s Cluster: Why I Switched →](/blog/longhorn-to-nfs-distributed-storage/).
+
+**[Den kompletten Quellcode der Homelab-Infrastruktur gibt es auf GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Der Multi-Attach-Fehler bei Longhorn
+
+Longhorn-Volumes sind ReadWriteOnce-Blockgeräte (RWO): Kubernetes hängt jedes davon zur selben Zeit an genau einen Node. Wird ein k3s-Node unerreichbar (OOMKill, abgestürztes Kubelet, kurzer Netzwerkaussetzer), wandert diese Zuordnung nicht von allein mit.
+
+Der Ablauf:
+
+1. k3s-12 wird unerreichbar (sein Kubelet erneuert die Node-Lease nicht mehr)
+2. Der Node geht auf `NotReady`, und der Pod darauf hängt in `Terminating`, weil niemand bestätigen kann, dass er gestoppt ist
+3. Der Controller plant einen Ersatz-Pod auf k3s-13 ein
+4. Das `VolumeAttachment` des Volumes zeigt weiterhin auf k3s-12
+5. Der Attach/Detach-Controller verweigert für ein RWO-Volume ein zweites Attach und meldet am neuen Pod einen `Multi-Attach error`
+6. Der neue Pod bleibt in `ContainerCreating`, bis die alte Zuordnung aufgehoben ist
+
+Der Pod, der das Volume braucht (zum Beispiel Postgres), kann nirgends starten, solange die alte Zuordnung besteht. Um sie aufzuheben, musste ich den hängenden Pod per Force löschen und das Volume von Hand detachen, damit Longhorn es sauber neu anhängen konnte. Ein manueller Schritt mitten im Ausfall, also genau dann, wenn die Automatisierung arbeiten sollte.
+
+Auf einem Cluster mit mehreren Hosts ist das ein echtes HA-Szenario: Das Volume muss tatsächlich auf ein Replica auf einer anderen physischen Platte umschwenken, und die Wartezeit verhindert, dass zwei Nodes gleichzeitig schreiben. Auf einem Cluster mit nur einem Host geht das "Failover" auf dieselbe NVMe, und das Warten auf den Multi-Attach ist reiner Overhead.
+
+## NFS als Alternative zu Longhorn
+
+NFS (Network File System) hat kein Multi-Attach-Problem, weil es kein Block-Storage ist. NFS exportiert ein Verzeichnis übers Netzwerk, und beliebig viele Clients können es gleichzeitig mounten. Es gibt keinen Attach-Zustand, der in Konflikt geraten könnte.
+
+Der NFS-Server läuft in einem eigenen LXC (`ct-srv-nfs-01`) mit einem Dataset auf ZFS:
+
+```hcl
+# terraform/stacks/proxmox/lxc.tf
+resource "proxmox_virtual_environment_container" "ct_srv_nfs_01" {
+  vm_id = 220
+
+  initialization {
+    hostname = "ct-srv-nfs-01"
+    # ...
+  }
+
+  memory {
+    dedicated = 2048
+    swap      = 1024
+  }
+
+  # host bind mount holding every NFS-exported PVC
+  mount_point {
+    volume = "/nfs-data"
+    path   = "/nfs-data"
+  }
+  # ...
+}
+```
+
+Der NFS-Provisioner in k3s legt die PVCs auf diesem NFS-Server an:
+
+```yaml
+# kubernetes/system/nfs-provisioner/application.yml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+spec:
+  source:
+    helm:
+      values:
+        nfs:
+          server: 10.0.20.100
+          path: /nfs-data/k8s-general
+          mountOptions:
+            - nfsvers=4.1
+            - hard
+        storageClass:
+          name: nfs-client
+          defaultClass: false
+          reclaimPolicy: Retain
+```
+
+Fällt k3s-12 aus, werden die Pods auf k3s-11 oder k3s-13 neu eingeplant, mounten denselben NFS-Export und machen dort weiter, wo sie aufgehört haben. Kein Multi-Attach-Fehler, kein manuelles Detachen, keine Zustandsmaschine für Attachments.
+
+## Longhorn vs. NFS: die Abwägung
+
+### Was du mit NFS aufgibst
+
+| Funktion | Longhorn | NFS |
+|---|---|---|
+| Replikation über Nodes | Ja (standardmäßig 3x) | Nein (ein Server) |
+| Snapshots | Ja (pro Volume, CSI) | Ja (ZFS-Snapshots auf dem Server, nicht CSI) |
+| ReadWriteMany | Ja | Ja |
+| Provisioner | CSI-Treiber | nfs-subdir-external-provisioner (nicht CSI) |
+| Datenpfad | Blockgerät (iSCSI-Frontend, synchrone Replica-Writes) | Dateiebene über NFS |
+| Übersteht Node-Ausfall | Ja | Nein (ein Server) |
+
+NFS verzichtet auf Replikation und auf Toleranz gegen Node-Ausfälle. Stirbt der NFS-Server, ist jedes PVC, das er bereitstellt, nicht mehr verfügbar. Auf einem einzigen physischen Host ist das dasselbe Risiko wie mit Longhorn, weil beide Storage-Systeme auf derselben NVMe liegen. Die Replikation von Longhorn hilft nicht, wenn die Platte darunter der Single Point of Failure ist.
+
+### Was du mit NFS zurückbekommst
+
+- **Keine Multi-Attach-Fehler.** Pods lassen sich frei neu einplanen, ohne Konflikte beim Volume-Attach.
+- **Einfachere Fehlerbilder.** NFS ist entweder da oder nicht. Keine Volume-Zustände wie "rebuilding", "degraded" oder "faulted".
+- **ZFS-Snapshots fürs Backup.** PBS sichert das ZFS-Dataset des NFS-Servers und liefert Wiederherstellung auf einen Zeitpunkt, ohne den Snapshot-Overhead von Longhorn.
+- **Weniger Ressourcenverbrauch.** Longhorn betreibt auf jedem Node einen Manager, ein CSI-Plugin und Instance-Manager-Pods. NFS ist ein Server in einem LXC.
+
+## Welche Storage-Klasse für welche Anwendung
+
+Nach der Migration von Longhorn auf NFS habe ich die Regel festgelegt:
+
+| Anwendung | Storage-Klasse | Grund |
+|---|---|---|
+| PostgreSQL (CNPG) | local-path | CNPG kümmert sich selbst um die Replikation |
+| Garage-S3-Metadaten | local-path | [SQLite-Dateisperren (die NFS-Falle)](/blog/nfs-vs-local-path-sqlite-trap/) (englischer Artikel) |
+| Mealie, Home Assistant | local-path | SQLite-Datenbanken |
+| Alles andere | nfs-client | Standard, übersteht das Neueinplanen von Pods |
+
+Das Prinzip: **Eingebettete Datenbanken kommen auf local-path (Dateisperren), alles andere auf NFS (Überlebensfähigkeit).** PostgreSQL landet ebenfalls auf local-path, aber aus einem anderen Grund: CNPG übernimmt die Replikation selbst, der Storage darunter muss also nur lokal und schnell sein.
+
+## Migration von Longhorn auf NFS
+
+Der Umzug der PVCs von Longhorn auf NFS bestand aus diesen Schritten:
+
+1. Den NFS-Server-LXC mit dem passenden ZFS-Dataset deployen
+2. Das Helm-Chart `nfs-subdir-external-provisioner` installieren
+3. Die Daten von den Longhorn-Volumes auf NFS kopieren (mit `kubectl cp` oder einem temporären Pod)
+4. In jeder Anwendung die `storageClassName` von `longhorn` auf `nfs-client` ändern
+5. Das alte Longhorn-PVC löschen (die Daten liegen schon auf NFS)
+6. Longhorn aus dem Cluster entfernen
+
+Schritt 5 ist der Teil, der an den Nerven zehrt: ein PVC mit Produktivdaten löschen. Die Prüfung vor dem Löschen:
+
+```bash
+# Verify data exists on NFS
+kubectl exec -it temp-pod -- ls -la /mnt/nfs/authelia-data/
+# → Confirm database files, config, etc.
+
+# Verify application starts with NFS PVC
+kubectl delete pod authelia-xxxxx  # force reschedule
+# → Pod starts, mounts NFS, passes health checks
+```
+
+Nach der Migration habe ich Longhorn deinstalliert. Aus drei Storage-Replicas auf einer Platte wurde ein einzelner NFS-Server auf derselben Platte. Das ist einfacher, berechenbarer und ohne die Hänger durch Multi-Attach.
+
+---
+
+Verteilter Storage auf einem einzigen Host ist dasselbe Anti-Pattern wie Daten über "Zonen" zu replizieren, die an derselben Stromversorgung hängen. Azure Availability Zones gibt es genau deshalb, weil jede eine eigene Stromversorgung, Kühlung und Netzwerkanbindung hat. Replikation bringt nur dann Ausfallsicherheit, wenn die Fehlerdomänen darunter unabhängig sind. Ist die Infrastruktur darunter gar nicht verteilt, fügt die Replikationsschicht Komplexität hinzu, aber keine Ausfallsicherheit. Richte die Storage-Topologie an der echten Infrastruktur aus: ein Host, ein NFS-Server; mehrere Hosts, verteilter Storage.
+
+[Designing Data-Intensive Applications\*](/go/4aUtkCs) erklärt für mich am klarsten, warum Replikation nur dann Ausfallsicherheit bringt, wenn die Replicas unabhängig voneinander ausfallen. Genau das ist die Lehre aus dieser Migration.

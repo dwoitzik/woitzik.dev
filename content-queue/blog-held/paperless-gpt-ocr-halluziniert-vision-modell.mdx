@@ -1,0 +1,120 @@
+---
+title: "paperless-gpt OCR halluziniert: falsches VISION_LLM_MODEL"
+description: "paperless-gpt erfand deutschen OCR-Text: VISION_LLM_MODEL zeigte auf qwen2.5-coder:7b, ein reines Textmodell. Der Fix, und warum Ollama 451-mal abstürzte."
+lang: "de"
+translationOf: "llm-hallucinated-ocr-paperless"
+date: "2026-12-18"
+tags: ["AI", "Kubernetes", "Homelab", "Debugging"]
+---
+
+<em>Werbung: Dieser Beitrag enthält Amazon-Affiliate-Links (mit &#42; markiert). Als Amazon-Partner verdiene ich an qualifizierten Verkäufen. Für dich kostet es nichts extra.</em>
+
+paperless-gpt hat für meine gescannten Dokumente glaubwürdig aussehenden, komplett erfundenen deutschen OCR-Text erzeugt. Das Modell lieferte selbstsicheres, grammatikalisch korrektes Deutsch für Seiten, die in Wirklichkeit Rechnungen, Kassenbons und handschriftliche Notizen waren, und die vergebenen Titel waren genauso ausgedacht.
+
+Die Ursache war kein Bug in paperless-gpt. Ein Konfigurationsfehler schickte Seitenbilder an ein reines Textmodell, das überhaupt keine Bilder sehen konnte, und das Modell tat, was Sprachmodelle mit Eingaben tun, die sie nicht verarbeiten können: Es erfand etwas.
+
+Darunter lag ein zweites, davon unabhängiges Problem. Das iGPU-Backend von Ollama, das die Inferenz beschleunigen sollte, stürzte auf einem instabilen Vulkan/radv-Pfad an einem einzigen Tag 451-mal ab.
+
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [paperless-gpt Hallucinated OCR: Wrong VISION_LLM_MODEL →](/blog/llm-hallucinated-ocr-paperless/).
+
+**[Den kompletten Quellcode der Homelab-Infrastruktur gibt es auf GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Der Konfigurationsfehler in paperless-gpt
+
+Das Deployment von `paperless-gpt` hatte zwei Modell-Einstellungen:
+
+```yaml
+# kubernetes/apps/paperless/paperless-gpt.yml
+env:
+  - name: LLM_MODEL
+    value: "qwen2.5:7b-instruct"        # text-only model for tagging/title generation
+  - name: VISION_LLM_MODEL
+    value: "qwen2.5-coder:7b"           # ← BUG: this is also text-only
+```
+
+`VISION_LLM_MODEL` muss auf ein Modell zeigen, das Bilder verarbeiten kann. `qwen2.5-coder:7b` ist ein reines Text-Modell für Code. Es hat keinen Bild-Encoder und keine Möglichkeit, Pixeldaten zu verarbeiten.
+
+Der OCR-Provider von paperless-gpt schickt Seitenbilder an das Modell, das in `VISION_LLM_MODEL` steht. In diesem Setup gab es keine Prüfung der Fähigkeiten und keinen Fehler, wenn das Modell mit Bildern nichts anfangen konnte. Das Seitenbild erreichte nie etwas, das es hätte deuten können, also antwortete das Modell aus der einzigen Eingabe, die es hatte: dem Prompt-Text, der nach dem Inhalt einer Dokumentseite fragt.
+
+Für eine gescannte deutsche Rechnung erzeugte das Modell etwa so etwas:
+
+```
+Rechnung Nr. 2024-0847
+Betrag: €1.247,83
+Firma: Mustermann GmbH
+```
+
+Selbstsicher, grammatikalisch korrekt und komplett erfunden. Das echte Dokument hätte ein Strafzettel, eine Nebenkostenabrechnung oder eine handschriftliche Notiz sein können. Das Modell konnte es nicht wissen, weil es das Bild nie gesehen hat.
+
+## Wie viele Dokumente betroffen waren
+
+Die Pipeline lief mehrere Wochen mit dieser Fehlkonfiguration. Jedes bildbasierte Dokument (gescannte PDFs, abfotografierte Kassenbons, Screenshots) bekam erfundenen OCR-Inhalt. Textbasierte Dokumente (digitale PDFs mit markierbarem Text) waren nicht betroffen, weil paperless-gpt dafür die eingebettete Textebene nutzt und nicht das Vision-Modell.
+
+Die betroffenen Dokumente hatten Titel wie:
+
+```
+Rechnung Nr. 2024-1847: Firma Schmidt & Partner
+GEPRÜFT: Handelsregister HRB 12345
+```
+
+Die Titel waren ausgedacht, sahen aber echt genug aus, dass es mir erst auffiel, als ich nach einer bestimmten Rechnung suchte und ein Dokument mit einem Firmennamen fand, den ich nicht kannte. Der Scan zeigte eine Nebenkostenabrechnung von einem ganz anderen Anbieter.
+
+## Der Fix: ein echtes Vision-Modell
+
+```yaml
+# kubernetes/apps/paperless/paperless-gpt.yml
+env:
+  - name: LLM_MODEL
+    value: "qwen2.5:7b-instruct"
+  - name: VISION_LLM_MODEL
+    value: "minicpm-v"                   # actual vision-capable model
+```
+
+`minicpm-v` (MiniCPM-V 2.6, 8B Parameter in der Ollama-Bibliothek) ist ein kleines Vision-Language-Modell, das Bilder entgegennimmt und Text zurückgibt. Es ist weniger leistungsfähig als größere Modelle, kann die Seite aber tatsächlich sehen und echten OCR-Text erzeugen.
+
+Der Modellwechsel hat den Schaden nicht repariert. paperless-gpt verarbeitet Dokumente nicht von sich aus neu, und der erfundene Inhalt stand schon in der Paperless-Datenbank. Jedes betroffene Dokument musste deshalb von Hand erneut per OCR verarbeitet werden.
+
+## Ollama-Abstürze auf der iGPU
+
+Mit einem stabilen Ollama-Backend wäre der Konfigurationsfehler leichter aufgefallen. Die Ollama-Instanz lief im AI-LXC auf der AMD-Barcelo-iGPU über den Vulkan/radv-Pfad und stürzte ständig ab.
+
+Die integrierte GPU des AMD Ryzen 7 5825U (gfx90c) hat keinen offiziellen ROCm-Support. Ich hatte zwei GPU-Pfade darauf ausprobiert. Der erste war der übliche Community-Workaround für ROCm, `HSA_OVERRIDE_GFX_VERSION=9.0.0`, mit dem ROCm den Chip als unterstützten gfx900 behandelt. Der lief nie stabil, und ich hatte ihn schon aufgegeben. Der zweite war Vulkan über den radv-Treiber, eingeschaltet mit `OLLAMA_IGPU_ENABLE=1`. Genau der lief hier.
+
+Das Absturzmuster:
+
+```
+vk::DeviceLostError: the GPU has been lost
+```
+
+451 Abstürze an einem einzigen Tag, während paperless-gpt seinen Rückstand beim Auto-Tagging abarbeitete. Das ergab unter paralleler Last ungefähr einen Absturz pro Anfrage. Jeder Absturz beendet den Inferenzprozess von Ollama und mit ihm jede laufende Anfrage. paperless-gpt, Open WebUI und alles andere, was Ollama nutzt, bekamen Connection-refused-Fehler.
+
+Einige paperless-gpt-Fehler, die ich zuerst paperless-gpt selbst angelastet hatte, waren diese Abstürze: Die Anfrage starb, bevor das Modell irgendetwas zurückgab. Einzelne Anfragen gingen meist durch, deshalb fiel die Instabilität anfangs nicht auf.
+
+Der Fix: Ollama auf reinen CPU-Betrieb umstellen und das Flag `OLLAMA_IGPU_ENABLE=1` komplett entfernen.
+
+```yaml
+# Ansible role for Ollama
+env:
+  OLLAMA_HOST: "0.0.0.0:11434"
+  # OLLAMA_IGPU_ENABLE removed - CPU-only for stability
+  # HSA_OVERRIDE_GFX_VERSION removed - was never stable on gfx90c
+```
+
+Inferenz auf der CPU ist langsamer (qwen2.5:7b braucht etwa 30 Sekunden pro Inferenz statt etwa 8 Sekunden auf der iGPU), stürzt aber nicht ab. Für eine Dokumenten-Pipeline im Homelab geht Stabilität vor Geschwindigkeit. Es ist dieselbe Abwägung, die in diesem Cluster entscheidet, was sich automatisch aktualisieren darf und was einen Menschen braucht: Ein langsamer, langweiliger Weg schlägt einen schnellen, instabilen.
+
+## Die Lehre: zwei Fehlerbilder übereinander
+
+Der Vorfall hatte zwei unabhängige Grundursachen, die zusammen das Debugging erschwerten:
+
+1. **Vision-Modell zeigt auf ein reines Textmodell:** erfundener OCR-Inhalt
+2. **Ollama-iGPU stürzt an einem Tag 451-mal ab:** sporadische Verbindungsfehler
+
+Für sich allein erzeugt (1) bei jedem Bilddokument gleichbleibenden Müll, ein Muster, das direkt auf die Konfiguration zeigt. Für sich allein sieht (2) nach gewöhnlicher Instabilität von Ollama aus. Zusammen sah jedes Problem mit paperless-gpt aus wie ein Ollama-Absturz (sporadisch, zufällig) statt wie ein systematischer Konfigurationsfehler (gleichbleibend, bei jedem Bilddokument).
+
+Die Lehre fürs Debugging: Wenn ein System auf zwei verschiedene Arten scheitert (mal erfundener Inhalt, mal Connection refused), such nach zwei getrennten Grundursachen, statt anzunehmen, dass eine beides erklärt. Dieselbe Disziplin war wichtig, als sich bei drei gemergten GitOps-Fixes drei voneinander unabhängige Fehlerbilder herausstellten.
+
+---
+
+Dasselbe Risiko gibt es in produktiven KI-Pipelines: Kommt ein Eingabetyp stillschweigend nie beim Modell an, bekommst du plausibel aussehende falsche Ausgaben statt eines Fehlers. Gehostete APIs wie Azure OpenAI lehnen Bildinhalte, die an ein Deployment ohne Vision-Unterstützung gehen, in der Regel mit HTTP 400 ab, und genau dieses Fehlerbild willst du haben. Gefährlich ist ein selbst gehosteter Stack, der das Bild ohne Fehler verwirft. So oder so ist der Fix derselbe: Prüf, ob die Fähigkeiten des Modells zu deinen Eingabetypen passen, und teste mit bekannten Eingaben, bevor du der Ausgabe vertraust.
+
+Der LXC mit diesem Workload läuft auf einem älteren BMAX B5A Pro (Ryzen 7 5825U), und die oben beschriebene ROCm-Lücke betrifft genau diesen Chip. Wenn du heute einen Mini-PC für so eine lokale Inferenz-Box kaufst, ist der [BMAX Ryzen 7 8745HS Mini PC\*](/go/4bv3yF1) der direkte Nachfolger mit einer deutlich stärkeren Radeon-780M-iGPU.
