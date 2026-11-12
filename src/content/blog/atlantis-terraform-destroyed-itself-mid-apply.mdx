@@ -1,6 +1,6 @@
 ---
 title: "My Terraform Runner Destroyed Itself Mid-Apply"
-description: "Atlantis was running inside k3s, managing the same Proxmox VMs it ran on. When bpg/proxmox issued a qmshutdown for a non-live-update attribute, it killed the Atlantis pod that was executing the apply. The structural hazard and the fix."
+description: "Atlantis ran in k3s on the Proxmox VMs it managed. A bpg/proxmox qmshutdown killed the Atlantis pod mid-apply. The structural hazard and the fix."
 date: "2026-08-02"
 updated: "2026-11-04"
 tags: ["Terraform", "GitOps", "Homelab", "Debugging"]

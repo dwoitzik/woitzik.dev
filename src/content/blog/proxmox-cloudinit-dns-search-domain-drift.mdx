@@ -1,6 +1,6 @@
 ---
 title: "The DNS Drift That Wasn't DHCP: How Proxmox Cloud-Init Silently Injects Search Domains"
-description: "Every DNS lookup in my k3s cluster was appending 'home.lan' and recursing externally. I blamed DHCP, wrote a Terraform fix, and watched the plan show zero diff. The real source was three layers up."
+description: "Every DNS lookup in my k3s cluster appended 'home.lan'. I blamed DHCP, but the Terraform fix showed zero diff. Proxmox cloud-init was injecting it."
 date: "2026-10-15"
 updated: "2026-11-04"
 tags: ["Kubernetes", "DNS", "Proxmox", "Debugging"]

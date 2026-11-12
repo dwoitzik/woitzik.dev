@@ -1,6 +1,6 @@
 ---
 title: "CPU Scheduling for etcd: Why Proxmox cpu.units Matters"
-description: "When Ollama, Minecraft, and etcd compete for CPU on the same host, the scheduler doesn't know which one is critical. Proxmox cpu.units gives the k3s VMs the higher weight; without it, leader-election timeouts cascade."
+description: "Ollama, Minecraft and etcd compete for CPU on one Proxmox host. cpu.units gives the k3s VMs higher weight; without it, leader-election timeouts cascade."
 date: "2026-09-20"
 updated: "2026-11-04"
 tags: ["Proxmox", "Kubernetes", "Performance", "Homelab"]

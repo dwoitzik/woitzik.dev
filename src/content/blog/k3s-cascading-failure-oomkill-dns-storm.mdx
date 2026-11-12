@@ -1,6 +1,6 @@
 ---
 title: "How a 1 GiB Memory Limit Took Down My Entire k3s Cluster"
-description: "A single misconfigured resource limit triggered a cascade: OOMKill on the control-plane, load average of 90, 1.2M DNS queries per day, and kubelet reporting the wrong allocatable memory. Here's the full post-mortem."
+description: "A 1 GiB memory limit set off a cascade: control-plane OOMKill, load average 90, 1.2M DNS queries a day and wrong kubelet allocatable memory. The post-mortem."
 date: "2026-06-18"
 updated: "2026-11-04"
 tags: ["Kubernetes", "Homelab", "Debugging"]

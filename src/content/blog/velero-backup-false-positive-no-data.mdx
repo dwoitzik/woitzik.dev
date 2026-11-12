@@ -1,6 +1,6 @@
 ---
 title: "Velero Said Backups Succeeded. The Data Was Never There."
-description: "Velero's daily backup reported 'Completed' for weeks without ever capturing PVC data. The k8s manifests were there, but Postgres, Vaultwarden, and Paperless data was completely missing. Here's how defaultVolumesToFsBackup fixes it and why velero backup describe is the only real verification."
+description: "Velero reported 'Completed' for weeks with no PVC data for Postgres, Vaultwarden or Paperless. The defaultVolumesToFsBackup fix and how to verify a backup."
 date: "2026-08-09"
 updated: "2026-11-04"
 tags: ["Kubernetes", "Backup", "Homelab", "Debugging"]
