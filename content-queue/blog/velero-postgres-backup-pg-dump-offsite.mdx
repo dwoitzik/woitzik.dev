@@ -1,0 +1,164 @@
+---
+title: "Velero Postgres Backup: Send pg_dump Offsite, Not the Data Directory"
+description: "Velero Postgres backup with Kopia copied 8.8 GiB of raw data directories, mostly WAL, for databases of 10 to 15 MB. Offsite now carries pg_dump archives."
+date: "2026-12-02"
+tags: ["Kubernetes", "Backup", "Velero", "PostgreSQL"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+On 2026-11-12 my R2 budget guard paused the offsite Velero schedule at 9.13 GiB of its 9 GiB cap. I had already shortened the offsite retention once for the same reason, three weeks earlier. This time I measured what one backup actually read: 11 GiB of raw volume data, and 8.8 GiB of that was Postgres data directories, mostly WAL. The databases inside them were 10 to 15 MB each. Worse, a file copy of a running Postgres is not a consistent backup, so all that space bought me no restorable database offsite. The fix: leave the database pods out of the offsite backup and send `pg_dump` archives instead, taken by a Velero pre-backup hook and checked with `pg_restore --list`.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The setup
+
+Velero runs two schedules on my k3s cluster. The local one backs up into Garage, the S3 store inside the cluster. The offsite one, `daily-offsite`, runs at 04:00 into Cloudflare R2 with `defaultVolumesToFsBackup: true`, so the node agent copies pod volumes with Kopia. It covers four namespaces: `apps`, `vault`, `database` and `argocd`. The overall layout is in [my 3-2-1 backup post](/blog/321-backup-velero-pbs-offsite/).
+
+R2 has no spending cap. A CronJob, `r2-usage-guard`, checks stored bytes once a day and pauses `daily-offsite` above 9 GiB, under the 10 GiB free tier. In October that guard paused the schedule, the TTL ran out, and the offsite set was gone. The fix then was a 3-day TTL instead of 7. Three weeks later the guard fired again, so a shorter TTL was clearly not the answer.
+
+## Where 11 GiB per backup came from
+
+I listed the `PodVolumeBackups` of the last offsite backup, `daily-offsite-20261111040018`, with their byte counts:
+
+```bash
+kubectl get podvolumebackups -n velero -l velero.io/backup-name=<backup> \
+  -o custom-columns=POD:.spec.pod.name,VOL:.spec.volume,BYTES:.status.progress.totalBytes
+```
+
+124 pod volumes, 11 GiB read. Grouped:
+
+| Category | Raw bytes per backup |
+|---|---|
+| Raw Postgres data directories (5 CNPG `pgdata`, `immich-postgres` `db`, paperless and nextcloud Postgres `data`) | 8.8 GiB |
+| emptyDir volumes (caches, `tmp`, sockets, `shm`) | 0.43 GiB |
+| Everything else (nextcloud data and html, vault, redis, small app volumes) | 1.78 GiB |
+
+## Why Postgres data directories are so big
+
+The data directories are mostly WAL. Each CloudNativePG cluster keeps about 577 MiB of `pg_wal` for a database of 10 to 15 MB. Immich's data directory was 2.3 GiB for a 523 MB database.
+
+WAL segments are rewritten constantly, so Kopia found little to deduplicate from one day to the next. And Velero's Kopia uploader does not compress. In Velero v1.14.1, `pkg/uploader/kopia/snapshot.go` sets `CompressorName: "none"`. The comment in my own `offsite-schedule.yml` said "kopia/zstd". It was wrong, and I had sized the offsite tier around it.
+
+## The bigger problem: no consistent database offsite
+
+Size was the visible symptom. The real problem was that a file-level copy of a running Postgres is not a backup you can rely on. Kopia reads the files one after another while the server keeps writing, so the copy can contain data files and WAL from different points in time.
+
+CNPG's own barman backups are consistent, but they go to the local Garage bucket. So the offsite tier, the copy meant to survive losing the host, had no restorable database at all. It had 8.8 GiB of something that looked like one.
+
+## The fix (ADR-075, #1084)
+
+Three changes to `daily-offsite`.
+
+**1. Skip emptyDirs with a Velero volume policy.** Caches, sockets and scratch space get rebuilt when the pod starts:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: offsite-volume-policy
+  namespace: velero
+data:
+  policy.yaml: |
+    version: v1
+    volumePolicies:
+      - conditions:
+          volumeTypes:
+            - emptyDir
+        action:
+          type: skip
+```
+
+In Velero 1.14 the volume policy is evaluated for fs-backup pod volumes before the `defaultVolumesToFsBackup` fallback, so this works with opt-out backups.
+
+**2. Leave the database pods out with a `labelSelector`.** The 1.14 volume policy can match capacity, storage class, NFS or CSI source and volume type. None of those tells a database PVC apart from the rest. A pod excluded from the backup takes its volumes with it, so the Schedule selects around them:
+
+```yaml
+spec:
+  schedule: "0 4 * * *"
+  template:
+    ttl: 72h0m0s
+    storageLocation: r2-offsite
+    defaultVolumesToFsBackup: true
+    resourcePolicy:
+      kind: configmap
+      name: offsite-volume-policy
+    labelSelector:
+      matchExpressions:
+        - key: cnpg.io/podRole
+          operator: NotIn
+          values: [instance]
+        - key: cnpg.io/pvcRole
+          operator: NotIn
+          values: [PG_DATA, PG_WAL]
+        - key: app
+          operator: NotIn
+          values: [immich-postgres, postgres-paperless, postgres-nextcloud]
+```
+
+Only the pods carry those `app` labels, so the StatefulSets, Services and PVC manifests are still in the backup. On restore the databases come up empty from Git and get loaded from the dump.
+
+**3. Dump the databases in a pre-backup hook.** A small `pg-dump` Deployment in `database` and in `apps` idles with a 2Gi `local-path` PVC. Velero runs the dump right before it copies that PVC:
+
+```yaml
+      annotations:
+        pre.hook.backup.velero.io/container: pg-dump
+        pre.hook.backup.velero.io/command: '["/bin/sh", "/scripts/pg-dump.sh"]'
+        pre.hook.backup.velero.io/on-error: Continue
+        pre.hook.backup.velero.io/timeout: 15m
+```
+
+The core of the script:
+
+```sh
+for name in $DUMP_TARGETS; do
+  load "$name"
+  tmp="$OUT/.$file.dump.partial"
+  if pg_dump --host="$host" --username="$user" --dbname="$db" \
+      --format=custom --file="$tmp" && pg_restore --list "$tmp" >/dev/null; then
+    mv -f "$tmp" "$OUT/$file.dump"
+  else
+    rm -f "$tmp"
+    echo "pg-dump: $file FAILED, previous dump kept" >&2
+    rc=1
+  fi
+done
+```
+
+A dump only replaces the previous file once `pg_restore --list` can read it. A failed database keeps its last good dump and the hook exits non-zero. I chose `on-error: Continue` on purpose: `Fail` would skip the `pg-dumps` volume completely and lose the dumps that did succeed. The error still marks the backup `PartiallyFailed`, and `VeleroBackupPartialFailure` alerts on that.
+
+A hook instead of a CronJob that runs before 04:00 means the dump happens at exactly the time of the backup that copies it, with no clock coupling. The local schedule runs the same hook, so the Garage tier gets consistent dumps too.
+
+The pod uses the `postgres:18.4-alpine` client, the newest server major in use. pg_dump 18 can dump the 16 (immich), 17 (CNPG) and 18 servers, and the archives need pg_restore 18, so restores run from the same pod.
+
+## Verification
+
+The first backups with the new scope read 1.85 GiB with 27 `PodVolumeBackups`, down from 11 GiB with 124. Nextcloud data and html are 1.5 GiB of that, the dumps 100 MB. The first backup added 0.24 GiB to R2, a second one minutes later 0.05 GiB. The old raw blobs leave R2 only after the backups that reference them expire and Kopia maintenance has run, so usage drops over days, not at once.
+
+I only trust a dump I have restored, so I restored two into scratch databases. The first attempt failed on the first statement: pg_restore 18 always emits `SET transaction_timeout`, which a Postgres 16 server rejects. Restore mode (#1088) now pipes `pg_restore` into `psql` without that line, with `ON_ERROR_STOP` in a single transaction, so a failed restore leaves the database unchanged:
+
+```bash
+kubectl exec -n apps deploy/pg-dump -- sh /scripts/pg-dump.sh restore IMMICH
+```
+
+The immich dump restored into the immich Postgres 16 image with row counts matching live: 26413 assets, 18518 faces, 42 albums. Synapse restored into the CNPG 17.2 image.
+
+## The trade-offs
+
+- **No point-in-time recovery offsite.** The offsite restore point is the dump taken at backup time. Local PITR from CNPG's barman backups in Garage still exists.
+- **Restore is no longer "restore the PVC".** The database comes up empty from Git, then `pg_restore` loads the dump. The steps are in my disaster recovery doc.
+- **New databases need two edits.** Add it to `DUMP_TARGETS`, and a new plain Postgres StatefulSet to the Schedule's `labelSelector`. Miss either and it is missing offsite or copied raw again.
+
+This is the second time a Velero backup "worked" without holding what I thought it held. The first was [Velero reporting Completed with no PVC data at all](/blog/velero-backup-false-positive-no-data/).
+
+## Checklist
+
+- **List `PodVolumeBackups` with byte counts** after any change to backup scope. The backup status tells you nothing about what was copied.
+- **Do not back up a running Postgres data directory with Velero fs-backup.** It is large because of WAL, and it is not consistent.
+- **Check compression yourself.** Velero's Kopia uploader stored data uncompressed in v1.14.1, whatever your comments say.
+- **Skip emptyDirs** with a volume policy if you use `defaultVolumesToFsBackup: true`.
+- **Dump in a pre-backup hook** and validate the archive with `pg_restore --list` before replacing the previous one.
+- **Use `on-error: Continue` and alert on `PartiallyFailed`**, so one bad database does not cost you the dumps that worked.
+- **Restore a dump into the oldest server version you run.** That is how I found the `transaction_timeout` problem before I needed the backup.
+
+<NewsletterCTA />

@@ -1,0 +1,143 @@
+---
+title: "Docker :latest Tag Not Updating: Six Weeks of Failed Downloads"
+description: "Docker :latest tag not updating: my NZBHydra2 image went stale, an indexer rejected the old client and every download failed for six weeks. The fix."
+date: "2026-12-09"
+tags: ["Docker", "GitOps", "Ansible", "Homelab"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+From 2026-08-20 to 2026-10-06, every download in my media stack failed. Radarr and Sonarr sat in permanent indexer failure backoff. The cause was an NZBHydra2 container on `:latest` that had not been updated in months. One of my indexers started rejecting downloads from clients that did not report a current version, and mine was old. Upstream had shipped NZBHydra2 9.1.1 on 2026-09-30. Nothing in my setup could ever have pulled it. `:latest` is just a tag: it does not update anything by itself. The fix was a digest-pinned compose file that Renovate updates through PRs, a host that converges to Git every five minutes, and an automatic rollback when a new image stays unhealthy.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The setup
+
+The media acquisition stack runs in its own LXC, outside Kubernetes. I explained why in [my media stack post](/blog/media-stack-two-containers-python-cronjob/). It is one Docker Compose project: NZBHydra2, SABnzbd, Sonarr, Radarr, Bazarr and Jellyseerr, plus a Tor SOCKS proxy and autoheal. Ansible deploys it. Every image was `:latest`:
+
+```yaml
+    image: lscr.io/linuxserver/nzbhydra2:latest
+    image: lscr.io/linuxserver/sabnzbd:latest
+    image: lscr.io/linuxserver/sonarr:latest
+```
+
+## The symptom: every download fails, every container is healthy
+
+Docker reported every container healthy the whole time. The NZBHydra2 healthcheck is a `curl -f http://localhost:5076/`, and that kept returning 200 while downloads came back 403. Autoheal had nothing to restart. The containers were fine. The image was too old for the indexer on the other end.
+
+## Why :latest never updated
+
+`:latest` does not mean "the newest version is running". It means "whatever image was pulled under that tag, the last time something pulled it". When I traced it, I found three separate reasons why nothing ever pulled.
+
+**1. Renovate never looked at the compose file.** My `renovate.json` only matched `kubernetes/` manifests and GitHub Actions. Even if it had matched, its `docker:pinDigests` preset wants a digest to update, and the compose file had bare `:latest` tags.
+
+**2. The Ansible deploy never pulled.** The role used `community.docker.docker_compose_v2` with `state: present`. That creates containers from whatever image is already on the host. Running the playbook again kept the stale local image.
+
+**3. The replacement for Watchtower existed only on paper.** On 2026-08-17 I removed Watchtower from my Ansible baseline. The comment in `site.yml` explains why:
+
+```yaml
+# 2026-08-17 (BRIEFING-V4.md Section C / Phase 2): watchtower removed.
+# Auto-pulling :latest on live containers directly contradicts having
+# Renovate (which already handles version bumps via reviewed PRs) and
+# GitOps generally -- two different systems racing to change the same
+# running state, one of them with no review step and no record of what
+```
+
+The removal was right. But the promise was that updates come through the repo or not at all, and for this compose stack no repo path was ever built. The image had already been stale for months, and from then on nothing was even supposed to update it.
+
+## The fix (ADR-054, #848)
+
+The goal was the property ArgoCD already gives the Kubernetes side: merging a change deploys it. Four parts.
+
+**1. A static, digest-pinned compose file.** The compose file moved from a Jinja template to a plain file, `ansible/files/media-acquisition/docker-compose.yml`, because Renovate cannot parse a template. Every image is pinned to a digest:
+
+```yaml
+  nzbhydra2:
+    image: lscr.io/linuxserver/nzbhydra2:latest@sha256:177bea1fb1246dcbba796862db09b716e6e77b9d534b12b2d5e3951bd407bcca
+```
+
+The tag still reads `latest`, but the digest decides which image actually runs. When the digest changes in Git, the running image changes. When it does not, nothing changes.
+
+**2. Renovate opens PRs for it.** Renovate's `docker-compose` manager now matches the file:
+
+```json
+  "docker-compose": {
+    "fileMatch": ["ansible/files/media-acquisition/docker-compose.yml$"]
+  },
+```
+
+A package rule auto-merges patch, minor, digest and pin updates after green CI. Majors stay PR-only, because a linuxserver major can include a config migration.
+
+**3. The host converges to Git every five minutes.** A cron job on the LXC runs `media-acq-gitops-converge.sh`. It clones the public repo over HTTPS, so it needs no credentials, and compares the committed compose file with the deployed one:
+
+```bash
+deploy=0
+cmp -s "$COMPOSE" "$REPO_COMPOSE" 2>/dev/null || deploy=1
+[ "$(cat "$STATE_DIR/rolled_back" 2>/dev/null || echo never)" = "$new" ] && deploy=0
+```
+
+If `deploy` is set, it copies the file into place and runs `docker compose pull` and `docker compose up -d --remove-orphans`.
+
+The trigger is the compose content, not the Git HEAD. A docs-only commit does nothing, and a run with nothing new does not restart anything mid-download.
+
+**4. Rollback after three unhealthy runs.** Autoheal restarts an unhealthy container, but it restarts it on the same broken image. The converge script keeps a bookmark of the last compose file under which every container was healthy. If any container stays unhealthy for three consecutive runs, it restores that bookmark and recreates the stack from the older digests:
+
+```bash
+if wait_healthy; then
+  cp -f "$COMPOSE" "$GOOD_DIR/docker-compose.yml"
+  rm -f "$STATE_DIR/rolled_back"
+  echo 0 > "$STREAK_FILE"
+else
+  streak=$(( $(cat "$STREAK_FILE" 2>/dev/null || echo 0) + 1 ))
+  echo "$streak" > "$STREAK_FILE"
+  if [ "$streak" -ge 3 ] && [ -f "$GOOD_DIR/docker-compose.yml" ]; then
+    cp -f "$GOOD_DIR/docker-compose.yml" "$COMPOSE"
+    echo "$new" > "$STATE_DIR/rolled_back"
+    docker compose -f "$COMPOSE" up -d --remove-orphans 2>/dev/null
+    echo 0 > "$STREAK_FILE"
+  fi
+fi
+```
+
+That is the gate, shortened: the real script also skips the rollback when the bookmark is the current file and sends a Discord message in each branch.
+
+The `rolled_back` file pins the bad commit, so the next run does not apply the same broken release again. Only a newer commit clears it. Deploys and rollbacks both post to Discord.
+
+The Ansible role also got `pull: always` on the compose task, so a manual playbook run applies a merged digest bump instead of keeping the stale image.
+
+I rejected two alternatives. A GitHub Actions deploy job does not work with GitHub-hosted runners, which cannot reach my server VLAN, and using my self-hosted runner would have meant new SSH key material on two hosts for a copy-and-recreate on one. Watchtower stayed removed, because it pulls whatever the tag points to with no review and no record.
+
+## Verification
+
+Before merging I tested the script on the host: it converged a local compose edit back to main, bookmarked a healthy state, and an image with a nonexistent digest triggered the rollback to the previous good bookmark after three runs, with a Discord message. After the merge, the first converge run recreated the stack on the pinned digests and the six app containers came up healthy.
+
+Since then Renovate has opened and merged 31 dependency PRs for that file, five of them NZBHydra2 digest updates.
+
+## Then I found 13 more
+
+Pinning the media stack made me look at every other compose file Ansible deploys (ADR-071, #964). Thirteen images across nine roles ran on a floating tag or no tag at all. Among them were the reverse proxy in front of the internet-facing services, the LAN DNS filter and the upstream resolver:
+
+```diff
+-          image: klutchell/unbound:latest
++          image: klutchell/unbound:1.26.1@sha256:9a3939ca33d6d3b42b81a70391bb8e43f0a08d2bd7a3fdffb43d427493345c36
+```
+
+The drift was already visible. The CrowdSec container on the DMZ proxy ran v1.7.8 while the CrowdSec DaemonSet in the cluster ran v1.8.1, from the same repository. Nginx Proxy Manager ran different digests on different hosts.
+
+Each pin uses the digest the host was already running, so applying the roles changed no bytes. Where upstream publishes a matching version tag I used it (unbound 1.26.1, adguardhome v0.107.79, crowdsec v1.8.1). One deliberate change came along: CrowdSec on the DMZ proxy went from v1.7.8 to v1.8.1, which has fixes for two unbounded request-body reads.
+
+A pin without something to move it forward is just a slower `:latest`. Most role templates are still outside Renovate's file patterns, so their digests move by hand. ADR-071 records that as the open follow-up.
+
+## Checklist
+
+- **`:latest` only names whatever image was pulled last.** Ask what actually pulls the image on that host. If the answer is "nothing", it is frozen.
+- **`docker_compose_v2` with `state: present` does not pull.** Set `pull: always` if Ansible is your deploy path.
+- **Removing Watchtower needs a replacement.** Write down which mechanism delivers updates now, and check that it exists.
+- **Pin by digest and let Renovate move the pin.** Then every image change is a PR with a diff you can revert.
+- **Docker health is not application health.** A 200 on `/` said nothing about downloads failing with 403.
+- **Roll back to a known-good set, not just restart.** A restart on a broken image keeps the broken image.
+- **Search all your compose files for floating tags**, including the ones a template renders.
+
+Pinning versions and letting a bot move them forward is the same split I wrote down in [my operating model for what auto-updates and what needs a human](/blog/operating-model-auto-update-human/).
+
+<NewsletterCTA />

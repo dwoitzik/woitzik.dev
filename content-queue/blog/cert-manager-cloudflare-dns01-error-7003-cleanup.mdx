@@ -1,0 +1,173 @@
+---
+title: "cert-manager Cloudflare DNS-01: Cleanup Fails With Error 7003"
+description: "cert-manager Cloudflare DNS-01 cleanup failed with error 7003 on DELETE /zones//dns_records. Why the zone ID was empty and how v1.19.6 fixed my wildcard."
+date: "2026-11-23"
+tags: ["Kubernetes", "Cloudflare", "Security", "Debugging"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+My wildcard certificate for `*.woitzik.dev` was about a week from expiry when I found out that cert-manager could pass a Cloudflare DNS-01 challenge and still never finish the order. The challenge validated. The cleanup step that deletes the `_acme-challenge` TXT record then failed with Cloudflare error 7003 on `DELETE /zones//dns_records/<id>`: an empty zone ID in the URL. I was running cert-manager v1.14.4, which builds that URL from a field Cloudflare no longer returns. Upgrading to v1.19.6 fixed it, and the renewal completed.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The setup
+
+One `Certificate` in `kube-system` covers every service behind Traefik. I described the full setup in [wildcard TLS on k3s with cert-manager and Cloudflare DNS01](/blog/cert-manager-wildcard-k3s-cloudflare/). The part that matters here is the list of names:
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-woitzik-dev
+  namespace: kube-system
+spec:
+  secretName: wildcard-woitzik-dev-tls
+  issuerRef:
+    name: letsencrypt-production
+    kind: ClusterIssuer
+  commonName: "*.woitzik.dev"
+  dnsNames:
+  - "*.woitzik.dev"
+  - "woitzik.dev"
+```
+
+Two names, one for the wildcard and one for the apex. Both are validated with a TXT record at the same name, `_acme-challenge.woitzik.dev`. That detail turns one failed cleanup into a stuck order.
+
+## Why the renewal had already been stuck for weeks
+
+The 7003 error was the second problem, not the first. The renewal had been failing since 2026-10-12, and the first cause was my own NetworkPolicy. cert-manager runs with:
+
+```yaml
+extraArgs:
+  - --dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53
+  - --dns01-recursive-nameservers-only
+```
+
+So its propagation check talks to `1.1.1.1` and `8.8.8.8` directly. The egress policy for the `cert-manager` namespace only allowed TCP 443 to the internet, and the challenge sat pending with `read udp ...->8.8.8.8:53: connection refused`. The fix (#1016, 2026-11-04) added port 53 to exactly those two resolvers:
+
+```yaml
+    # DNS-01 propagation checks query the --dns01-recursive-nameservers set in
+    # cert-manager/application.yml directly; keep both lists in sync.
+    - to:
+        - ipBlock:
+            cidr: 1.1.1.1/32
+        - ipBlock:
+            cidr: 8.8.8.8/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+```
+
+With DNS reachable, the propagation check passed and the wildcard challenge validated. The certificate still did not renew.
+
+## The symptom: challenge valid, order never completes
+
+Looking at the `Challenge` resources showed the next failure. The wildcard challenge had validated, but cert-manager could not clean it up. The Cloudflare API rejected the delete:
+
+```text
+DELETE /zones//dns_records/<id>
+```
+
+with error code 7003. Note the double slash. The zone ID between `zones/` and `/dns_records` is empty.
+
+The apex challenge was the one left waiting. It needs its own TXT value at `_acme-challenge.woitzik.dev`, the same name the wildcard challenge had used, and it waited on the cleanup that kept failing. The order needs both challenges, so it never completed. Meanwhile the old certificate stayed `Ready=True`, because it was still valid. Nothing looked broken until the expiry date got close.
+
+```bash
+kubectl get challenges,orders -n kube-system
+kubectl describe challenge -n kube-system
+```
+
+Those two commands are where this shows up. The `Certificate` itself only tells you that it is not renewing.
+
+## Root cause: Cloudflare stopped returning zone_id
+
+This is a known upstream bug, [cert-manager#7540](https://github.com/cert-manager/cert-manager/issues/7540). Cloudflare deprecated the `zone_id` and `zone_name` fields on DNS record responses. cert-manager took the zone ID for the cleanup request from the record it had looked up, so once the field was gone the URL became `/zones//dns_records/<id>`. The error users posted in that issue reads:
+
+```text
+Error: 7003: Could not route to /client/v4/zones/dns_records/xxx, perhaps your object identifier is invalid?
+```
+
+The TXT record gets created, the challenge can even validate, and then the delete fails. Users in the issue reported it on v1.15.x, v1.16.3 and v1.17.0.
+
+The fix is [cert-manager#7549](https://github.com/cert-manager/cert-manager/pull/7549), "chore(issuer/cloudflare): ensure we set ZoneID". It sets the zone ID on the record from the zone lookup instead of relying on the API response. It shipped in v1.17.1 and v1.16.4, with the release note "Fix issuing of certificates via DNS01 challenges on Cloudflare after a breaking change to the Cloudflare API". The workaround people used in the meantime was deleting the leftover `_acme-challenge` TXT records by hand. That has to be repeated on every renewal, so I upgraded instead.
+
+## The fix: upgrade to v1.19.6 (#1020)
+
+My cluster runs Kubernetes 1.31. v1.19.6 was the newest cert-manager release that supports it: 1.20 needs 1.32 or newer, and 1.21 needs 1.33. The ArgoCD Application changed in three places:
+
+```yaml
+  source:
+    repoURL: https://charts.jetstack.io
+    targetRevision: v1.19.6
+    chart: cert-manager
+    helm:
+      values: |
+        crds:
+          enabled: true
+          # Keep CRDs (and with them every Certificate) if the release is removed.
+          keep: true
+        extraArgs:
+          - --dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53
+          - --dns01-recursive-nameservers-only
+  # ...
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+```
+
+- **`targetRevision: v1.19.6`**, up from v1.14.4.
+- **`installCRDs: true` becomes `crds.enabled` plus `crds.keep`.** `installCRDs` is the old value name. `keep: true` means removing the Helm release does not take the CRDs, and with them every `Certificate`, along with it.
+- **`ServerSideApply=true`.** The newer CRDs are larger. With client-side apply they would hit the size limit of the `last-applied-configuration` annotation.
+
+Five minor versions in one step is a big jump for a component every HTTPS route depends on. Any version from v1.17.1 on has the fix. I took the newest one the cluster can run instead of the oldest one that works, so I would not be four releases behind again after the fix.
+
+## Verification
+
+After the upgrade the renewal completed. I checked the certificate, its expiry and the controller image directly instead of trusting the ArgoCD sync status:
+
+```bash
+kubectl get certificate wildcard-woitzik-dev -n kube-system \
+  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status} {.status.notAfter} {.status.revision}{"\n"}'
+
+kubectl get deploy -n cert-manager cert-manager \
+  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+```
+
+The certificate is `Ready=True` with `notAfter` 2027-02-03T14:42:36Z, revision 3. The controller runs `quay.io/jetstack/cert-manager-controller:v1.19.6`.
+
+## Why I only noticed six days before expiry
+
+The renewal was stuck from 2026-10-12, and the first alert I saw was `CertManagerCertExpirySoon` at seven days left. That gap is a monitoring problem on its own, and it got its own PR (#1021).
+
+The old certificate stays `Ready` while a renewal fails, so a `Ready` check says nothing until expiry. The new alert fires on the renewal time instead:
+
+```yaml
+        - alert: CertManagerRenewalOverdue
+          expr: |
+            time() - certmanager_certificate_renewal_timestamp_seconds > 86400
+          for: 1h
+          labels:
+            severity: critical
+```
+
+A certificate that is more than 24 hours past its renewal time and still on the old certificate pages me.
+
+The second gap was my weekly report. It showed `Certs expiring <14d: none` with nine days left. It only read `probe_ssl_earliest_cert_expiry` from blackbox probes of public hosts, and those sit behind Cloudflare, so the probes saw Cloudflare's edge certificate, not my origin certificate. The report now also reads `certmanager_certificate_expiration_timestamp_seconds`, which is cert-manager's own view of every certificate it manages.
+
+## Checklist
+
+- **Check your cert-manager version if you use the Cloudflare DNS-01 solver.** Anything older than v1.16.4 or v1.17.1 builds the cleanup URL from a field Cloudflare no longer sends.
+- **A validated challenge is not a completed order.** Look at `kubectl get challenges,orders` when a certificate does not renew. The cleanup error lives there.
+- **Wildcard plus apex share one TXT name.** A failed cleanup on one challenge blocks the other.
+- **Open egress for the propagation check** if you set `--dns01-recursive-nameservers` and run a default-deny egress policy. Port 53 to those resolvers, both UDP and TCP.
+- **Pick the newest version your Kubernetes supports**, and check the chart values that changed on the way (`installCRDs` to `crds.enabled`, `crds.keep`).
+- **Alert on renewal time, not only on expiry.** `certmanager_certificate_renewal_timestamp_seconds` catches a stuck renewal weeks earlier than a seven-day expiry warning.
+- **Know which certificate your probes see.** Behind a proxy, a TLS probe reports the edge certificate, not yours.
+
+<NewsletterCTA />
