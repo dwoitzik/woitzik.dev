@@ -1,8 +1,8 @@
 ---
-title: "Gemma 4 26B on Proxmox with Ollama, Terraform and Ansible"
-description: "Gemma 4 26B on a Ryzen 7 5825U mini PC: Terraform builds the Proxmox LXC, Ansible installs Ollama and Open-WebUI, plus the unsupported Vega iGPU workaround."
+title: "Gemma 4 26B on a Proxmox Mini PC: What Worked and What Didn't"
+description: "Running Gemma 4 26B with Ollama in a Proxmox LXC built by Terraform and Ansible. The iGPU workaround never held, a CPU-only run froze the host, and the container is now cut down."
 date: "2026-05-02"
-updated: "2026-11-04"
+updated: "2026-11-12"
 tags: ["Homelab", "AI", "Terraform"]
 ---
 
@@ -10,39 +10,32 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Most guides for running a model like Gemma 4 26B locally assume a large Nvidia GPU. I run it on a mini PC in my homelab, deployed entirely as Infrastructure as Code (IaC).
+Most guides for running a model like Gemma 4 26B locally assume a large Nvidia GPU. I tried it on a mini PC in my homelab, deployed entirely as Infrastructure as Code (IaC): Terraform builds the Proxmox LXC container, Ansible installs Ollama and Open-WebUI.
 
-The stack runs on Proxmox VE, with **Terraform** for the infrastructure and **Ansible** for provisioning. Below: the quirks of the Proxmox Terraform provider, the Ollama setup, and Open-WebUI as the frontend.
-
-The last piece is hardware acceleration: handing an officially unsupported AMD iGPU to the LXC container.
+An earlier version of this post presented an AMD iGPU workaround as the way to get hardware acceleration. It never held up under real load, and a CPU-only run later froze the whole host. This version describes what is actually in the repository today and why.
 
 **[View the complete Proxmox IaC source code on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## The Hardware Stack
-
-This deployment runs on a single compact node. For testing and baseline deployments, the 8-core Ryzen handles CPU inference better than I expected:
+## The Hardware
 
 *   **CPU:** AMD Ryzen 7 5825U (8C/16T), runs on a [BMAX Mini PC\*](/go/4bv3yF1) (the 8745HS successor is the current equivalent)
 *   **RAM:** 64 GB DDR4 3200 MT/s ([Crucial SODIMM Kit\*](/go/3QZejZn))
-*   **GPU:** AMD Radeon Vega iGPU (optional passthrough)
-*   **Storage:** 512 GB NVMe (ZFS `rpool`)
+*   **GPU:** AMD Radeon Vega iGPU (`gfx90c`), not usable for inference in the end (see below)
+*   **Storage:** 512 GB NVMe
 *   **OS:** Proxmox VE (Debian 13)
 
-## 1. Infrastructure Provisioning with Terraform
+The same box runs every other LXC and VM in the homelab. That turned out to be the most important fact in this whole post.
 
-Terraform (via the `bpg/proxmox` provider) creates dedicated, unprivileged LXC containers. For segmentation, the containers are split across [VLANs](/blog/mikrotik-vlan-filtering-terraform-proxmox/).
+## 1. The Container in Terraform
 
-Here is the configuration for the AI stack container. The `device_passthrough` blocks are required if you want to hand the host's iGPU to the container.
+Terraform (via the `bpg/proxmox` provider) creates an unprivileged LXC container on the server [VLAN](/blog/mikrotik-vlan-filtering-terraform-proxmox/). This is the first version, sized for a 26B model:
+
 ```hcl
 resource "proxmox_virtual_environment_container" "ct_srv_ai_01" {
   vm_id        = 201
   node_name    = "pve-mgmt-01"
   started      = true
   unprivileged = true
-
-  initialization {
-    hostname = "ct-srv-ai-01"
-  }
 
   cpu {
     cores = 8
@@ -57,165 +50,129 @@ resource "proxmox_virtual_environment_container" "ct_srv_ai_01" {
     nesting = true
   }
 
-  disk {
-    datastore_id = "local-zfs"
-    size         = 80
+  network_interface {
+    name     = "eth0"
+    bridge   = "vmbr0"
+    vlan_id  = 20
+    firewall = true
   }
 
-  network_interface {
-    name        = "eth0"
-    bridge      = "vmbr0"
-    mac_address = "bc:24:11:55:aa:f5"
-    vlan_id     = 20
-    firewall    = true
-  }
-  
-  # Optional: iGPU Passthrough for Hardware Acceleration
+  # iGPU passthrough for hardware acceleration
   device_passthrough {
     path = "/dev/dri/renderD128"
   }
-  
-  device_passthrough {
-    path = "/dev/dri/card0"
-  }
-
-  operating_system {
-    template_file_id = "usb-templates:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst"
-    type             = "debian"
-  }
 
   lifecycle {
-    ignore_changes = [
-      description,
-      initialization[0].user_account,
-      operating_system[0].template_file_id,
-      network_interface[0].mac_address,
-      features,
-    ]
+    ignore_changes = [features]
   }
 }
 ```
 
-### The `ignore_changes` Workaround
-If you enable features like `keyctl`, `fuse` or `nesting` by hand in the Proxmox Web UI, Terraform will try to revert them or fail on the next `apply`. Part of the reason: on unprivileged containers, Proxmox only lets `root@pam` change most feature flags (everything except `nesting`), so an API token often can't apply them at all. Adding `features` to `ignore_changes` stops Terraform from fighting the manual settings.
+`cores = 8` looks like a limit, but it isn't one. It sets how many CPUs the container sees, not how much CPU time it may use. Proxmox does not isolate CPU between containers by default, so a busy container can take every thread the host has. That comes back in section 3.
 
-## 2. Provisioning Ollama & The AMD Workaround (Ansible)
+The `ignore_changes` on `features` is still useful: on unprivileged containers, Proxmox only lets `root@pam` change most feature flags (everything except `nesting`), so an API token often can't apply them, and Terraform would fight any flag set by hand in the UI.
 
-Next, Ansible installs Ollama and pulls the Gemma model.
+## 2. The iGPU Workaround That Never Held
 
-If you enabled `device_passthrough` in Terraform to use the integrated Radeon Vega GPU, you hit a roadblock: ROCm (AMD's compute stack) only supports a short list of GPUs, and the Vega iGPU (`gfx90c`) isn't on it. Setting `HSA_OVERRIDE_GFX_VERSION` in the systemd service makes ROCm treat it as a supported `gfx900` part.
+ROCm, AMD's compute stack, only supports a short list of GPUs, and the Vega iGPU in the 5825U (`gfx90c`) isn't on it. The usual workaround is to make ROCm treat it as a supported part:
+
+```ini
+[Service]
+Environment="HSA_OVERRIDE_GFX_VERSION=9.0.0"
+```
+
+This was the setup the original post recommended. It was never stable on this chip and I dropped it.
+
+The second attempt was Ollama's Vulkan path (`OLLAMA_IGPU_ENABLE=1`). Single requests worked, so it looked fine. Under real load it did not: with a backlog of automatic document tagging (paperless-gpt sending requests to Ollama), the inference backend logged 451 `vk::DeviceLostError` / "context is lost" crashes in a single day, about one crash per request under concurrent load.
+
+Both failures only showed up under sustained, parallel requests, which is why neither was noticed at first. Ollama now runs CPU-only by deliberate choice, and the Ansible role carries a comment that says so:
+
 ```yaml
----
-- name: Ensure required dependencies are installed (curl, zstd)
-  ansible.builtin.apt:
-    name: 
-      - curl
-      - zstd
-    state: present
-    update_cache: true
-
-- name: Check if Ollama is already installed
-  ansible.builtin.stat:
-    path: /usr/local/bin/ollama
-  register: ollama_check_bin
-
-- name: Download and execute official Ollama install script
-  ansible.builtin.shell: |
-    set -o pipefail
-    curl -fsSL https://ollama.com/install.sh | sh
-  args:
-    executable: /bin/bash
-  when: not ollama_check_bin.stat.exists
-  changed_when: true
-
-- name: Ensure Ollama user is in video and render groups
-  ansible.builtin.user:
-    name: ollama
-    groups: [video, render]
-    append: true
-
-- name: Ensure systemd override directory for Ollama exists
-  ansible.builtin.file:
-    path: /etc/systemd/system/ollama.service.d
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
-
 - name: Configure Ollama environment variables
+  # CPU-only by deliberate choice: gfx90c has no official ROCm support,
+  # and both GPU paths crashed under sustained concurrent load.
+  # Do not re-enable GPU acceleration without first confirming a fix
+  # holds up under several minutes of concurrent generate calls.
   ansible.builtin.copy:
     dest: /etc/systemd/system/ollama.service.d/override.conf
-    owner: root
-    group: root
-    mode: '0644'
     content: |
       [Service]
       Environment="OLLAMA_HOST=0.0.0.0"
-      # Only needed if utilizing the AMD iGPU passthrough
-      Environment="HSA_OVERRIDE_GFX_VERSION=9.0.0"
   notify: Restart Ollama
+```
 
-- name: Ensure Ollama service is enabled and started
-  ansible.builtin.systemd:
-    name: ollama
-    state: started
-    enabled: true
+If you try a GPU workaround on an unsupported AMD iGPU, test it the way it will be used: several minutes of parallel requests, not one prompt in the chat window.
+
+## 3. CPU-Only Inference Froze the Host
+
+Without the GPU, a large model runs on the CPU. One CPU-only inference run of a 27B model (about 18 GB) took more than 17 minutes and froze the entire host. Every other LXC and VM on the mini PC stopped answering, even at the SSH banner, and the box needed a manual power cycle.
+
+The cause was the missing CPU ceiling from section 1. The fix was a real limit, and it had a trap of its own. The provider version in use back then (`bpg/proxmox` 0.100.0) had no attribute for the container CPU limit, so the cap was a documented manual step: `pct set 201 -cpulimit 6`. A later check on the live host showed it had never been set. The container had no effective ceiling at all, despite the docs saying otherwise.
+
+Newer provider versions expose `limit` directly, so the cap now lives in Terraform and survives a container rebuild:
+
+```hcl
+  cpu {
+    cores = 6
+    limit = 6
+  }
+```
+
+The lesson I took from this applies well beyond AI: a manual step next to IaC is a step nobody re-runs after a recreate. If a setting matters, it belongs in the code or in a check that fails when it is missing.
+
+## 4. Two Smaller Ansible Traps
+
+**Pull only when needed.** The first role ran `ollama pull gemma4:26b` on every playbook run. When an unrelated fix in a shared role pulled the AI host into a normal Ansible run, it started a multi-gigabyte download again and caused a real I/O storm on the host. The role now checks first:
+
+```yaml
+- name: Check whether the Gemma 4 26B-A4B model is already present
+  ansible.builtin.command: ollama list
+  register: ollama_list_result
+  changed_when: false
 
 - name: Pull the Gemma 4 26B-A4B model
   ansible.builtin.command: ollama pull gemma4:26b
   register: ollama_pull_result
   changed_when: "'downloading' in ollama_pull_result.stdout"
+  when: "'gemma4:26b' not in ollama_list_result.stdout"
 ```
 
-*(Note: a 26B model is a large download. The playbook can look like it's hanging during the `ollama pull` task; it's pulling gigabytes of data.)*
+**Large pulls look like a hang.** A 26B model is a big download. The `ollama pull` task can sit for a long time without output, which is easy to mistake for a stuck playbook.
 
-## 3. Deploying the Frontend: Open-WebUI
+## 5. Open-WebUI as the Frontend
 
-For a usable chat interface, Open-WebUI runs as a Docker container in the server stack.
+Open-WebUI runs as a Docker container in the server stack, pointed at the AI container:
+
 ```yaml
----
-- name: Ensure Open-WebUI directory exists
-  ansible.builtin.file:
-    path: /opt/open-webui
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      - "3005:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://10.0.20.251:11434
+      - WEBUI_AUTH=True
+    volumes:
+      - open-webui-data:/app/backend/data
 
-- name: Deploy Open-WebUI docker-compose configuration
-  ansible.builtin.copy:
-    dest: /opt/open-webui/docker-compose.yml
-    content: |
-      services:
-        open-webui:
-          image: ghcr.io/open-webui/open-webui:main
-          container_name: open-webui
-          restart: unless-stopped
-          ports:
-            - "3005:8080"
-          environment:
-            - OLLAMA_BASE_URL=http://10.0.20.251:11434
-            - WEBUI_AUTH=True
-          volumes:
-            - open-webui-data:/app/backend/data
-
-      volumes:
-        open-webui-data:
-
-- name: Ensure Open-WebUI stack is running
-  ansible.builtin.command: docker compose up -d
-  args:
-    chdir: /opt/open-webui
-  register: openwebui_start
-  changed_when: "'Started' in openwebui_start.stdout or 'Created' in openwebui_start.stdout or 'Pulled' in openwebui_start.stdout"
+volumes:
+  open-webui-data:
 ```
 
-Because `OLLAMA_BASE_URL` points at the AI container's IP, Open-WebUI connects to the Gemma model on first start, with no API configuration in the interface.
+Because `OLLAMA_BASE_URL` points at the AI container's IP, Open-WebUI finds the model on first start, with no configuration in the interface.
 
-## Wrapping Up
+## Where It Stands Now
 
-A private AI environment doesn't need cloud instances. With Proxmox, Terraform and Ansible, a mini PC gets the same treatment as an enterprise data center: the whole stack is version-controlled and can be rebuilt from code.
+I barely used the local model, and its 32 GB memory reservation was the biggest driver of memory overcommit on the host. So the container is now cut down to 2 cores and 4 GB with a matching CPU limit, and it is stopped by default (`started = false` in Terraform). That only fits a small model. A 26B or 27B model no longer fits, and that is a deliberate trade-off: the rest of the homelab matters more than a chat window I rarely open.
 
-Terraform for provisioning and Ansible for configuration is also how enterprise cloud environments get built. Host an LLM in Azure and you answer the same isolation questions: where does the model endpoint live, what can reach it, and how is [AI Search / OpenAI traffic](/blog/azure-rag-shared-private-link-automation/) kept off the public internet.
+What I would tell someone with the same hardware:
+
+1. **Don't plan on the Vega iGPU.** On `gfx90c`, neither the ROCm override nor the Vulkan path held up under concurrent load here.
+2. **Set a CPU limit before the first big run**, in code, and check on the host that it is really applied.
+3. **Shared host means shared risk.** A 26B model on CPU competes with everything else on the box. If the mini PC also runs your DNS, monitoring or storage, a separate machine is the safer choice.
+
+The Terraform and Ansible structure itself held up fine: the whole stack is version-controlled and can be rebuilt or resized from code, which is exactly what made shrinking it a one-line change.
 
 <NewsletterCTA />

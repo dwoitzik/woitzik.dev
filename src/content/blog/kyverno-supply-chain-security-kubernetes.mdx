@@ -2,7 +2,7 @@
 title: "Kyverno: Supply Chain Security as Admission Control on Kubernetes"
 description: "Most Kubernetes clusters accept any container image, any privilege level, and any resource configuration by default. Kyverno lets you enforce policies at admission time, before anything runs. Here's how to build a supply chain security baseline with Audit-first rollout."
 date: "2026-06-18"
-updated: "2026-11-04"
+updated: "2026-11-12"
 tags: ["Kubernetes", "Security", "Homelab"]
 ---
 
@@ -217,11 +217,27 @@ The sequence that makes Kyverno safe to adopt on a running cluster:
 
 Going straight to Enforce on a running cluster breaks things. Enforce doesn't touch pods that are already running, but the next time a controller creates one (a rollout, an eviction, an ArgoCD sync, a Helm hook Job), the new pod gets rejected. Audit first gives you visibility without the blast radius.
 
+### How the Rollout Actually Went
+
+The first pass followed that sequence cluster-wide: once a PolicyReport sweep showed zero violations, `require-resource-limits` and `disallow-latest-tag` went to Enforce. After a cluster rebuild wiped the `kyverno` namespace, I re-staged everything back to Audit and flipped it again more carefully, namespace by namespace instead of all at once. The default stays `Audit`, and `validationFailureActionOverrides` switches individual namespaces to `Enforce` once each one is verified clean:
+
+```yaml
+spec:
+  validationFailureAction: Audit
+  validationFailureActionOverrides:
+    - action: Enforce
+      namespaces: [database, apps, security]
+```
+
+`monitoring` taught the real lesson. A PolicyReport only reflects pods that exist at the moment of the sweep. Right after enforcing there, the next Grafana restart from the kube-prometheus-stack chart was blocked: the chart's sidecars (`grafana-sc-dashboard`, `grafana-sc-datasources`) and other chart-templated containers in Loki and Promtail ship without resource limits by upstream default. A clean report had not meant a safe Enforce.
+
+So the limits and image-tag policies are now enforced only in namespaces whose manifests I write myself (`apps`, `database`, `security`). Patching every third-party sidecar's resources, and keeping that patched across chart upgrades, is a separate and larger job. The privileged-container policy has no such problem and is enforced in `monitoring` and `external-secrets` as well.
+
 One version note: the chart pinned above ships Kyverno 1.12, where `spec.validationFailureAction` is the switch. From Kyverno 1.13 on, that field is deprecated in favor of a per-rule `validate.failureAction`.
 
 ## Scoping Policies to Specific Namespaces
 
-All three policies match only workload namespaces: `apps`, `monitoring`, and `database`, with `external-secrets` added for the privileged-container policy. System namespaces (`kube-system`, `kube-public`, `argocd`, `kyverno`) are excluded deliberately.
+All three policies match only workload namespaces. The snippets above show the first version; today `require-resource-limits` and `disallow-latest-tag` cover `apps`, `database` and `security`; `disallow-privileged-containers` also covers `monitoring` and `external-secrets`. System namespaces (`kube-system`, `kube-public`, `argocd`, `kyverno`) are excluded deliberately.
 
 System components often need exceptions: hostPath volumes, privileged containers for CNI plugins, no resource limits on critical infrastructure. Scoping the policies to workload namespaces avoids blocking cluster internals while still enforcing where it counts.
 
