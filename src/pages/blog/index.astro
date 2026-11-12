@@ -31,6 +31,19 @@ const posts = data.reduce((acc: Acc, post) => {
 
 const years = Object.keys(posts).sort((a, b) => parseInt(b) - parseInt(a));
 const allTags = [...new Set(data.flatMap((p) => p.data.tags ?? []))].sort();
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Blog",
+  "@id": "https://woitzik.dev/blog/#blog",
+  name: BLOG.TITLE,
+  description: BLOG.DESCRIPTION,
+  url: "https://woitzik.dev/blog/",
+  author: { "@id": "https://woitzik.dev/#person" },
+  publisher: { "@id": "https://woitzik.dev/#person" },
+  isPartOf: { "@id": "https://woitzik.dev/#website" },
+  inLanguage: ["en", "de"],
+};
 ---
 
 <PageLayout title={BLOG.TITLE} description={BLOG.DESCRIPTION}>
@@ -91,3 +104,9 @@ const allTags = [...new Set(data.flatMap((p) => p.data.tags ?? []))].sort();
     </div>
   </Container>
 </PageLayout>
+
+<script
+  is:inline
+  type="application/ld+json"
+  set:html={JSON.stringify(jsonLd)}
+/>

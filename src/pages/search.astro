@@ -95,12 +95,16 @@ import PageHeader from "@components/PageHeader.astro";
 
     loadScript("/pagefind/pagefind-ui.js", "pagefind-script")
       .then(function () {
-        new window.PagefindUI({
+        var ui = new window.PagefindUI({
           element: "#pagefind-search",
           showSubResults: false,
           showImages: false,
           resetStyles: false,
         });
+        // /search/?q=term runs the query on load. The WebSite SearchAction in
+        // Head.astro points crawlers and browser keyword search at this URL.
+        var query = new URLSearchParams(window.location.search).get("q");
+        if (query) ui.triggerSearch(query);
         const input = el.querySelector("input");
         if (input) input.focus();
       })

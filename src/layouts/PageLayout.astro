@@ -11,6 +11,7 @@ type Props = {
   image?: string;
   type?: "website" | "article";
   publishedTime?: string;
+  modifiedTime?: string;
   tags?: string[];
   lang?: "en" | "de";
   alternates?: { href: string; hreflang: string }[];
@@ -23,6 +24,7 @@ const {
   image,
   type,
   publishedTime,
+  modifiedTime,
   tags,
   lang = "en",
   alternates = [],
@@ -39,6 +41,7 @@ const {
       image={image}
       type={type}
       publishedTime={publishedTime}
+      modifiedTime={modifiedTime}
       tags={tags}
       lang={lang}
       alternates={alternates}

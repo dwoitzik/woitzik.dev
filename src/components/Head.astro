@@ -17,6 +17,7 @@ interface Props {
   image?: string;
   type?: "website" | "article";
   publishedTime?: string;
+  modifiedTime?: string;
   tags?: string[];
   lang?: "en" | "de";
   // Absolute URLs (or site-relative paths) of the other-language versions of
@@ -34,6 +35,7 @@ const {
   image = "/og/default.png",
   type = "website",
   publishedTime,
+  modifiedTime,
   tags,
   lang = "en",
   alternates = [],
@@ -49,6 +51,12 @@ const {
 // hreflang self-reference - Google requires every URL in the set, including
 // its own, or it discards the annotations as incomplete.
 const ownLang = lang === "de" ? "de" : "en";
+const ogLocale = ownLang === "de" ? "de_DE" : "en_US";
+const ogImageURL = new URL(image, canonicalURL);
+// Every share image on the site comes from the satori endpoints under /og/,
+// which all render at 1200x630. Declaring the size lets Facebook, LinkedIn and
+// Slack lay out the card on the first share instead of fetching the PNG first.
+const ogImageIsGenerated = ogImageURL.pathname.startsWith("/og/");
 const englishAlternate = alternates.find((a) => a.hreflang === "en");
 const hreflangLinks = alternates.length
   ? [
@@ -88,20 +96,24 @@ const hreflangLinks = alternates.length
 <link rel="preload" href={inter400} as="font" type="font/woff2" crossorigin />
 <link rel="preload" href={inter600} as="font" type="font/woff2" crossorigin />
 
-<!-- Canonical URL -->
-<link rel="canonical" href={canonicalURL} />
+<!-- Canonical URL. A noindex page (404, search, subscribed) gets none: a
+     canonical asks the crawler to index that URL, which contradicts the robots
+     tag, and the 404 page would otherwise claim /404/ as its canonical on every
+     missing path. -->
+{!noindex && <link rel="canonical" href={canonicalURL} />}
 
 <!-- hreflang cluster: tells Bing/Google which language version to show, instead
      of the six German articles competing with their English siblings as
      separate unlinked pages. -->
 {
-  hreflangLinks.map((alt) => (
-    <link
-      rel="alternate"
-      hreflang={alt.hreflang}
-      href={new URL(alt.href, canonicalURL)}
-    />
-  ))
+  !noindex &&
+    hreflangLinks.map((alt) => (
+      <link
+        rel="alternate"
+        hreflang={alt.hreflang}
+        href={new URL(alt.href, canonicalURL)}
+      />
+    ))
 }
 
 <!-- Primary Meta Tags -->
@@ -111,13 +123,30 @@ const hreflangLinks = alternates.length
 
 <!-- Open Graph / Facebook -->
 <meta property="og:type" content={type} />
+<meta property="og:site_name" content={SITE.NAME} />
+<meta property="og:locale" content={ogLocale} />
 <meta property="og:url" content={canonicalURL} />
 <meta property="og:title" content={title} />
 <meta property="og:description" content={description} />
-<meta property="og:image" content={new URL(image, canonicalURL)} />
+<meta property="og:image" content={ogImageURL} />
+{
+  ogImageIsGenerated && (
+    <>
+      <meta property="og:image:type" content="image/png" />
+      <meta property="og:image:width" content="1200" />
+      <meta property="og:image:height" content="630" />
+    </>
+  )
+}
+<meta property="og:image:alt" content={title} />
 {
   publishedTime && (
     <meta property="article:published_time" content={publishedTime} />
+  )
+}
+{
+  modifiedTime && (
+    <meta property="article:modified_time" content={modifiedTime} />
   )
 }
 {tags && tags.map((tag) => <meta property="article:tag" content={tag} />)}
@@ -127,7 +156,8 @@ const hreflangLinks = alternates.length
 <meta name="twitter:url" content={canonicalURL} />
 <meta name="twitter:title" content={title} />
 <meta name="twitter:description" content={description} />
-<meta name="twitter:image" content={new URL(image, canonicalURL)} />
+<meta name="twitter:image" content={ogImageURL} />
+<meta name="twitter:image:alt" content={title} />
 
 <!-- Schema.org JSON-LD.
 
@@ -143,13 +173,13 @@ const hreflangLinks = alternates.length
     "@type": "Person",
     "@id": "https://woitzik.dev/#person",
     "name": "David Woitzik",
-    "url": "https://woitzik.dev",
+    "url": "https://woitzik.dev/",
     "jobTitle": "Hybrid Cloud Engineer",
     "worksFor": {
       "@type": "Organization",
       "@id": "https://woitzik.dev/#organization",
       "name": "Cloud Infrastructure Solutions",
-      "url": "https://woitzik.dev"
+      "url": "https://woitzik.dev/"
     },
     "knowsAbout": [
       "Terraform",
@@ -163,6 +193,30 @@ const hreflangLinks = alternates.length
       "https://www.linkedin.com/in/david-woitzik/",
       "https://github.com/dwoitzik"
     ]
+  }
+</script>
+
+<!-- Site node. Other pages point at it through isPartOf (tools index, every
+     article), so it has to exist on every page rather than only on the home
+     page. The SearchAction target is the Pagefind page, which reads ?q= and
+     runs the query on load. -->
+<script type="application/ld+json" is:inline>
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "@id": "https://woitzik.dev/#website",
+    "name": "woitzik.dev",
+    "url": "https://woitzik.dev/",
+    "inLanguage": ["en", "de"],
+    "publisher": { "@id": "https://woitzik.dev/#person" },
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": {
+        "@type": "EntryPoint",
+        "urlTemplate": "https://woitzik.dev/search/?q={search_term_string}"
+      },
+      "query-input": "required name=search_term_string"
+    }
   }
 </script>
 

@@ -106,13 +106,19 @@ const postUrl = `https://woitzik.dev/blog/${post.slug}/`;
 const lang = post.data.lang;
 const text = postText(lang);
 
-// Only the English side names the German translation in schema.org: on a German
-// page the same field would point at the English original, which is the inverse
-// relationship and would misdescribe the page.
-const germanOriginal =
-  post.data.lang !== "de"
-    ? alternates.find((a) => a.hreflang === "de")
+// schema.org translation links run in both directions with different
+// properties: the English original lists its German versions under
+// workTranslation, and a German page names its English source under
+// translationOfWork. Using translationOfWork on the English side (as this
+// did before) claimed the original was a translation of its own translation.
+const germanVersions =
+  post.data.lang !== "de" ? alternates.filter((a) => a.hreflang === "de") : [];
+const englishSource =
+  post.data.lang === "de"
+    ? alternates.find((a) => a.hreflang === "en")
     : undefined;
+
+const ogImage = `https://woitzik.dev/og/${post.slug}.png`;
 
 const jsonLd = {
   "@context": "https://schema.org",
@@ -125,15 +131,37 @@ const jsonLd = {
   author: {
     "@type": "Person",
     "@id": "https://woitzik.dev/#person",
+    name: "David Woitzik",
+    url: "https://woitzik.dev/",
   },
+  publisher: { "@id": "https://woitzik.dev/#person" },
+  // The generated share card is the only image every article has. Google's
+  // Article guidance asks for at least one image and reads the size from it.
+  image: {
+    "@type": "ImageObject",
+    url: ogImage,
+    width: 1200,
+    height: 630,
+  },
+  mainEntityOfPage: { "@type": "WebPage", "@id": postUrl },
+  isPartOf: { "@id": "https://woitzik.dev/#website" },
   url: postUrl,
   inLanguage: post.data.lang,
-  ...(alternates.length > 0 && { isPartOf: { "@id": postUrl } }),
-  ...(germanOriginal && {
+  ...(post.data.tags?.length ? { keywords: post.data.tags.join(", ") } : {}),
+  ...(germanVersions.length > 0 && {
+    workTranslation: germanVersions.map((g) => ({
+      "@type": "TechArticle",
+      "@id": `https://woitzik.dev${g.href}#article`,
+      url: `https://woitzik.dev${g.href}`,
+      inLanguage: "de",
+    })),
+  }),
+  ...(englishSource && {
     translationOfWork: {
       "@type": "TechArticle",
-      url: `https://woitzik.dev${germanOriginal.href}`,
-      ...(post.data.lang === "de" && { name: "English version" }),
+      "@id": `https://woitzik.dev${englishSource.href}#article`,
+      url: `https://woitzik.dev${englishSource.href}`,
+      inLanguage: "en",
     },
   }),
 };
@@ -185,6 +213,7 @@ const breadcrumbLd = {
   image={`/og/${post.slug}.png`}
   type="article"
   publishedTime={post.data.date.toISOString()}
+  modifiedTime={(post.data.updated ?? post.data.date).toISOString()}
   tags={post.data.tags}
   lang={post.data.lang}
   alternates={alternates}

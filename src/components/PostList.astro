@@ -18,7 +18,7 @@ const { posts, showTags = true, showTranslationLink = false } = Astro.props;
           <time datetime={post.data.date.toISOString()}>
             {formatDate(post.data.date, post.data.lang)}
           </time>
-          <div class="mt-1 hidden opacity-80 sm:block">
+          <div class="mt-1 hidden sm:block">
             {readingTime(post.body, post.data.lang)}
           </div>
         </div>
@@ -46,7 +46,7 @@ const { posts, showTags = true, showTranslationLink = false } = Astro.props;
                 post.data.tags
                   ?.slice(0, 3)
                   .map((tag) => (
-                    <span class="rounded bg-zinc-900/[0.04] px-1.5 py-0.5 text-[0.7rem] text-zinc-500 dark:bg-white/[0.05] dark:text-zinc-400">
+                    <span class="rounded bg-zinc-900/[0.04] px-1.5 py-0.5 text-[0.7rem] text-zinc-600 dark:bg-white/[0.05] dark:text-zinc-400">
                       {tag}
                     </span>
                   ))}

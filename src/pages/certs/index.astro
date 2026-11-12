@@ -21,6 +21,26 @@ const certs = await Promise.all(
     return { ...item, Content };
   }),
 );
+
+// Credentials hang off the shared Person node from Head.astro (same @id), so
+// crawlers merge them into the one author entity instead of a second person.
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Person",
+  "@id": "https://woitzik.dev/#person",
+  name: "David Woitzik",
+  url: "https://woitzik.dev/",
+  hasCredential: collection.map((cert) => ({
+    "@type": "EducationalOccupationalCredential",
+    name: cert.data.role,
+    credentialCategory: "certification",
+    recognizedBy: { "@type": "Organization", name: cert.data.company },
+    dateCreated: cert.data.dateStart.toISOString().slice(0, 10),
+    ...(cert.data.dateEnd
+      ? { expires: cert.data.dateEnd.toISOString().slice(0, 10) }
+      : {}),
+  })),
+};
 ---
 
 <PageLayout title={CERTS.TITLE} description={CERTS.DESCRIPTION}>
@@ -38,6 +58,7 @@ const certs = await Promise.all(
               <div class="grid size-20 shrink-0 place-items-center rounded-xl bg-zinc-100 p-2 dark:bg-white/[0.05]">
                 <Image
                   src={entry.data.image}
+                  width={128}
                   alt={`${entry.data.company} badge`}
                   class="size-full object-contain"
                 />
@@ -65,3 +86,9 @@ const certs = await Promise.all(
     </ul>
   </Container>
 </PageLayout>
+
+<script
+  is:inline
+  type="application/ld+json"
+  set:html={JSON.stringify(jsonLd)}
+/>

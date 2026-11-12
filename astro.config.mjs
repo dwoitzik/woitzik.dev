@@ -108,6 +108,14 @@ const DE_TO_ENGLISH = Object.fromEntries(
 export default defineConfig({
   site: "https://woitzik.dev",
   trailingSlash: "always",
+  // The Tailwind stylesheet (about 14 KB compressed) was the only
+  // render-blocking request on every page and cost 150-450 ms of FCP on
+  // Lighthouse mobile. Inlining it removes that round trip. Most visits land
+  // on one article from search, so the lost cross-page CSS cache matters less
+  // than the first paint.
+  build: {
+    inlineStylesheets: "always",
+  },
   integrations: [
     mdx(),
     sitemap({
@@ -185,7 +193,11 @@ export default defineConfig({
         return withDate;
       },
     }),
-    tailwind(),
+    // global.css already carries the three @tailwind directives. With base
+    // styles left on, the integration injected a second copy of the whole
+    // Tailwind build, so every page downloaded the same utilities twice
+    // (60 KB + 93 KB uncompressed, about 24 KB compressed).
+    tailwind({ applyBaseStyles: false }),
   ],
   markdown: {
     rehypePlugins: [

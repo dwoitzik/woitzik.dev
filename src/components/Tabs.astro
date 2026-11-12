@@ -33,7 +33,7 @@ const groupId = `tabs-${group}-${Math.random().toString(36).slice(2, 8)}`;
           class:list={[
             "px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px",
             i === 0
-              ? "border-sky-500 text-sky-600 dark:text-sky-400"
+              ? "border-sky-500 text-sky-700 dark:text-sky-400"
               : "border-transparent text-neutral-500 dark:text-neutral-400 hover:text-black dark:hover:text-white",
           ]}
         >
@@ -94,7 +94,7 @@ const groupId = `tabs-${group}-${Math.random().toString(36).slice(2, 8)}`;
         t.setAttribute("tabindex", "-1");
         t.classList.remove(
           "border-sky-500",
-          "text-sky-600",
+          "text-sky-700",
           "dark:text-sky-400",
         );
         t.classList.add(
@@ -106,7 +106,7 @@ const groupId = `tabs-${group}-${Math.random().toString(36).slice(2, 8)}`;
 
       tab.setAttribute("aria-selected", "true");
       tab.setAttribute("tabindex", "0");
-      tab.classList.add("border-sky-500", "text-sky-600", "dark:text-sky-400");
+      tab.classList.add("border-sky-500", "text-sky-700", "dark:text-sky-400");
       tab.classList.remove(
         "border-transparent",
         "text-neutral-500",

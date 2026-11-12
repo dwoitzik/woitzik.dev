@@ -18,6 +18,69 @@ type Props = CollectionEntry<"projects">;
 
 const project = Astro.props;
 const { Content } = await project.render();
+
+const projectUrl = `https://woitzik.dev/projects/${project.slug}/`;
+
+// Project pages are long-form writeups of a module or build, so they get the
+// same article node as blog posts. The repository is linked as a
+// SoftwareSourceCode node only where a public repo exists.
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "@id": `${projectUrl}#article`,
+  headline: project.data.title,
+  description: project.data.description,
+  datePublished: project.data.date.toISOString(),
+  dateModified: project.data.date.toISOString(),
+  author: {
+    "@type": "Person",
+    "@id": "https://woitzik.dev/#person",
+    name: "David Woitzik",
+    url: "https://woitzik.dev/",
+  },
+  publisher: { "@id": "https://woitzik.dev/#person" },
+  image: {
+    "@type": "ImageObject",
+    url: "https://woitzik.dev/og/default.png",
+    width: 1200,
+    height: 630,
+  },
+  mainEntityOfPage: { "@type": "WebPage", "@id": projectUrl },
+  isPartOf: { "@id": "https://woitzik.dev/#website" },
+  url: projectUrl,
+  inLanguage: "en",
+  ...(project.data.repoURL
+    ? {
+        about: {
+          "@type": "SoftwareSourceCode",
+          name: project.data.title,
+          codeRepository: project.data.repoURL,
+        },
+      }
+    : {}),
+};
+
+// Mirrors the rendered breadcrumb nav. The last item is the current page and
+// carries no `item`, same as the blog breadcrumb.
+const breadcrumbLd = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    {
+      "@type": "ListItem",
+      position: 1,
+      name: "Home",
+      item: "https://woitzik.dev/",
+    },
+    {
+      "@type": "ListItem",
+      position: 2,
+      name: "Projects",
+      item: "https://woitzik.dev/projects/",
+    },
+    { "@type": "ListItem", position: 3, name: project.data.title },
+  ],
+};
 ---
 
 <PageLayout title={project.data.title} description={project.data.description}>
@@ -101,3 +164,15 @@ const { Content } = await project.render();
     </div>
   </Container>
 </PageLayout>
+
+<script
+  is:inline
+  type="application/ld+json"
+  set:html={JSON.stringify(jsonLd)}
+/>
+
+<script
+  is:inline
+  type="application/ld+json"
+  set:html={JSON.stringify(breadcrumbLd)}
+/>
