@@ -240,6 +240,27 @@ export default async function handler(
     return;
   }
 
+  // An address that already confirmed and is still on the list gets no second
+  // confirmation email. The response stays identical either way, so the form
+  // doesn't reveal who is subscribed. This also keeps the daily synthetic
+  // signup check (an already confirmed test address) from mailing every day
+  // while it still proves the endpoint and the Brevo API key work.
+  const existing = await activeContact(apiKey, email);
+  if (existing === "error") {
+    res.writeHead(502);
+    res.end(
+      JSON.stringify({
+        error: "Couldn't send the confirmation email. Please try again.",
+      }),
+    );
+    return;
+  }
+  if (existing === "active") {
+    res.writeHead(200);
+    res.end(JSON.stringify({ success: true, confirmationRequired: true }));
+    return;
+  }
+
   // Signup only sends the confirmation link. Nothing is stored in Brevo and no
   // welcome email goes out until the link is opened (see GET above).
   const expires = Math.floor(Date.now() / 1000) + CONFIRM_TTL_SECONDS;
@@ -276,6 +297,34 @@ function brevoHeaders(apiKey: string) {
     "content-type": "application/json",
     "api-key": apiKey,
   };
+}
+
+// "active": a contact that is not blacklisted and (if a list is configured) is
+// on that list. "none": not a contact yet, or unsubscribed, so a fresh
+// confirmation is the right next step. "error": Brevo could not be asked.
+async function activeContact(
+  apiKey: string,
+  email: string,
+): Promise<"active" | "none" | "error"> {
+  const r = await fetch(
+    `https://api.brevo.com/v3/contacts/${encodeURIComponent(email)}`,
+    { headers: brevoHeaders(apiKey) },
+  );
+  if (r.status === 404) return "none";
+  if (!r.ok) {
+    console.error("Brevo contact lookup error:", r.status);
+    return "error";
+  }
+  const contact = (await r.json().catch(() => ({}))) as {
+    emailBlacklisted?: boolean;
+    listIds?: number[];
+  };
+  if (contact.emailBlacklisted) return "none";
+  const listId = process.env.BREVO_LIST_ID
+    ? parseInt(process.env.BREVO_LIST_ID)
+    : null;
+  if (listId && !(contact.listIds ?? []).includes(listId)) return "none";
+  return "active";
 }
 
 // Runs only after the confirmation link was opened: creates the contact and
