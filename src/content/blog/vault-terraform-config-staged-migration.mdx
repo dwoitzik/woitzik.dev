@@ -10,7 +10,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Vault is the trust root for every other secret on the cluster. 25+ services depend on External Secrets Operator syncing from Vault's KV v2 engine, all running on a single [BMAX Mini PC*](/go/4bv3yF1). [Authelia](/blog/k3s-authelia-proxmox-homelab/), databases, ArgoCD notifications and Velero credentials all pull from `secret/<app>/*` paths. Unsealing this Vault after a restart is a separate problem, solved by [the polling sidecar pattern](/blog/vault-auto-unseal-polling-sidecar/). This article only covers what's configured once Vault is up.
+Vault is the trust root for every other secret on the cluster. 25+ services depend on [External Secrets Operator](/blog/external-secrets-operator-vault-kubernetes/) syncing from Vault's KV v2 engine, all running on a single [BMAX Mini PC*](/go/4bv3yF1). [Authelia](/blog/k3s-authelia-proxmox-homelab/), databases, ArgoCD notifications and Velero credentials all pull from `secret/<app>/*` paths. Unsealing this Vault after a restart is a separate problem, solved by [the polling sidecar pattern](/blog/vault-auto-unseal-polling-sidecar/). This article only covers what's configured once Vault is up.
 
 Vault's configuration (policies, the Kubernetes auth method, roles) was managed through `vault login` and CLI commands. No version control, no change history, no reproducibility. If someone changed a policy by hand, nobody else knew.
 
@@ -156,6 +156,8 @@ Each stage takes 5-20 minutes and is independently reversible. Total: about an h
 ---
 
 The point of moving Vault config under Terraform is that the configuration becomes version-controlled, reviewable and reproducible. The CLI isn't the problem; the missing history is. Staging keeps each step small: if a stage makes you nervous, skip it, and the earlier ones still pay off. The hard part is drawing the scope boundary, not the HCL: secrets stay in Ansible Vault, and Terraform only touches the access rules around them.
+
+**Related on this blog:** how the secrets get from Vault into the pods, in [External Secrets Operator with Vault](/blog/external-secrets-operator-vault-kubernetes/), and how Vault's namespace turned out to have zero NetworkPolicies, plus the GitOps tracking bug that hid it, in [Zero NetworkPolicies on Vault](/blog/vault-zero-networkpolicy-argocd-tracking-gap/).
 
 **Further reading:** For the security model behind Vault's policy system, [Zero Trust Networks by Evan Gilman and Doug Barth*](/go/zero-trust-networks-book) covers the "never trust, always verify" principles that Vault's Kubernetes auth method implements. The import-first, modify-later pattern is a change-management idea at heart, and [The Phoenix Project by Gene Kim*](/go/4f4RHQf) covers it in the context of reducing deployment risk.
 
