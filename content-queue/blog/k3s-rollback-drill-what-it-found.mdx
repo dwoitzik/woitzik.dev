@@ -1,0 +1,95 @@
+---
+title: "Rehearse the Rollback: What a Five-Minute k3s Drill Broke"
+description: "I built nightly k3s upgrades with automatic snapshot rollback, then rehearsed the rollback before trusting it. The drill found three problems the happy path never would."
+date: "2027-04-16"
+tags: ["Kubernetes", "Homelab", "Proxmox", "Reliability"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+My k3s cluster had sat on an end-of-life minor for months because every upgrade was a manual afternoon: snapshot the VMs, swap the binary on the server, drain and upgrade each agent, check everything, clean up. So I automated it. A script on the Proxmox host upgrades k3s at night to the version pinned in Git, one node at a time, and rolls all three VMs back to a snapshot if any check fails.
+
+The upgrade path was easy to test, because it runs on every upgrade. The rollback path only runs when something has already gone wrong, which is the worst moment to find out it doesn't work. So before letting the timer loose, I gave the script a `--drill` mode: take the snapshots, roll straight back, and verify the cluster comes back healthy. It costs about five minutes of downtime at 02:00. It was worth far more than that.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The setup
+
+The cluster is three VMs on one Proxmox host: a single k3s server on SQLite and two agents. The host can't reach the VMs over the network (VLAN firewall), but all three run the QEMU guest agent, so `qm guest exec` gives the host a command channel that doesn't depend on the cluster network or SSH.
+
+The script only runs on nights with a successful PBS backup in the last six hours and no Velero backup in progress. Before touching anything it checks the cluster is healthy, snapshots the three VMs and adds an Alertmanager silence for the expected maintenance alerts. After every node it runs the same checks: every node Ready, no serving pod unready, ingress answering through Traefik several times in a row, every ExternalSecret synced. Any failure stops all three VMs, rolls them back, starts the server first and checks again.
+
+## Finding zero: the drill that didn't drill
+
+The first scheduled drill logged two lines and exited:
+
+```text
+running v1.34.13+k3s1, pinned v1.34.13+k3s1
+all nodes already on v1.34.13+k3s1
+```
+
+The copy of the script on the host predated the `--drill` flag. An unknown option was ignored, the "nothing to upgrade" gate did its job, and the run reported success. Nothing was tested.
+
+The fix was boring: render the script from the current template, then run `--drill --dry-run` against the real host and confirm it reaches the plan instead of the early exit. The lesson wasn't boring. A rehearsal only counts if you rehearse the artifact that will actually run, and "it exited 0" is not evidence that it did anything.
+
+## Finding one: the rollback worked, the cluster didn't
+
+The second night the drill really ran. Snapshots at 02:00, rollback, VMs started server first. Every VM came back. The health check failed anyway, and the script correctly reported that the cluster needed attention.
+
+One pod stayed Pending for the next 18 hours: the Postgres instance behind Matrix Synapse.
+
+```text
+0/3 nodes are available: 1 Insufficient memory,
+2 node(s) didn't match PersistentVolume's node affinity.
+```
+
+Its data lives on a `local-path` volume, which pins the pod to one node. After the rollback, all pods restarted at once and the scheduler placed movable pods on that node first. By the time the database pod was considered, the node's memory requests were at 98% and there was no room left for a pod that could only ever run there. Synapse crash-looped behind it.
+
+A normal node drain never shows this, because pods move a few at a time and the pinned ones stay where they are. A rollback is a cold start of the whole cluster, and on a cold start the order in which pods are placed decides whether the pinned ones fit.
+
+The immediate fix was to move one movable pod (Velero, 448 MiB requested) off that node. The database scheduled within seconds. The real fix, so a cold start can't strand a pinned pod again, comes before the nightly timer is switched on.
+
+## Finding two: the silence rolled back with everything else
+
+The script silences maintenance alerts before it starts and expires the silence at the end. At the end of the drill, the expiry failed:
+
+```text
+amtool: error: [DELETE /silence/{silenceID}][404] deleteSilenceNotFound
+```
+
+Alertmanager keeps its silences and notification log on a volume inside the cluster. The rollback restored that volume to a point before the silence existed, so the silence was simply gone, and with it the record of what had already been notified. Every alert still firing went out again as new. Combined with the stranded database, the night produced far more Discord and phone notifications than the drill deserved.
+
+Anything that protects the maintenance window has to live outside the thing being rolled back, or be re-applied after the rollback.
+
+## Finding three: the failure that was there all along
+
+While I was untangling the drill, a separate problem surfaced. The SSD on one of my Raspberry Pis had dropped off the USB bus at 05:16 that morning:
+
+```text
+uas_eh_abort_handler 0 uas-tag 1 inflight: CMD
+usb 2-2: USB disconnect, device number 2
+sd 0:0:0:0: Device offlined - not ready after error recovery
+```
+
+ext4 went into emergency read-only mode. On that SSD live the hard-link snapshots of my photo library and the Litestream replicas for my password manager and the Tailscale control plane. All of them stopped writing, and nothing told me for fifteen hours.
+
+The bridge chip was a JMicron JMS583 (`152d:0583`), a known source of UAS trouble on the Raspberry Pi 4. Power was ruled out first: `vcgencmd get_throttled` reported `0x0`. A reboot brought the disk back for about a minute, then the same aborts returned. Telling the kernel to drive that bridge with plain `usb-storage` instead of UAS fixed it:
+
+```text
+usb-storage.quirks=152d:0583:u
+```
+
+That line now lives in the Ansible role that manages the Pi's boot command line, not as a hand edit. After the reboot the bridge showed up under the `usb-storage` driver, the journal replay came back clean and both replicas resumed within minutes.
+
+The part that bothered me more: `node_filesystem_readonly` for that mount had been `1` the entire time. The metric was there, but no rule looked at it. There is one now, and it covers every scraped host, not just the Pi.
+
+## What changed
+
+- **Drill before trusting a rollback**, and drill the deployed artifact. `--drill --dry-run` against the real host proves the code path is reachable before you schedule the downtime.
+- **A rollback is a cold start.** Pods pinned to a node by local storage need to be placed before movable pods fill that node.
+- **Keep maintenance silences outside the rolled-back state**, or re-apply them after the rollback.
+- **Alert on read-only filesystems on every host.** A disk that drops off silently stops every backup that writes to it.
+
+The backup side of this story, including why I test restores rather than assuming them, is in [The Disaster Recovery Runbook Nobody Had Actually Run](/blog/backup-restore-test-never-verified-network-conflict/) and [3-2-1 Backup in Practice: Velero + PBS + Cloudflare R2 Offsite](/blog/321-backup-velero-pbs-offsite/). The alerting stack behind all of these notifications is described in [kube-prometheus-stack and Loki on k3s with Grafana SSO](/blog/kube-prometheus-loki-grafana-k3s/).
+
+<NewsletterCTA />
