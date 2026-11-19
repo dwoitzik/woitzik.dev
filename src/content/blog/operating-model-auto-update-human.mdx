@@ -70,10 +70,12 @@ Everything with `severity: critical`:
 ### Warning Alerts (Selective)
 
 Only explicitly named warnings that matter at steady state:
-- `KubePodCrashLooping`: a pod is crash-looping
-- `KubeJobFailed`: a CronJob failed (covers Renovate itself)
 - `KubeNodeNotReady`: a node is unreachable
+- `CertManagerCertExpirySoon`: a certificate is close to expiry
 - `VeleroBackupPartialFailure`: backup completed with warnings
+- `ProxmoxStorageCapacityHigh`: the host storage pool crossed its early warning threshold
+
+`KubePodCrashLooping` and `KubeJobFailed` used to be on this list. In August I took them off: they fired constantly for routine, mostly self-healing events (a CronJob's Job failing once and retrying, a pod bouncing during a deploy) and were the main source of notification noise. They are still visible in Prometheus and Grafana, just not pushed to my phone.
 
 ### Deliberately NOT Alerted
 
@@ -81,6 +83,7 @@ Routine warnings that would make Discord noisy without being actionable:
 - `KubeMemoryQuotaOvercommit`: LXC soft ceilings, not real pressure
 - `CPUThrottlingHigh`: normal behavior for bursty workloads
 - `KubePodNotReady` during rolling updates: temporary, self-resolving
+- `KubePodCrashLooping` and `KubeJobFailed`: see above, visible in Grafana but not pushed
 
 The principle: **an alert nobody acts on trains people to ignore Discord.** Every alert must have a corresponding action in the runbook. If there's no action, there's no alert.
 
@@ -88,7 +91,7 @@ The principle: **an alert nobody acts on trains people to ignore Discord.** Ever
 
 ### ArgoCD: Automatic Sync + Self-Heal
 
-All 41 live Applications have `syncPolicy.automated.selfHeal: true`. A merged manifest change deploys itself, and manual `kubectl` drift on anything ArgoCD tracks gets reverted within minutes.
+Every ArgoCD Application in the repo has `syncPolicy.automated.selfHeal: true`. A merged manifest change deploys itself, and manual `kubectl` drift on anything ArgoCD tracks gets reverted within minutes.
 
 This is the primary self-healing mechanism. If I patch a Deployment by hand while debugging, ArgoCD reverts it on the next sync cycle. The cluster always converges to the git state.
 
@@ -96,15 +99,11 @@ This is the primary self-healing mechanism. If I patch a Deployment by hand whil
 
 The media stack, Minecraft, AdGuard, and Unbound all run with `restart: unless-stopped` in Docker Compose, so the process comes back after a crash or host reboot. Data recovery is NFS/ZFS's job, not Docker's.
 
-### Kyverno: Audit-Only (Deliberately)
+### Kyverno: Audit First, Then Enforce Namespace by Namespace
 
-Kyverno runs in Audit mode: it reports policy violations in PolicyReports but does not block or auto-remediate. That's deliberate:
+Kyverno started in Audit mode: it reported violations in PolicyReports without blocking anything, because a bad policy in Enforce mode silently blocks legitimate deploys and on a single-operator homelab nobody notices quickly.
 
-- A bad policy in Enforce mode silently blocks legitimate deploys
-- On a single-operator homelab, there's nobody to notice the block quickly
-- Audit mode provides the visibility without the blast radius
-
-The policies exist (`require-resource-limits`, `disallow-latest-tag`, `disallow-privileged-containers`) but they're watching, not enforcing. When I'm confident they won't cause false positives, they'll flip to Enforce.
+That has since moved one step further. The default is still `Audit`, but `require-resource-limits` and `disallow-latest-tag` are enforced in the namespaces whose manifests I write myself (`apps`, `database`, `security`), and `disallow-privileged-containers` is enforced more widely. Enforcing in `monitoring` taught me why not everywhere: the next Grafana restart was blocked because the upstream chart's sidecars ship without resource limits. A clean PolicyReport only covers pods that exist at that moment. The details are in [the Kyverno post](/blog/kyverno-supply-chain-security-kubernetes/).
 
 ## What Stays Manual (On Purpose)
 
