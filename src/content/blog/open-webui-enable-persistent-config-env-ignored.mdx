@@ -11,7 +11,7 @@ I set `ENABLE_LOGIN_FORM=false` on my Open WebUI deployment, ArgoCD synced it, t
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## Why I wanted the login form gone
+## Why I Wanted the Login Form Gone
 
 Open WebUI (v0.10.2 in my cluster) is the chat frontend for the Ollama instance on my AI node. It does not handle logins itself. Authentication is delegated to Authelia through a Traefik forwardAuth middleware, and Open WebUI trusts the email header Authelia sets:
 
@@ -24,7 +24,7 @@ Open WebUI (v0.10.2 in my cluster) is the chat frontend for the Ollama instance 
           value: "Remote-Name"
 ```
 
-The same pattern covers most apps behind my [Authelia setup](/blog/authelia-oidc-kubernetes-25-services/). The problem was that `ENABLE_LOGIN_FORM` defaults to true, so the frontend still rendered its own signin form and competed with header auth for the same session. The Traefik access log showed what that looked like from the outside:
+The same pattern covers most apps behind my [Authelia setup](/blog/authelia-oidc-kubernetes-25-services/). The problem was that `ENABLE_LOGIN_FORM` defaults to true, so the frontend still rendered its own sign-in form and competed with header auth for the same session. The Traefik access log showed what that looked like from the outside:
 
 ```text
 1018x POST /api/v1/auths/signin
@@ -33,9 +33,9 @@ The same pattern covers most apps behind my [Authelia setup](/blog/authelia-oidc
   73x 302  (forwardAuth correctly rejecting an unauthenticated request)
 ```
 
-Over a thousand signin POSTs, two thirds of them aborted by the browser. The app's own `/api/config` endpoint confirmed the contradiction: `auth=true` and `auth_trusted_header=true`, while `enable_login_form=true`. Header auth was on and the local form was on at the same time.
+Over a thousand sign-in POSTs, two thirds of them aborted by the browser. The app's own `/api/config` endpoint confirmed the contradiction: `auth=true` and `auth_trusted_header=true`, while `enable_login_form=true`. Header auth was on and the local form was on at the same time.
 
-## First attempt (#838): set the variable
+## First Attempt (#838): Set the Variable
 
 The obvious fix was one environment variable in `kubernetes/apps/open-webui/open-webui.yml`:
 
@@ -49,9 +49,9 @@ The obvious fix was one environment variable in `kubernetes/apps/open-webui/open
 
 I wrote the blast radius into the PR before merging. With the form gone, an Authelia outage takes Open WebUI down with it instead of degrading to a usable local login. Traefik forwardAuth fails closed (401/403), so removing the form does not open the app up. That trade was fine for me.
 
-The PR merged, ArgoCD rolled the pod, and the signin form was still enabled while the pod environment said false.
+The PR merged, ArgoCD rolled the pod, and the sign-in form was still enabled while the pod environment said false.
 
-## Why the variable did nothing
+## Why the Variable Did Nothing
 
 Open WebUI has two layers of configuration. The environment is read once at import time, and those values become defaults. Then there is a `config` table in the app's database, and for most settings that table is what the app actually serves. The switch between the two is `ENABLE_PERSISTENT_CONFIG`, which defaults to true.
 
@@ -102,7 +102,7 @@ So the sequence on my instance was: at some earlier start, with the env var unse
 
 Nothing in the logs mentions this. From the outside, the variable looks like it is being ignored.
 
-## The fix (#839): make Git authoritative
+## The Fix (#839): Make Git Authoritative
 
 There were two ways out. I could flip the flag once in the Admin Panel (or delete the row), which writes the database and fixes this one setting. Or I could turn persistence off so every `ui.*` flag comes from the environment.
 
@@ -118,9 +118,9 @@ I picked the second one, because the first only moves the problem. This instance
 
 With persistence off, `persistent_enabled_for()` returns false for every key, so `get()` returns the environment-derived default and never looks at the table.
 
-## What changes when you turn it off
+## What Changes When You Turn It Off
 
-There is one behaviour change, and you should know it before flipping the switch: settings toggled in the Admin Panel no longer persist across restarts. In v0.10.2, `upsert()` with persistence off writes the new value into the in-memory defaults only:
+There is one behavior change, and you should know it before flipping the switch: settings toggled in the Admin Panel no longer persist across restarts. In v0.10.2, `upsert()` with persistence off writes the new value into the in-memory defaults only:
 
 ```python
             if Config.persistent_enabled_for(key):
@@ -129,13 +129,13 @@ There is one behaviour change, and you should know it before flipping the switch
                 Config.DEFAULTS[key] = value
 ```
 
-So the Admin Panel still works for the life of the pod, and the next restart throws the change away. For a GitOps-managed instance that is the behaviour I want. For an instance you configure by clicking, it would be a nasty surprise.
+So the Admin Panel still works for the life of the pod, and the next restart throws the change away. For a GitOps-managed instance that is the behavior I want. For an instance you configure by clicking, it would be a nasty surprise.
 
 Before merging I checked which settings that could hurt. Every flag the manifest sets is unaffected by definition. The only one I had last changed through the UI was `ui.enable_signup`, and its database value (`false`) matched what the manifest sets, so nothing I relied on was living only in the database.
 
 Rollback for both PRs is a plain revert.
 
-## What to check on your own instance
+## What to Check on Your Own Instance
 
 - **Compare `/api/config` with your pod environment.** The `features` block shows what the frontend actually gets. If `enable_login_form` or `enable_signup` disagree with your env vars, the database is winning.
 - **Assume any env var that maps to a `ui.*` (or similar) key is only a first-boot default** as long as `ENABLE_PERSISTENT_CONFIG` is true. Changing it later does nothing for keys that already have a row.

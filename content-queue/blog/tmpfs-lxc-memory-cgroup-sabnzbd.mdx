@@ -13,7 +13,7 @@ I moved SABnzbd's incomplete-download folder onto a 20 GB tmpfs to get unpacking
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## Why the folder was on a ramdisk at all
+## Why the Folder Was on a Ramdisk at All
 
 SABnzbd runs in `ct-srv-media-acq-01` (LXC 202) alongside the *arr apps, the setup described in [My Media Stack Lives in Two Containers and a Python CronJob](/blog/media-stack-two-containers-python-cronjob/). It writes every download into an *incomplete* directory while fetching, verifying and unpacking, then moves the result to the library. That directory is pure scratch. Its contents are worthless the moment a job completes or fails.
 
@@ -24,7 +24,7 @@ It had already moved twice for I/O reasons:
 
 So on 2026-10-19, ADR-066 put the incomplete directory on a host tmpfs at `/mnt/sab-incomplete`, bind-mounted into the LXC at `/downloads/incomplete`. The mount lives in `/etc/fstab`, managed by the `pve_host_mounts` Ansible role. The first version used `size=20G`. The container stayed at its existing 4 GB limit. The draft ADR even said tmpfs pressure would be absorbed by the host's RAM. That sentence was wrong, and the next day proved it.
 
-## What the incident looked like
+## What the Incident Looked Like
 
 One 8.9 GB Blu-ray rip went into the tmpfs. Its pages filled well past the container's 4 GB limit, and the host stalled:
 
@@ -37,7 +37,7 @@ The stuck threads were the whole media stack plus Enshrouded's game process, whi
 
 What did *not* happen matters as much. No OOM kill was recorded. Nothing was out of memory in the sense the OOM killer cares about. The download completed. The host was simply busy servicing reclaim inside one cgroup, and every process touching those pages waited on it.
 
-## Root cause: tmpfs is shmem, and shmem has an owner
+## Root Cause: tmpfs Is shmem, and shmem Has an Owner
 
 tmpfs pages are shared memory (shmem). The kernel charges shmem to the memory cgroup of the process that writes it. In this case that was SABnzbd inside LXC 202, so every byte in the ramdisk counted against LXC 202's limit, not against the host's free pool.
 
@@ -45,7 +45,7 @@ The host had plenty of RAM. That did not help, because the container could not u
 
 A ramdisk does not give a container free memory. It spends the container's own memory.
 
-## The fix (2026-10-20)
+## The Fix (2026-10-20)
 
 Two numbers changed, and they are coupled. The tmpfs cap went from 20 GB to 10 GB:
 
@@ -78,7 +78,7 @@ The rule I wrote into the ADR:
 
 One more detail, found only on 2026-11-12: the Terraform `memory` block above landed in the wrong resource. It went into `ct_srv_docker_01` instead of `ct_srv_media_acq_01`. It surfaced while I was reconciling the Proxmox stack against the live host (#1091), and `ct-srv-docker-01` went back to its real 6 GB. Read the resource name around every hunk in a plan, not only the values.
 
-## Why the ramdisk lasted three weeks
+## Why the Ramdisk Lasted Three Weeks
 
 Rule 2 was a deliberate trade, and the ADR said so: "a ramdisk big enough for an arbitrary 4K remux does not exist on a 62 GB host."
 
@@ -92,7 +92,7 @@ With `fulldisk_autoresume = 0`, the default, it never resumes. Aborted unpacks l
 
 The obvious move would have been 1080p only. The TV is 4K with Dolby Vision and HDR10+, and the visible gain of a 2160p release is HDR, which 1080p releases almost never carry. What does not pay off here is Remux: bit-exact video and lossless audio at three to four times the size of a good encode, on a pool with about 240 GB free.
 
-## Back to the HDD, with a USB 3 port this time
+## Back to the HDD, with a USB 3 Port This Time
 
 ADR-073 (#1071) moved the incomplete directory back to the archive HDD, as a ZFS dataset mounted at the same host path, so the container's bind mount did not change:
 
@@ -130,7 +130,7 @@ The same day, #1070 changed what gets downloaded so the pipeline can always fini
 
 With the scratch off RAM, LXC 202 no longer needs the 12 GB reservation. It is back at 4096 MB in code, with a comment that the stack itself uses about 1 GB.
 
-## Checklist if you want a ramdisk in a container
+## Checklist If You Want a Ramdisk in a Container
 
 - **tmpfs written from inside a container is charged to that container.** Size the container's memory limit above the tmpfs cap plus the workload's own usage. Host free memory is irrelevant.
 - **No OOM does not mean no memory problem.** Look at `memory.pressure` and `memory.events` (`high` counter) in the container's cgroup. A climbing `high` count with threads in D state on `filemap_fault` is reclaim, not a disk problem.

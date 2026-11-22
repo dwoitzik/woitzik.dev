@@ -106,7 +106,7 @@ spec:
       storage: 5Gi
 ```
 
-`/config` holds the configuration, automations, and `home-assistant_v2.db`, the recorder's SQLite database in WAL mode. Home Assistant started on `nfs-client` like most of my apps. It was the last of six SQLite apps I moved to `local-path` after an audit found them all on NFS, for the reasons in [the NFS vs local-path SQLite trap](/blog/nfs-vs-local-path-sqlite-trap/). Before the move I ran `PRAGMA integrity_check`, copied the data over, and checked again on the live container afterwards. The recorder logged its usual unclean-shutdown warning on first start and recovered on its own.
+`/config` holds the configuration, automations, and `home-assistant_v2.db`, the recorder's SQLite database in WAL mode. Home Assistant started on `nfs-client` like most of my apps. It was the last of six SQLite apps I moved to `local-path` after an audit found them all on NFS, for the reasons in [the NFS vs local-path SQLite trap](/blog/nfs-vs-local-path-sqlite-trap/). Before the move I ran `PRAGMA integrity_check`, copied the data over, and checked again on the live container afterward. The recorder logged its usual unclean-shutdown warning on first start and recovered on its own.
 
 `local-path` ties the pod to one node. For a single-writer workload that writes state constantly, I'll take node-local latency over the ability to reschedule.
 

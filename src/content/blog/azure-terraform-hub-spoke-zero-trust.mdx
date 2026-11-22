@@ -64,8 +64,8 @@ The fix is to make the Terraform code itself defensive against both.
 
 Three engineering decisions drive this:
 
-- **Zero-Trust NSGs**, bound to Spoke subnets at creation
-- **Centralized Private DNS**: four PaaS zones in the Hub, shared by all Spokes
+- **Zero-Trust NSGs**, bound to spoke subnets at creation
+- **Centralized Private DNS**: four PaaS zones in the hub, shared by all spokes
 - **Defensive lifecycle blocks** that let Terraform and Azure Policy coexist
 
 ## Step 1: The Zero-Trust NSG Baseline
@@ -121,13 +121,13 @@ resource "azurerm_subnet_network_security_group_association" "spoke2_nsg_bind" {
 
 The priority gap between 100 and 4096 is intentional. It leaves room for thousands of application-specific rules without renumbering the baseline, so your security team can add rules for RDP, SSH, or application ports without touching the foundation.
 
-Two things to be clear about. Azure's built-in `DenyAllInBound` rule (priority 65500) already drops unsolicited internet ingress once an NSG is attached; the explicit 4096 deny makes that intent visible in code and in audit exports. And this baseline is inbound only. The default `AllowInternetOutBound` rule still lets workloads reach the internet. To block egress, add an outbound deny for the `Internet` service tag or force-tunnel `0.0.0.0/0` through a firewall in the Hub with a route table.
+Two things to be clear about. Azure's built-in `DenyAllInBound` rule (priority 65500) already drops unsolicited internet ingress once an NSG is attached; the explicit 4096 deny makes that intent visible in code and in audit exports. And this baseline is inbound only. The default `AllowInternetOutBound` rule still lets workloads reach the internet. To block egress, add an outbound deny for the `Internet` service tag or force-tunnel `0.0.0.0/0` through a firewall in the hub with a route table.
 
 ## Step 2: Centralized Private DNS
 
-When Spoke workloads use Private Endpoints, they need to resolve private IPs for PaaS services like Storage or Key Vault. Deploying a DNS zone in every Spoke is the wrong approach. It fragments your DNS and causes resolution conflicts the moment traffic crosses a peering boundary.
+When spoke workloads use Private Endpoints, they need to resolve private IPs for PaaS services like Storage or Key Vault. Deploying a DNS zone in every spoke is the wrong approach. It fragments your DNS and causes resolution conflicts the moment traffic crosses a peering boundary.
 
-Centralize all zones in the Hub instead. Note that peering alone does not share DNS: a Private DNS zone only answers for VNets linked to it. Spokes resolve the zones either through their own VNet links to the Hub zones, or by pointing their custom DNS servers at a resolver in the Hub (Azure DNS Private Resolver or a forwarder VM). The snippet below creates the zones and links the Hub; add the Spoke links or the resolver before you deploy Private Endpoints in the Spokes.
+Centralize all zones in the hub instead. Note that peering alone does not share DNS: a Private DNS zone only answers for VNets linked to it. Spokes resolve the zones either through their own VNet links to the hub zones, or by pointing their custom DNS servers at a resolver in the hub (Azure DNS Private Resolver or a forwarder VM). The snippet below creates the zones and links the hub; add the spoke links or the resolver before you deploy Private Endpoints in the spokes.
 
 ```hcl
 variable "private_dns_zones" {
@@ -180,7 +180,7 @@ lifecycle {
 
 Terraform now ignores exactly these two tags and nothing else. The infrastructure stays fully managed by IaC, and the compliance tooling keeps its metadata.
 
-The same protection applies to the VNet Links:
+The same protection applies to the VNet links:
 
 ```hcl
 resource "azurerm_private_dns_zone_virtual_network_link" "hub_links" {
@@ -196,14 +196,14 @@ resource "azurerm_private_dns_zone_virtual_network_link" "hub_links" {
 }
 ```
 
-The VNet Links get a broader `ignore_changes = [tags]`. Policies targeting link resources tend to inject several tags at once, and listing them individually is not worth the maintenance overhead.
+The VNet links get a broader `ignore_changes = [tags]`. Policies targeting link resources tend to inject several tags at once, and listing them individually is not worth the maintenance overhead.
 
 ## The Result
 
 After `terraform apply`, you have a topology that holds up in a governed environment:
 
 - **Isolated by default:** no workload subnet exists without an NSG bound to it
-- **DNS centralized:** one set of Private DNS zones in the Hub instead of copies per Spoke
+- **DNS centralized:** one set of Private DNS zones in the hub instead of copies per spoke
 - **Pipeline-stable:** policy-injected tags no longer show up as drift
 - **Audit-friendly:** a concrete starting point for the network controls in ISO 27001 Annex A.8 (A.8.20, A.8.22) and NIS2 Article 21
 

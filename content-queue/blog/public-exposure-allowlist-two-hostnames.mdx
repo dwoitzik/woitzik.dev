@@ -43,7 +43,7 @@ Before settling on the allowlist, I'd made a narrower call about giving my AI co
 
 That held for about two weeks. Then I removed it entirely. A dedicated tunnel avoids the cross-VLAN firewall problem, but it doesn't answer the more basic question: should a control-plane web terminal, something that can run arbitrary commands against my infrastructure, be publicly routable at all, whatever sits in front of it? The host already has its own Tailscale identity, so that is the remote-access path now. The tunnel and its DNS record are gone. Sometimes the right answer to "how do I expose this more carefully" is "don't expose it."
 
-## The Trade-off
+## The Trade-Off
 
 Away from home, everything except photos and the Tailscale control plane now requires the VPN client. That is a real convenience cost compared to "just open the URL," and it is the intended outcome. Every new service needs a deliberate decision to join the allowlist, not just an IngressRoute. That is a little extra process in exchange for a default that can't silently accumulate gaps the way the wildcard did.
 

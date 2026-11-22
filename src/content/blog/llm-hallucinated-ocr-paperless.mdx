@@ -77,7 +77,7 @@ Switching the model did not repair the damage. paperless-gpt doesn't re-process 
 
 The configuration error would have been easier to spot with a stable Ollama backend. The Ollama instance ran on the AI LXC using the AMD Barcelo iGPU through the Vulkan/radv path, and it crashed constantly.
 
-The integrated GPU of the AMD Ryzen 7 5825U (gfx90c) has no official ROCm support. I had tried two GPU paths on it. The first was the usual community workaround for ROCm, `HSA_OVERRIDE_GFX_VERSION=9.0.0`, which makes ROCm treat the chip as a supported gfx900. It was never stable and I had already abandoned it. The second was Vulkan via the radv driver, enabled with `OLLAMA_IGPU_ENABLE=1`. That is the one that was running here.
+The integrated GPU of the AMD Ryzen 7 5825U (gfx90c) has no official ROCm support. I had tried two GPU paths on it. The first was the usual community workaround for ROCm, `HSA_OVERRIDE_GFX_VERSION=9.0.0`, which makes ROCm treat the chip as a supported gfx900. It was never stable, and I had already abandoned it. The second was Vulkan via the radv driver, enabled with `OLLAMA_IGPU_ENABLE=1`. That is the one that was running here.
 
 The crash pattern:
 

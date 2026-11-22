@@ -20,7 +20,7 @@ Datenblätter und Werbung reden über Kerne und GHz. Im Betrieb entscheidet etwa
 Typische Selbstständigen-Setups (Dokumentenverwaltung, Nextcloud, ein kleines CRM, Monitoring) stoßen **nicht** zuerst an die CPU-Grenze, sondern an den **Arbeitsspeicher**. Bei mir lief ein k3s-Cluster auf einem Node mit 4 GiB RAM bei 99 % Speicherauslastung, während die CPU noch unter 10 % lag. Der API-Server des Clusters (mit etcd dahinter) kam auf p99-Latenzen von über 8 Sekunden. Das war kein CPU-Problem, sondern ein Speicherproblem.
 
 **Faustregel für Selbstständige:**
-- 4–5 Dienste (Nextcloud, Paperless, Suche, ein Dashboard): **8 GiB** reichen knapp.
+- 4 bis 5 Dienste (Nextcloud, Paperless, Suche, ein Dashboard): **8 GiB** reichen knapp.
 - 10+ Dienste oder Virtualisierung (Proxmox mit VMs und Containern): **16 GiB** als Einstieg, 32 GiB als Komfortzone.
 - Lokale LLMs im Homelab-Maßstab oder Medien-Transcoding im Dauerbetrieb: **ab 32 GiB**.
 
@@ -31,14 +31,14 @@ Warum so viel? Allein Prometheus aus dem kube-prometheus-stack (also nur das Mon
 Testberichte messen Spitzenleistung, etwa in Spielen oder kurzen Benchmarks. Ein Server für dein Business läuft dagegen unter Dauerlast. Ein Intel N100 ist günstig und sparsam (6 W TDP), hat mit 4 Kernen und 4 Threads aber deutlich weniger Multi-Core-Leistung als ein Desktop- oder größerer Mobilprozessor. Wenn Backups, nächtliches Transcoding und Crawler gleichzeitig laufen, merkst du das. Entscheidend sind nicht mehr GHz, sondern genug Kerne für die Lastspitzen deiner Jobs:
 
 - Tägliche Backups (rclone/restic) plus Monitoring: meist 2 Kerne ausgelastet, der Rest wartet.
-- Wöchentliches Voll-Transcoding (Medienserver): 4–6 Kerne unter Volllast, etwa 15 Minuten.
+- Wöchentliches Voll-Transcoding (Medienserver): 4 bis 6 Kerne unter Volllast, etwa 15 Minuten.
 - Ein LLM-Inference-Worker (optional): 8+ Kerne unter Dauerlast.
 
-Meine Empfehlung für 2026: ein **6-Kern-Prozessor mit integrierter Grafik** und 16–32 GiB RAM. Die iGPU wird beim Kauf gern unterschätzt. Intel Quick Sync (Iris Xe/Arc) und die Video-Engines aktueller AMD-iGPUs transkodieren 4K in Hardware, ohne separate Grafikkarte. Ohne Hardware-Transcoding erledigt die CPU diese Arbeit, und genau das frisst die Leistung, die deine anderen Dienste brauchen.
+Meine Empfehlung für 2026: ein **6-Kern-Prozessor mit integrierter Grafik** und 16 bis 32 GiB RAM. Die iGPU wird beim Kauf gern unterschätzt. Intel Quick Sync (Iris Xe/Arc) und die Video-Engines aktueller AMD-iGPUs transkodieren 4K in Hardware, ohne separate Grafikkarte. Ohne Hardware-Transcoding erledigt die CPU diese Arbeit, und genau das frisst die Leistung, die deine anderen Dienste brauchen.
 
 Konkrete Geräte mit Intel N100 und Ryzen 7 vergleiche ich nach Datenblatt, Leerlaufverbrauch und Netzwerkports im englischsprachigen [Mini-PC-Vergleich für Homelab und Heimserver](/blog/best-mini-pc-homelab-2026/).
 
-## Eigener Server oder Cloud: was kostet ein eigener Server im Monat?
+## Eigener Server oder Cloud: Was kostet ein eigener Server im Monat?
 
 Im laufenden Betrieb kostet ein eigener Server vor allem Strom. Bei mir sind das unter 20 € im Monat für rund 10 VMs, dazu kommt die Hardware als einmalige Ausgabe. Ob sich das gegenüber der Cloud rechnet, hängt davon ab, wie viele Dienste dauerhaft laufen:
 
@@ -49,7 +49,7 @@ Im laufenden Betrieb kostet ein eigener Server vor allem Strom. Bei mir sind das
 | Kontrolle | voller Root-Zugriff | oft nur das Standard-Setup des Providers |
 | Nachteil | Hardware-Wartung ist dein Job | Provider sperrt Ports oder Features |
 
-Aktuelle Preise für Hardware und Cloud-VMs schwanken stark; rechne mit den Angeboten, die du gerade vorliegen hast. Als grobe Regel rechnet sich ein eigener Server ab etwa drei VMs mit Dauerlast. Darunter ist eine kleine Cloud-VM oft günstiger als Hardware plus Strom. Bei mir sieht die Rechnung so aus: Meine ~10 VMs würden in der Cloud nach meiner Schätzung 300–500 € oder mehr im Monat kosten, mein Server verursacht unter 20 € Stromkosten.
+Aktuelle Preise für Hardware und Cloud-VMs schwanken stark; rechne mit den Angeboten, die du gerade vorliegen hast. Als grobe Regel rechnet sich ein eigener Server ab etwa drei VMs mit Dauerlast. Darunter ist eine kleine Cloud-VM oft günstiger als Hardware plus Strom. Bei mir sieht die Rechnung so aus: Meine ~10 VMs würden in der Cloud nach meiner Schätzung 300 bis 500 € oder mehr im Monat kosten, mein Server verursacht unter 20 € Stromkosten.
 
 ## Drei Nachrüstungen, die Geld sparen
 

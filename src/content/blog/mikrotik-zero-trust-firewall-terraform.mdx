@@ -12,13 +12,13 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 MikroTik routers are powerful, but configuring them by hand in WinBox or the CLI leads to configuration drift and security holes. This setup runs on the [RB5009\*](/go/4w08b21): its switch chip handles hardware offloading for VLAN-tagged traffic, which matters once you're carrying multiple VLANs across a Proxmox trunk. If you are building a segmented edge network or a home lab with multiple VLANs, you need a firewall that is version-controlled, reproducible, and strictly default-deny.
 
-Here's how I build that Zero-Trust firewall for RouterOS with the `terraform-routeros` provider. That provider is also the main reason I picked MikroTik over UniFi; the full [MikroTik vs Ubiquiti comparison](/blog/mikrotik-vs-ubiquiti-home-network-2026/) covers the rest of the trade-off.
+Here's how I build that zero-trust firewall for RouterOS with the `terraform-routeros` provider. That provider is also the main reason I picked MikroTik over UniFi; the full [MikroTik vs Ubiquiti comparison](/blog/mikrotik-vs-ubiquiti-home-network-2026/) covers the rest of the trade-off.
 
 **[View the complete MikroTik IaC source code on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Core Philosophy: Default-Deny
 
-A standard home router allows everything outbound and blocks everything inbound. A Zero-Trust edge device blocks *everything* by default, including traffic between internal VLANs, unless explicitly permitted.
+A standard home router allows everything outbound and blocks everything inbound. A zero-trust edge device blocks *everything* by default, including traffic between internal VLANs, unless explicitly permitted.
 
 We enforce this by anchoring the `input` (traffic to the router) and `forward` (traffic through the router) chains with final drop rules:
 
@@ -42,7 +42,7 @@ resource "routeros_ip_firewall_filter" "fwd_99_drop_all" {
 }
 ```
 
-With these rules at the very end of their chains, anything that no `accept` rule catches is dropped, and in the forward chain logged.
+With these rules at the very end of their chains, anything that no `accept` rule catches is dropped and, in the forward chain, logged.
 
 ## 1. Securing the Router (The Input Chain)
 
@@ -147,7 +147,7 @@ resource "routeros_ip_firewall_filter" "fwd_13_wan_to_dmz_minecraft" {
 
 ## Moving Beyond the Edge
 
-Automating the edge router is the first step toward code-driven infrastructure. The same Zero-Trust principles apply in enterprise cloud environments, with far more rules and owners.
+Automating the edge router is the first step toward code-driven infrastructure. The same zero-trust principles apply in enterprise cloud environments, with far more rules and owners.
 
 Nothing about default-deny changes when you move from a RouterOS edge router to Azure. The drop-by-default forward chain becomes NSG deny rules, Azure Firewall policies, and Private Link access control. The primitives are different; the posture is identical.
 

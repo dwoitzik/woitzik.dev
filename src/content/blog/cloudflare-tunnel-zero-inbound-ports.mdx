@@ -90,7 +90,7 @@ The gotcha: the wildcard applies to the search domain too. If the Proxmox host's
 
 ## The Chunked Encoding Fix
 
-Large photo and video uploads to Immich through Cloudflare Tunnel were failing with `ECONNRESET`. The uploads would reach 60–80% and then drop the connection.
+Large photo and video uploads to Immich through Cloudflare Tunnel were failing with `ECONNRESET`. The uploads would reach 60 to 80% and then drop the connection.
 
 My first fix, recorded in CHANGELOG v0.8.0, set `chunked_encoding = true`, `write_timeout = 600` and `read_timeout = 120` on the tunnel's origin request. None of those are real `cloudflared` origin settings. The actual knob is `disableChunkedEncoding` (`disable_chunked_encoding` in the Terraform provider), and chunked transfer to the origin is already on by default. The current config states that default explicitly:
 

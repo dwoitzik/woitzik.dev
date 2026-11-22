@@ -58,7 +58,7 @@ This stops the daily schedule from producing a Vault backup that looks successfu
 
 ## What This Proves About the Rest of the Cluster
 
-The restore drill wasn't limited to Vault. It also targeted a normal `apps` namespace (vaultwarden, garage, cloudflared, headscale, authelia, tailscale-subnet-router) and came back clean: PVC bound, pod running, and vaultwarden's `db.sqlite3` restored at exactly the same byte count as the live database. That's the bar a backup claim needs to clear: not "the schedule ran" or "the API returned success," but matching data after a real restore into a namespace with nothing else to fall back on. A byte count is a good first check; a checksum or opening the restored database is the stronger one.
+The restore drill wasn't limited to Vault. It also targeted a normal `apps` namespace (vaultwarden, garage, cloudflared, headscale, authelia, tailscale-subnet-router) and came back clean: PVC bound, pod running, and Vaultwarden's `db.sqlite3` restored at exactly the same byte count as the live database. That's the bar a backup claim needs to clear: not "the schedule ran" or "the API returned success," but matching data after a real restore into a namespace with nothing else to fall back on. A byte count is a good first check; a checksum or opening the restored database is the stronger one.
 
 The lesson generalizes past Vault: any process with its own consistency model for its files is a candidate for the same failure mode, not only key-value databases. A generic filesystem backup tool has no way to know which of your PVCs fall into that category. You have to know your own stack well enough to ask the question per-service, then prove the answer with an actual restore instead of trusting a green backup status.
 

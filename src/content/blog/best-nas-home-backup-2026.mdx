@@ -218,39 +218,39 @@ The enclosure idles at around 8-10W, competitive with Synology, and the efficien
 
 ## Frequently Asked Questions
 
-### Which NAS is best for a homelab?
+### Which NAS Is Best for a Homelab?
 
 It depends on what the NAS does in the lab. As the backup target behind your servers, the Synology DS225+ is still the pick, because the backup software matters more than the CPU. If the NAS also runs Docker containers or small VMs, the QNAP TS-264 and the UGREEN DXP2800 are the better homelab NAS devices: both ship with 8GB RAM (up to 16GB) and two M.2 slots, against the DS225+'s 2GB with a 6GB ceiling. If you expect to add disks, the 4-bay Synology DS425+ is the one that grows.
 
-### What is the best QNAP NAS for a homelab?
+### What Is the Best QNAP NAS for a Homelab?
 
 Of QNAP's range, this guide compares only the TS-264, and it is the most homelab-friendly unit in the list: dual 2.5GbE, 8GB RAM, Virtualization Station for small VMs and the only PCIe slot here for a 10GbE card. The catch is QTS security. Disable the default admin account, turn on 2FA and configure the firewall before the box goes on your network.
 
-### How much storage do I need for home backup?
+### How Much Storage Do I Need for Home Backup?
 
 For most households, 2-4TB covers documents, photos, phone backups, and critical system images. If you archive video or run a media server, plan on 8-16TB. Start with two drives in a mirror (RAID 1 or SHR-1) and expand later; a NAS lets you replace drives one at a time with larger ones. Run your drive sizes through the [RAID capacity calculator](https://woitzik.dev/tools/raid-calculator/) to see what a given array yields once redundancy is accounted for.
 
-### What drives should I put in a NAS?
+### What Drives Should I Put in a NAS?
 
 NAS-rated drives (Seagate IronWolf, WD Red Plus) are designed for 24/7 operation and rated for the vibration of multi-bay enclosures. Desktop drives (WD Blue, Seagate Barracuda) are cheaper but not rated for continuous use. They work, but you give up the workload rating and the warranty terms that matter in a box that never sleeps. For set-and-forget reliability, buy NAS-rated drives.
 
-### Is RAID the same as backup?
+### Is RAID the Same as Backup?
 
 No. RAID protects against drive failure, not against deletion, corruption, ransomware, or fire. A NAS in RAID 1 with no offsite copy is one `rm -rf /` away from losing everything. RAID is availability; backup is recoverability. You need both.
 
-### Should I use Synology Hybrid RAID or standard RAID?
+### Should I Use Synology Hybrid RAID or Standard RAID?
 
 Use SHR if you are on Synology. It lets you mix drive sizes without wasting capacity. With two drives, SHR-1 behaves like RAID 1. With four drives, SHR-1 gives you single-drive fault tolerance and lets you swap in larger drives later without rebuilding the entire array.
 
-### Can I run Docker on these NAS devices?
+### Can I Run Docker on These NAS Devices?
 
 Yes, all five support Docker. Synology's Container Manager (formerly the Docker package) is the most polished implementation. QNAP's Container Station works well but has a more complex interface. TerraMaster's and UGREEN's Docker support is functional but less integrated. If Docker is a primary use case, the QNAP TS-264 (8GB RAM, N5095) or UGREEN DXP2800 (8GB RAM, N100) gives you the best hardware for it.
 
-### How long does a NAS last?
+### How Long Does a NAS Last?
 
 A quality NAS (Synology, QNAP) typically lasts 5-8 years before the hardware becomes obsolete or software support ends. Budget for replacing the drives inside every 3-4 years as a precaution, because drives do not reliably warn you before they fail. The enclosure itself will usually outlast two or three sets of drives.
 
-### Is a NAS worth it versus just using an external hard drive?
+### Is a NAS Worth It Versus Just Using an External Hard Drive?
 
 For a single computer with non-critical data, an external drive is fine. For a multi-device household, data you cannot afford to lose, or a homelab with services that need shared storage, a NAS is worth it. The difference is automation: a NAS handles RAID, snapshots, cloud sync, and multi-user access on its own. An external drive only works as a backup if you remember to plug it in, and that strategy fails the first time you forget.
 

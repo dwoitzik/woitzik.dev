@@ -81,7 +81,7 @@ Ryzen 7 7735U · 16GB LPDDR5 · 500GB NVMe · 450‑480 €
 
 Der SER5 MAX ist die Empfehlung für Leistung. Der Ryzen 7 7735U bietet 8 Kerne und 16 Threads, also etwa die dreifache Multi-Thread-Leistung des N100. Bei Container-Workloads wie dem Bauen von Docker-Images, Kubernetes-Operatoren oder Entwicklungsdatenbanken bedeuten die zusätzlichen Kerne schnellere Builds und geringere Latenz.
 
-Der Preis dafür ist der Stromverbrauch. Der Leerlaufverbrauch liegt spürbar über dem des N100, und beim Dauerkompilieren ist der Lüfter hörbar. Ist diese Maschine dein Haupt-Proxmox-Host mit mehr als 10 Containern, rechtfertigt die Leistung das. Läuft darauf nur Pi-hole und ein paar schlanke Dienste, ist der N100 die klügere Wahl.
+Der Preis dafür ist der Stromverbrauch. Der Leerlaufverbrauch liegt spürbar über dem des N100, und beim Dauerkompilieren ist der Lüfter hörbar. Ist diese Maschine dein Haupt-Proxmox-Host mit mehr als 10 Containern, rechtfertigt die Leistung das. Laufen darauf nur Pi-hole und ein paar schlanke Dienste, ist der N100 die klügere Wahl.
 
 Zwei Dinge solltest du vor dem Kauf wissen. Erstens sind die 16GB hier **LPDDR5, fest auf dem Board verlötet**. Anders als das DDR4-SO-DIMM im S12 Pro lässt sich der Speicher nicht tauschen. Die 500GB-NVMe kannst du durch eine größere ersetzen, der RAM bleibt, wie er ist. Zweitens hat das Gerät einen einzelnen 2,5GbE-Port, es gilt also derselbe Vorbehalt wie beim S12 Pro.
 
@@ -134,7 +134,7 @@ Der Intel NUC 13 Pro ist die Premium-Wahl, und der Preis zeigt das. Die NUC-Reih
 
 Der i5-1340P ist ein Hybrid-Chip mit 12 Kernen und 16 Threads. Intels Aufteilung in P-Cores und E-Cores passt gut zu gemischten Homelab-Workloads: Die P-Cores übernehmen kurze Kompilier-Spitzen, die E-Cores die Hintergrunddienste, ohne viel Strom zu ziehen.
 
-Die NIC verdient eine eigene Erwähnung. Der NUC 13 Pro nutzt einen **Intel-i226-V-Ethernet**-Controller mit dem `igc`-Treiber aus dem Kernel, der ausgereiftesten 2,5GbE-Unterstützung unter Linux. Betreibst du Proxmox mit VLAN-Bridging, OVS (Open vSwitch) oder anderem fortgeschrittenen Networking, fällt damit eine ganze Kategorie an Fehlersuche weg, die günstige Realtek-NICs mitbringen können. Ich habe genug Zeit mit Treiberproblemen auf billigen NICs verbracht, dass allein das den Aufpreis für einen produktiven Node rechtfertigt.
+Die NIC verdient eine eigene Erwähnung. Der NUC 13 Pro nutzt einen **Intel-i226-V-Ethernet**-Controller mit dem `igc`-Treiber aus dem Kernel, der ausgereiftesten 2,5GbE-Unterstützung unter Linux. Betreibst du Proxmox mit VLAN-Bridging, OVS (Open vSwitch) oder anderem fortgeschrittenen Networking, fällt damit eine ganze Kategorie an Fehlersuche weg, die günstige Realtek-NICs mitbringen können. Ich habe so viel Zeit mit Treiberproblemen auf billigen NICs verbracht, dass allein das den Aufpreis für einen produktiven Node rechtfertigt.
 
 Zwei Dinge solltest du beachten. Erstens sind die 16GB ein vorinstalliertes DDR4-SO-DIMM-Kit, nicht verlötet. Das Board hat zwei SO-DIMM-Slots und unterstützt bis zu 64GB, du kannst also später aufrüsten. Prüf vor der Bestellung die genaue SKU und die verbauten Module. Zweitens ist das mit Abstand das teuerste Gerät hier: Für 780‑820 € zahlst du mehr als das Doppelte des S12 Pro, für eine Maschine, die bei den Workloads der meisten Homelabs nicht dramatisch schneller ist. Du bezahlst für Verarbeitung, die Intel-NIC und die Zuverlässigkeit der NUC-Reihe.
 

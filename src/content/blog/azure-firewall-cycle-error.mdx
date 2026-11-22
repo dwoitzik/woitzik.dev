@@ -10,9 +10,9 @@ import ProductCTA from "@components/ProductCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-You are building an Azure Hub & Spoke network. VNet peerings: done. Subnets: defined. An Azure Firewall sitting in the Hub, ready to inspect every packet leaving your environment.
+You are building an Azure Hub & Spoke network. VNet peerings: done. Subnets: defined. An Azure Firewall sitting in the hub, ready to inspect every packet leaving your environment.
 
-You add a Route Table to force all internet-bound traffic (`0.0.0.0/0`) from the Spokes into the Firewall. You run `terraform plan`.
+You add a Route Table to force all internet-bound traffic (`0.0.0.0/0`) from the spokes into the Firewall. You run `terraform plan`.
 
 ```text
 Error: Cycle: azurerm_subnet_route_table_association.spoke_binding,
@@ -21,17 +21,17 @@ azurerm_route_table.spoke_udr, azurerm_firewall.fw ...
 
 Terraform can't order the resources, so nothing gets built. Below is why the cycle happens, how to break it, and why fixing it is only half the job: a bare `0.0.0.0/0` route then silently breaks Windows activation and Microsoft Entra ID traffic.
 
-**[Get the basic Cycle-Error fix free on GitHub](https://github.com/dwoitzik/terraform-azurerm-firewall-forced-tunneling)**
+**[Get the basic cycle-error fix free on GitHub](https://github.com/dwoitzik/terraform-azurerm-firewall-forced-tunneling)**
 
 ## The Anatomy of a Cycle Error
 
 To understand the fix, you need to understand how Terraform builds its dependency graph for Azure routing.
 
-When you configure Forced Tunneling, you tell a Spoke Subnet to send traffic to the Azure Firewall's private IP. Terraform interprets this as follows:
+When you configure forced tunneling, you tell a spoke subnet to send traffic to the Azure Firewall's private IP. Terraform interprets this as follows:
 
 1. **The Route Table** needs the Firewall's `private_ip_address` for `next_hop_in_ip_address`
 2. **The Firewall** needs `AzureFirewallSubnet` to exist first so it can attach to it
-3. **The Subnet Association** tries to bind the Route Table to Spoke Subnets simultaneously
+3. **The Subnet Association** tries to bind the Route Table to spoke subnets simultaneously
 
 Those edges alone are fine. The cycle appears when something adds an edge pointing back, typically an explicit `depends_on` from the Firewall (or one of its prerequisites) to the spoke route table association. Terraform then can't decide whether the Firewall must exist before the Route Table or the Subnet before the Firewall, and it stops.
 
@@ -119,7 +119,7 @@ resource "azurerm_subnet_route_table_association" "spoke_routing" {
 }
 ```
 
-Pass your Spoke subnet IDs as a map variable and every subnet is automatically bound in a single resource block. Add a new spoke to the map and run `terraform apply`. No copy-pasting, no drift.
+Pass your spoke subnet IDs as a map variable and every subnet is automatically bound in a single resource block. Add a new spoke to the map and run `terraform apply`. No copy-pasting, no drift.
 
 ## Step 3: Firewall Policies That Actually Scale
 
@@ -134,7 +134,7 @@ resource "azurerm_ip_group" "spokes" {
 }
 ```
 
-When a new Spoke CIDR is added to `var.spoke_subnet_cidr`, every firewall rule that references `azurerm_ip_group.spokes.id` automatically inherits it. No rule editing required.
+When a new spoke CIDR is added to `var.spoke_subnet_cidr`, every firewall rule that references `azurerm_ip_group.spokes.id` automatically inherits it. No rule editing required.
 
 ## The Result
 
@@ -145,7 +145,7 @@ With correct resource ordering, explicit PaaS bypass routes, dynamic subnet bind
 - Deploys without cycle errors
 - Keeps Windows VMs activating against Azure KMS
 - Keeps Entra ID authentication working
-- Scales to new Spokes by changing a variable, not rewriting rules
+- Scales to new spokes by changing a variable, not rewriting rules
 
 The repository at the top covers everything in this article (cycle error fix, KMS and Entra ID bypasses, the baseline Route Table structure, dynamic IP Groups, and FQDN baseline policies), free and MIT licensed.
 

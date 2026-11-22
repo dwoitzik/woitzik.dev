@@ -40,7 +40,7 @@ locals {
 }
 ```
 
-## 2. Setting up the WireGuard Interface
+## 2. Setting Up the WireGuard Interface
 
 With the `terraform-routeros` provider, the WireGuard interface and the router's gateway IP in the VPN subnet take two resources.
 
@@ -88,7 +88,7 @@ resource "routeros_wireguard_peer" "laptop_dw" {
 
 ## 4. Enforcing Role-Based Access (The Firewall)
 
-The VPN is up, but without firewall rules traffic goes nowhere, assuming a strict default-deny firewall like the one in my [Zero-Trust MikroTik firewall post](/blog/mikrotik-zero-trust-firewall-terraform/).
+The VPN is up, but without firewall rules traffic goes nowhere, assuming a strict default-deny firewall like the one in my [zero-trust MikroTik firewall post](/blog/mikrotik-zero-trust-firewall-terraform/).
 
 The forward chain defines what each device may reach.
 
@@ -153,7 +153,7 @@ resource "routeros_ip_firewall_filter" "in_02_wg" {
 
 ## Identity as Address
 
-WireGuard's static cryptokey routing maps each device key to a fixed IP address. With that mapping in Terraform, identity and firewall policy live in the same reviewed code, and the Zero-Trust rules stay strict, readable, and documented in Git.
+WireGuard's static cryptokey routing maps each device key to a fixed IP address. With that mapping in Terraform, identity and firewall policy live in the same reviewed code, and the zero-trust rules stay strict, readable, and documented in Git.
 
 Tying cryptographic identity to network access is the same principle behind Azure Private Link and Managed Identity, one layer up.
 

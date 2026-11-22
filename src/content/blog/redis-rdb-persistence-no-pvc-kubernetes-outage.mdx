@@ -106,7 +106,7 @@ grep -A 20 "redis" kubernetes/apps/nextcloud/nextcloud.yml | grep -i "persistent
 
 Or, more defensively, make it policy: any Redis container without a PVC in its volume list gets `--save "" --appendonly no`.
 
-## Why This Shows Up in Hardened Clusters More Than Default Ones
+## Why This Shows Up in Hardened Clusters More than Default Ones
 
 The `readOnlyRootFilesystem: true` hardening is what surfaced this. Without it, Redis would have written its RDB snapshots to the container's writable filesystem: wasteful, potentially filling the node's ephemeral storage, but harmless in the short term. The write would succeed, `stop-writes-on-bgsave-error` would never trigger, and the outage would never happen.
 

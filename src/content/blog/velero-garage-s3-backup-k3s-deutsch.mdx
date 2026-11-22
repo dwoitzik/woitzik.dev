@@ -278,4 +278,4 @@ Als Velero-Ziel im Homelab kann Garage alles, was MinIO kann, bei einem Bruchtei
 
 Mit diesem Setup dauert ein kompletter Neuaufbau des Clusters (frische k3s-Installation, ArgoCD, dann `velero restore`) unter 30 Minuten. Erst dieser Neuaufbau zeigt, ob die Backup-Strategie funktioniert. Ich habe [genau diesen Test](/blog/backup-restore-test-never-verified-network-conflict/) (Englisch) auf einer Wegwerf-VM durchgespielt und dabei einen Netzwerkkonflikt gefunden, den keine Dokumentation erwähnt.
 
-Ein „Completed" in `velero backup get` beweist dabei noch nichts. Wie mein tägliches Backup wochenlang erfolgreich meldete, ohne je PVC-Daten zu enthalten, steht in [Velero Said Backups Succeeded. The Data Was Never There.](/blog/velero-backup-false-positive-no-data/) (Englisch).
+Ein „Completed“ in `velero backup get` beweist dabei noch nichts. Wie mein tägliches Backup wochenlang erfolgreich meldete, ohne je PVC-Daten zu enthalten, steht in [Velero Said Backups Succeeded. The Data Was Never There.](/blog/velero-backup-false-positive-no-data/) (Englisch).

@@ -7,7 +7,7 @@ repoURL: "https://github.com/dwoitzik/terraform-azurerm-acme-cert"
 
 VNet-isolated certificate automation for Azure. The module deploys the open-source Acmebot engine plus the Terraform infrastructure around it: Storage, Key Vault, IAM, and a Function App on its own App Service Plan. Storage, Key Vault, and the Function App sit behind Private Endpoints.
 
-### What's included
+### What's Included
 
 - Automated issuance and renewal via Let's Encrypt (DNS-01)
 - Certificates stored directly in Azure Key Vault

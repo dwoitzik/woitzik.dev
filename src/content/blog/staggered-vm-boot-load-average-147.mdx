@@ -16,7 +16,7 @@ On Linux, load average counts tasks that are runnable or stuck in uninterruptibl
 
 The fix was boot order, not more hardware.
 
-> **Update (November 2026):** staggered boot fixed the boot-time storm, but it was not the whole story behind the host freezes I was chasing that week. An undersized PSU (mitigated by dropping the BIOS TDP from 54W to 25W) and a known OpenZFS 2.4.1 deadlock under ARC pressure (addressed by upgrading to 2.4.2 and capping ARC) were the other contributors. The k3s cluster has also since moved from three-member embedded etcd to a single server with SQLite via kine.
+> **Update (November 2026):** Staggered boot fixed the boot-time storm, but it was not the whole story behind the host freezes I was chasing that week. An undersized PSU (mitigated by dropping the BIOS TDP from 54W to 25W) and a known OpenZFS 2.4.1 deadlock under ARC pressure (addressed by upgrading to 2.4.2 and capping ARC) were the other contributors. The k3s cluster has also since moved from three-member embedded etcd to a single server with SQLite via kine.
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -26,7 +26,7 @@ Without startup ordering, every guest with `onboot=1` starts as soon as the host
 
 That's a thundering herd: 12 guests requesting I/O at the same moment, the NVMe queue fills, I/O latency spikes, and services that depend on each other (k3s needs NFS, k3s apps need DNS, DNS needs k3s services) end up waiting on each other in a chain.
 
-The load doesn't spike and recover; it compounds. Services that miss their start timeout retry and add more work to the queue. The k3s control-plane tries to mount NFS volumes, NFS is slow because it's competing with 11 other guests for I/O, k3s retries the mount, and the load climbs further.
+The load doesn't spike and recover; it compounds. Services that miss their start timeout retry and add more work to the queue. The k3s control plane tries to mount NFS volumes, NFS is slow because it's competing with 11 other guests for I/O, k3s retries the mount, and the load climbs further.
 
 ## The Fix: Staggered Boot Order
 
@@ -119,7 +119,7 @@ So `onboot` has to be set by hand after any LXC is recreated:
 pct set <id> -onboot 1
 ```
 
-I found this out the hard way. After recreating a container via Terraform, `onboot` was back at `0`, and the next host reboot skipped that container without a warning. The k3s control-plane came up without its NFS mount, and half the cluster sat in CrashLoopBackOff until I noticed.
+I found this out the hard way. After recreating a container via Terraform, `onboot` was back at `0`, and the next host reboot skipped that container without a warning. The k3s control plane came up without its NFS mount, and half the cluster sat in CrashLoopBackOff until I noticed.
 
 The workaround is a manual `pct set` step in the operations runbook after every LXC creation. Not ideal, but documented and repeatable.
 

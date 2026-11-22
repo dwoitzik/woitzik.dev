@@ -5,13 +5,13 @@ date: "2027-04-01"
 tags: ["Azure", "Terraform", "Security"]
 ---
 
-**Short answer:** I passed HashiCorp Terraform Associate with self-study (a Udemy course plus the Terraform I already write at work and for my homelab) in roughly two to four weeks alongside work. I passed Microsoft AZ-104 Azure Administrator after an instructor-led training at TÜV Rheinland, and preparation was essentially the length of that course. My verdict on the paid training: worth it if your employer pays, too expensive for what you get if you pay for it yourself. The hardest part of either exam was AZ-104's identity and access block: Entra ID, RBAC and Azure Policy.
+**Short answer:** I passed HashiCorp Terraform Associate with self-study (a Udemy course plus the Terraform I already write at work and for my homelab) in roughly two to four weeks alongside work. I passed Microsoft AZ-104 Azure Administrator after instructor-led training at TÜV Rheinland, and preparation was essentially the length of that course. My verdict on the paid training: worth it if your employer pays, too expensive for what you get if you pay for it yourself. The hardest part of either exam was AZ-104's identity and access block: Entra ID, RBAC and Azure Policy.
 
 Terraform Associate issued July 2025 (valid to July 2027), AZ-104 issued April 2026 (valid to April 2027). Exam facts below were checked against the official HashiCorp and Microsoft pages in November 2026. Exams change, so check the linked pages again before you book.
 
 ## Terraform Associate: What It Tests
 
-The current version is **Terraform Associate (004)**. According to the [official exam page](https://developer.hashicorp.com/certifications/terraform-associate), it is a one-hour, online proctored, multiple-choice exam in English, tests Terraform 1.12, and the credential is valid for two years. The page lists the price as $70.50 USD plus local taxes and fees, with no free retake.
+The current version is **Terraform Associate (004)**. According to the [official exam page](https://developer.hashicorp.com/certifications/terraform-associate), it is a one-hour, online-proctored, multiple-choice exam in English, tests Terraform 1.12, and the credential is valid for two years. The page lists the price as $70.50 USD plus local taxes and fees, with no free retake.
 
 The [004 review guide](https://developer.hashicorp.com/terraform/tutorials/certification-004/associate-review-004) groups the objectives into eight areas:
 
@@ -26,13 +26,13 @@ The [004 review guide](https://developer.hashicorp.com/terraform/tutorials/certi
 
 HashiCorp's own [study guide](https://developer.hashicorp.com/terraform/tutorials/certification-004/associate-study-004) says you are best prepared with professional production experience, and that working through the objectives in a personal demo environment may be sufficient.
 
-### How hands-on Terraform work covers most of it
+### How Hands-On Terraform Work Covers Most of It
 
 Most of objectives 1 to 7 overlaps with the Terraform I write at work and at home. My homelab runs separate Terraform stacks for the MikroTik network, Proxmox, Cloudflare and Garage, each with its own remote state in an S3-compatible backend, and the public Azure modules on my GitHub are plain Terraform as well. Running `fmt`, `validate` and `plan` in CI, reading a plan before it applies, pinning provider versions, and writing `import` blocks to adopt resources that already existed map directly onto objectives 2, 3, 6 and 7.
 
 Regular use does not automatically cover the exam's precision, though. Multiple-choice questions ask about exact command behavior, state locking and backend details, and module variable scope rules, so a structured course on top of hands-on work is what I used to close that gap.
 
-### What to study on top
+### What to Study on Top
 
 The one area my own work does not touch is **objective 8, HCP Terraform**. My state lives in a self-hosted S3 backend and applies run through GitHub Actions, so HCP Terraform workspaces, projects, variable sets, team permissions and run triggers never come up. If your setup looks like mine, plan time for the free [Get Started with HCP Terraform](https://developer.hashicorp.com/terraform/tutorials/cloud-get-started) tutorials.
 
@@ -54,7 +54,7 @@ The [AZ-104 study guide](https://learn.microsoft.com/en-us/credentials/certifica
 
 The skills outline in force when I checked is dated October 26, 2023.
 
-### Why identity and access was the hard part
+### Why Identity and Access Was the Hard Part
 
 The first block is the one I found hardest. From the official outline, it covers:
 
@@ -66,9 +66,9 @@ The three parts interact, and that is what makes the block hard: a role assignme
 
 The networking block maps much more directly onto what I build in Terraform: VNets, peering, user-defined routes, NSGs, private endpoints and private DNS. Note that the compute block expects you to read and modify ARM templates and Bicep files, not Terraform.
 
-### The paid-training verdict
+### The Paid-Training Verdict
 
-I prepared through an instructor-led training at TÜV Rheinland. Microsoft lists the official course as [AZ-104T00, Microsoft Azure Administrator](https://learn.microsoft.com/en-us/training/courses/az-104t00), four days, delivered by training partners. The same content is free as self-paced learning paths on Microsoft Learn, starting from the [certification page](https://learn.microsoft.com/en-us/credentials/certifications/azure-administrator/), and Microsoft offers a free practice assessment and an exam sandbox there as well.
+I prepared through instructor-led training at TÜV Rheinland. Microsoft lists the official course as [AZ-104T00, Microsoft Azure Administrator](https://learn.microsoft.com/en-us/training/courses/az-104t00), four days, delivered by training partners. The same content is free as self-paced learning paths on Microsoft Learn, starting from the [certification page](https://learn.microsoft.com/en-us/credentials/certifications/azure-administrator/), and Microsoft offers a free practice assessment and an exam sandbox there as well.
 
 My verdict: the instructor-led route is worth it when your employer pays for it. If you pay privately, it is too expensive for what you get, given that the learning paths, practice assessment and sandbox cost nothing.
 

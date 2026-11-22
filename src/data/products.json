@@ -2,7 +2,7 @@
   {
     "slug": "acmebot-enterprise-vnet",
     "badge": "Terraform Module",
-    "title": "Azure Acmebot - Zero-Trust Edition",
+    "title": "Azure Acmebot: Zero-Trust Edition",
     "description": "Let's Encrypt automation for locked-down Azure environments. Private Link isolation, default-deny network rules, and Managed Identity, built for ISO 27001, NIS2, and KRITIS audits.",
     "repoHref": "https://github.com/dwoitzik/terraform-azurerm-acme-cert",
     "registryHref": "https://registry.terraform.io/modules/dwoitzik/acme-cert/azurerm/latest",
@@ -19,14 +19,14 @@
   {
     "slug": "hub-spoke-enterprise-vnet",
     "badge": "Terraform Module",
-    "title": "Hub & Spoke - Zero-Trust Edition",
+    "title": "Hub & Spoke: Zero-Trust Edition",
     "description": "Zero-Trust NSGs, centralized Private DNS, and a DINE policy bypass so Azure Policy remediation does not show up as Terraform drift.",
     "repoHref": "https://github.com/dwoitzik/terraform-azurerm-hub-spoke",
     "registryHref": "https://registry.terraform.io/modules/dwoitzik/hub-spoke/azurerm/latest",
     "articleHref": "/blog/azure-terraform-hub-spoke-zero-trust/",
     "tags": ["Azure", "Terraform", "Zero-Trust", "Networking", "Compliance"],
     "bullets": [
-      "Zero-Trust NSG baseline bound to all Spoke subnets",
+      "Zero-Trust NSG baseline bound to all spoke subnets",
       "Centralized Private DNS Zones (Blob, SQL, Key Vault, ACR)",
       "DINE policy lifecycle bypass, so policy remediation does not break the next plan",
       "Environment-aware naming convention throughout",
@@ -37,7 +37,7 @@
   {
     "slug": "azure-firewall-enterprise",
     "badge": "Terraform Module",
-    "title": "Azure Firewall - Forced Tunneling Edition",
+    "title": "Azure Firewall: Forced Tunneling Edition",
     "description": "Forced tunneling without the Terraform cycle error, with KMS and Azure AD bypass routes, dynamic IP Groups, and baseline FQDN policies. Drops into an existing Hub & Spoke without breaking Windows activation or Managed Identities.",
     "repoHref": "https://github.com/dwoitzik/terraform-azurerm-firewall-forced-tunneling",
     "registryHref": "https://registry.terraform.io/modules/dwoitzik/firewall-forced-tunneling/azurerm/latest",
@@ -48,14 +48,14 @@
       "KMS and Azure AD bypass routes keep Windows activation and sign-in working",
       "Dynamic for_each subnet binding for any number of spokes",
       "IP Group-based firewall policies, no hardcoded IP addresses",
-      "FQDN baseline rules for Windows Updates and core Microsoft services"
+      "FQDN baseline rules for Windows Update and core Microsoft services"
     ],
     "available": true
   },
   {
     "slug": "azure-rag-enterprise",
     "badge": "Terraform Module",
-    "title": "Azure OpenAI RAG - Zero-Trust Networking",
+    "title": "Azure OpenAI RAG: Zero-Trust Networking",
     "description": "Isolated network layer for an Azure OpenAI RAG stack. Private Endpoints for Azure OpenAI and AI Search, automated Private DNS, and Managed Identity RBAC between them instead of shared keys.",
     "repoHref": "https://github.com/dwoitzik/terraform-azurerm-openai-rag",
     "registryHref": "https://registry.terraform.io/modules/dwoitzik/openai-rag/azurerm/latest",
@@ -72,8 +72,8 @@
   {
     "slug": "azure-private-aks-zero-trust",
     "badge": "Terraform Module",
-    "title": "Private AKS - Zero-Trust Edition",
-    "description": "No public API server, no public node IPs, no default outbound path. Forced-tunneled egress via Route Table, private-endpoint-only ACR and Key Vault. Built to run behind your Hub & Spoke.",
+    "title": "Private AKS: Zero-Trust Edition",
+    "description": "No public API server, no public node IPs, no default outbound path. Forced-tunneled egress via a route table, private-endpoint-only ACR and Key Vault. Built to run behind your Hub & Spoke.",
     "repoHref": "https://github.com/dwoitzik/terraform-azurerm-private-aks",
     "articleHref": "/blog/azure-private-aks-zero-trust/",
     "tags": ["Azure", "Terraform", "Kubernetes", "Zero-Trust"],

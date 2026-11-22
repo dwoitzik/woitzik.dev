@@ -11,26 +11,26 @@ On 2026-11-05 the boot NVMe in my Proxmox host reported 80% of its rated wear, t
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## Why this drive, and why SQLite
+## Why This Drive, and Why SQLite
 
-The drive is an unbranded 512 GB consumer NVMe without DRAM cache. Small random writes go almost straight to flash. That fact is why I run a single k3s server on the embedded SQLite datastore (kine) instead of etcd (ADR-015 in the repo). etcd does an `fdatasync` on every raft commit, which is close to the worst workload this drive can get.
+The drive is an unbranded 512 GB consumer NVMe without DRAM cache. Small random writes go almost straight to flash. That fact is why I run a single k3s server on the embedded SQLite datastore (kine) instead of etcd (ADR-015 in the repo). etcd does an `fdatasync` on every Raft commit, which is close to the worst workload this drive can get.
 
 SQLite is a better fit, but it is not free. kine stores every Kubernetes object revision as a row, and an update to a Lease or to an object's status is still an insert plus a WAL write. The datastore does not know that a lease renewal only moved `renewTime` forward by two seconds.
 
-## Finding the churn
+## Finding the Churn
 
 Each Lease renewal is a write, so the leases came first. Two stood out.
 
 **nfs-subdir-external-provisioner** used the older Endpoints-based leader election, renewed every few seconds, and had flapped through 1322 leader transitions in two weeks. It runs one replica with the `Recreate` deployment strategy. The old pod is gone before the new one starts, so leader election protected nothing. A comment in my own values file even claimed the chart had no leader election at all, which was wrong.
 
-**Kyverno's admission controller** renewed its lease every 2 seconds. The cleanup controller already ran with a 10 second retry period, set when I fixed the crash loop described in [How a YAML List vs Map Difference Crash-Looped My Kyverno Fix](/blog/kyverno-crash-loop-helm-extraargs-map/). The admission controller had simply never been given the same setting.
+**Kyverno's admission controller** renewed its lease every 2 seconds. The cleanup controller already ran with a 10-second retry period, set when I fixed the crash loop described in [How a YAML List vs Map Difference Crash-Looped My Kyverno Fix](/blog/kyverno-crash-loop-helm-extraargs-map/). The admission controller had simply never been given the same setting.
 
 Two more writers were not leases but periodic status updates:
 
 - **ArgoCD** reconciled about 60 Applications every 5 minutes. Each reconcile updates the Application's status, at least its `reconciledAt` timestamp, and that update is a write like any other. In August I had written this interval off as CPU and network overhead, not disk writes. That was wrong.
 - **Velero** validated both backup storage locations every minute, the default `validationFrequency`, and wrote the result into each location's status.
 
-## The changes
+## The Changes
 
 The nfs-provisioner chart exposes a switch for leader election:
 
@@ -67,15 +67,15 @@ spec:
 
 The cost is drift detection: a merge now shows up within 15 minutes plus jitter instead of 5, so I press Refresh after merging. The rest of my setup is in [ArgoCD on k3s: GitOps for a Whole Homelab](/blog/argocd-gitops-k3s-homelab/).
 
-## The one lease I kept
+## The One Lease I Kept
 
 The CloudNativePG operator also renews its lease every 2 seconds. I left it. It has no flag for the retry period, and turning leader election off is not safe there: the operator Deployment uses a rolling update, so during every update the old and new operator pods can overlap. Without the lease, both would reconcile the same Postgres clusters. The nfs-provisioner case is the opposite, and that is the test I'd use: leader election earns its writes only if two instances can actually overlap.
 
-## Two settings that never arrived
+## Two Settings That Never Arrived
 
 Live verification right after the merge showed two of the four changes had not landed. Kyverno 3.5's chart reads `admissionController.container.extraArgs`, not `admissionController.extraArgs`, so the first version of the flag was silently dropped. And `argocd-cm` was not in any Application's include list: it had only ever been applied by hand, so ArgoCD had nothing to sync. A follow-up PR (#1028) fixed both, and the rendered Kyverno pod now carries `--leaderElectionRetryPeriod=10s`. Trusting the Synced status would have left half the fixes unapplied.
 
-## What the write rate did
+## What the Write Rate Did
 
 I compared node_exporter's write rate, averaged over 7 days, for the week ending 2026-11-04 and the week ending 2026-11-12, both sampled at noon UTC:
 
@@ -92,7 +92,7 @@ rate(node_disk_written_bytes_total{device="nvme0n1"}[7d])
 
 SMART `percentage_used` was 82% on 2026-11-12. The write cut slows the counter. It does not stop it, and the drive still has to be replaced.
 
-## Why I can't credit #1027 alone
+## Why I Can't Credit #1027 Alone
 
 The second window starts at noon UTC on 2026-11-05, about five hours before the commit at 17:39 CET, and the follow-up fix landed later that evening. More importantly, a lot else changed in the same week. From the repo history, the commits that plausibly moved write load:
 
@@ -105,7 +105,7 @@ The second window starts at noon UTC on 2026-11-05, about five hours before the 
 
 The vzdump change alone could explain a large part of the host drop, and of the host's 0.158 MB/s reduction only 0.045 MB/s shows up on the k3s server's own disk. I did not measure per-component savings, so I can't split the 14% between leases, ArgoCD, Velero and the removed workloads. What I can say is that the k3s server disk wrote less in the week the churn fixes went in, and none of the changes made it worse.
 
-## Finding your own top writers
+## Finding Your Own Top Writers
 
 General guidance, not output from my cluster. List leases with their renew time and transition count:
 
@@ -146,7 +146,7 @@ For background on why leader-election timing matters on a shared host, see [CPU 
 
 ## Checklist
 
-- **Every lease renewal is a datastore write.** On kine with SQLite, a 2 second renew period is a steady write stream per controller.
+- **Every lease renewal is a datastore write.** On kine with SQLite, a 2-second renew period is a steady write stream per controller.
 - **Leader election with one replica and `Recreate` protects nothing.** Turn it off there. Keep it where a rolling update can run two instances.
 - **Status updates count too.** ArgoCD reconciles and Velero location checks write even when nothing changed.
 - **Verify the rendered flag, not the values file.** Two of my four settings never reached the cluster on the first try.

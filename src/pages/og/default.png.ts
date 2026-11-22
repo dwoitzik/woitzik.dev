@@ -92,7 +92,7 @@ export const GET: APIRoute = async () => {
                       fontWeight: 400,
                       letterSpacing: "0.08em",
                     },
-                    children: "ENTERPRISE MODULES",
+                    children: "FREE TERRAFORM MODULES",
                   },
                 },
               ],

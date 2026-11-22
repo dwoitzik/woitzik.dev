@@ -1,5 +1,5 @@
 ---
-title: "Every Stateful Pod in My Cluster Had Piled Onto One Node"
+title: "Every Stateful Pod in My Cluster Had Piled onto One Node"
 description: "A k3s node hung under 97-99.9% disk utilization. The cause wasn't local-path PVCs but scheduling inertia: nothing in the cluster had ever enforced pod spread."
 date: "2027-03-08"
 tags: ["Kubernetes", "Homelab", "Debugging", "Performance"]
@@ -15,7 +15,7 @@ One of [my three k3s VMs](/blog/k3s-three-vm-topology-overhead-measured/) hung c
 
 ## Storage Was Still Saturated After the Restart
 
-I didn't assume the restart had fixed the underlying problem; I checked. `iostat -x` on the Proxmox host showed the LVM-thin data and metadata devices at 97–99.9% utilization, with discard latency spiking to 734ms on the physical NVMe. Whatever caused the hang was still happening.
+I didn't assume the restart had fixed the underlying problem; I checked. `iostat -x` on the Proxmox host showed the LVM-thin data and metadata devices at 97-99.9% utilization, with discard latency spiking to 734ms on the physical NVMe. Whatever caused the hang was still happening.
 
 ## My First Theory Was Only Partly Right
 

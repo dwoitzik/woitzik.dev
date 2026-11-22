@@ -7,7 +7,7 @@ repoURL: "https://github.com/dwoitzik/terraform-azurerm-openai-rag"
 
 Network foundation for a RAG stack on Azure. Deploys Azure OpenAI and AI Search behind Private Endpoints with matching Private DNS zones. Neither service has a public endpoint.
 
-### What's included
+### What's Included
 
 - Azure OpenAI and AI Search with Private Endpoints on a dedicated subnet
 - Public network access disabled on both services

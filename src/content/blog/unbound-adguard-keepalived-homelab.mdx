@@ -208,9 +208,9 @@ There is no `forward-zone` for `.` at all. Without one, Unbound recurses from th
 
 The access list has four entries. `10.0.0.0/8` covers the homelab VLANs. `172.16.0.0/12` is there because of Docker: AdGuard queries `127.0.0.1:5335` on the host, Docker's userland proxy forwards that into the container, and inside the container the query arrives from the bridge gateway address (172.17.0.1 on a default install), not from 127.0.0.1. Without that line Unbound would answer AdGuard with `REFUSED`. `192.168.0.0/16` covers the Fritz!Box LAN (192.168.178.0/24), whose clients also query these Pis. Unbound refuses everything else. A `/8` is 16 million addresses, far wider than the five /24 VLANs that exist. That is acceptable here because Unbound is not reachable from outside the network, but it is a convenience, not a security boundary. If you would rather narrow it to the VLANs that actually exist, the [IPv4 subnet calculator](https://woitzik.dev/tools/subnet-calculator/) shows what each prefix covers and how many addresses it hands out.
 
-### DNSSEC is not validated yet
+### DNSSEC Is Not Validated Yet
 
-Unbound only validates DNSSEC when it has a trust anchor for the root, set with `auto-trust-anchor-file`. The `klutchell/unbound` image ships a config with that line and a `root.key` generated at build time under `/var/unbound/`, but my role mounts its own `unbound.conf` over the image's file, and that template has no trust-anchor line. `harden-dnssec-stripped` does nothing without an anchor. AdGuard's `enable_dnssec: true` does not fill the gap either: it sets the DO bit and passes through the `ad` flag from its upstream, it does not validate on its own.
+Unbound only validates DNSSEC when it has a trust anchor for the root, set with `auto-trust-anchor-file`. The `klutchell/unbound` image ships a config with that line and a `root.key` generated at build time under `/var/unbound/`, but my role mounts its own `unbound.conf` over the image's file, and that template has no trust-anchor line. `harden-dnssec-stripped` does nothing without an anchor. AdGuard's `enable_dnssec: true` does not fill the gap either: it sets the DO bit and passes through the `ad` flag from its upstream; it does not validate on its own.
 
 The live test (2026-11-04) shows it:
 
@@ -407,7 +407,7 @@ ip addr show eth0 | grep 10.0.20.5
 # VIP should now appear here
 ```
 
-Restart Keepalived on the primary and it re-claims the VIP automatically.
+Restart Keepalived on the primary and it reclaims the VIP automatically.
 
 ## The Result
 

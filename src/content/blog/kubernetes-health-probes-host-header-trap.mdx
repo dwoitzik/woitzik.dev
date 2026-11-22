@@ -112,7 +112,7 @@ Immich had zero probes across all four workloads: postgres, valkey, server, and 
 - **immich-server**: `/api/server/ping` → `{"res":"pong"}`, no auth required
 - **immich-ml**: `/ping` → `pong`. Longer `initialDelaySeconds` since CLIP and face-detection models load into memory on startup before this endpoint responds.
 
-## Batch 5: Nextcloud, Paperless, Open-WebUI
+## Batch 5: Nextcloud, Paperless, Open WebUI
 
 The final batch, same Host header gotcha as Homepage:
 
@@ -121,7 +121,7 @@ The final batch, same Host header gotcha as Homepage:
 - **nextcloud**: `/status.php`, `Host: nextcloud.woitzik.dev` override (NEXTCLOUD_TRUSTED_DOMAINS only permits that domain)
 - **postgres-paperless**: `pg_isready` → accepting connections
 - **redis-paperless**: `redis-cli ping` → PONG
-- **paperless**: `/api/`, `Host: docs.woitzik.dev` override. Returns `302` to `schema/view/` which is a valid pass (`200 <= code < 400`).
+- **paperless**: `/api/`, `Host: docs.woitzik.dev` override. Returns `302` to `schema/view/`, which is a valid pass (`200 <= code < 400`).
 - **paperless-gotenberg**: `/health` → real component-status JSON
 - **paperless-tika**: `/` → 200 index page (no lighter healthz in this version)
 - **open-webui**: `/health` → `{"status":true}`

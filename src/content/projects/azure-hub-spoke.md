@@ -7,7 +7,7 @@ repoURL: "https://github.com/dwoitzik/terraform-azurerm-hub-spoke"
 
 A deployable Hub & Spoke foundation for Azure. Two isolated Spoke VNets connect to a central Hub through bidirectional VNet peering, ready for workloads.
 
-### What's included
+### What's Included
 
 - Central Hub VNet for shared services (Firewall, DNS, Bastion)
 - Two pre-configured Spoke VNets with bidirectional peering

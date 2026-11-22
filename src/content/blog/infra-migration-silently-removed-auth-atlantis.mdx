@@ -16,7 +16,7 @@ That fix held for months. An unrelated infrastructure migration that nobody chec
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## The Migration That Re-Opened the Exposure
+## The Migration That Reopened the Exposure
 
 Atlantis moved from a Kubernetes deployment to a dedicated LXC container (ADR-012). The Kubernetes deployment had a `Service`, an `IngressRoute` and Traefik middleware handling the routing, including the Authelia gate. The LXC had none of that: a bare server running the Atlantis binary directly.
 

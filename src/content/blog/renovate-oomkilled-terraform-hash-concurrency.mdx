@@ -34,7 +34,7 @@ I ran Renovate off-cluster with 12 GiB of headroom, a real GitHub token, real br
 
 The run finished cleanly with exit 0. Peak memory: **3.99 GiB**.
 
-So this was never unbounded growth. The kernel's oom-kill records put the 2 GiB kills at an anon-rss of about 2054–2064Mi and the 4 GiB kills at about 4.12–4.15 GiB, both just over the cap. Those numbers only show where the limit was, not how high the process wanted to go. A 3.99 GiB peak leaves no margin under a 4 GiB cgroup limit, so normal run-to-run variance was enough to cross it mid-spike, before GC could reclaim anything.
+So this was never unbounded growth. The kernel's oom-kill records put the 2 GiB kills at an anon-rss of about 2054 to 2064Mi and the 4 GiB kills at about 4.12 to 4.15 GiB, both just over the cap. Those numbers only show where the limit was, not how high the process wanted to go. A 3.99 GiB peak leaves no margin under a 4 GiB cgroup limit, so normal run-to-run variance was enough to cross it mid-spike, before GC could reclaim anything.
 
 ## The Root Cause: Terraform Hash Concurrency
 

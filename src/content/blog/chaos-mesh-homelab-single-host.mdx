@@ -126,23 +126,23 @@ Chaos Mesh is still installed for ad-hoc experiments, applied on demand against 
 
 ## What It Taught
 
-### 1. An experiment that selects nothing looks like success
+### 1. An Experiment That Selects Nothing Looks like Success
 
 A label-selector experiment with no matching pods does not fail loudly. It does nothing, and "nothing happened" is also what a passing resilience test looks like from the outside. Any scheduled experiment needs a check that it hit a target: count the affected pods, or alert on the experiment object's own failure status. The game day does this implicitly, because it fails if the pre-check or the recovery poll fails.
 
-### 2. Declared is not applied
+### 2. Declared Is Not Applied
 
 The schedules lived in git for over two months before anything noticed they were not in the cluster. Anything under `kubernetes/system/` that ArgoCD does not own needs something comparing git to live state. That is what the drift checker does now.
 
-### 3. PDBs cover evictions, not failures
+### 3. PDBs Cover Evictions, Not Failures
 
 This part of the original post holds regardless of the results. A PodDisruptionBudget makes drains and node maintenance wait. Chaos Mesh's pod-kill deletes pods directly through the API, and PDBs only gate evictions, so a pod-kill with `mode: all` would take out every replica regardless of the PDB, exactly like a real crash or OOM kill. `mode: one` is what limits the blast radius of the experiment. Replica count and spread protect against real failures.
 
-### 4. Init containers decide recovery time
+### 4. Init Containers Decide Recovery Time
 
 Authelia and Paperless both start with a `wait-for-vault-secret` init container that blocks until the Vault-backed secret files exist (it checks every 2 seconds). After a cold cluster restart, when Vault starts sealed, that wait is the whole recovery time. I have not measured it under a pod-kill. That is the next ad-hoc experiment worth running, now with a check that it actually killed something.
 
-### 5. Chaos testing on a homelab is still worth it
+### 5. Chaos Testing on a Homelab Is Still Worth It
 
 The cluster has no SLA, but the lesson here (a resilience control that silently does nothing) is the same one production teams learn from backup jobs that never ran. Finding it in a homelab is cheap. It's the same reasoning behind [treating a cascading OOM-kill/DNS-storm failure](/blog/k3s-cascading-failure-oomkill-dns-storm/) as worth a full root-cause writeup even though nobody was paged.
 

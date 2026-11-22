@@ -11,7 +11,7 @@ From 2026-08-20 to 2026-10-06, every download in my media stack failed. Radarr a
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## The setup
+## The Setup
 
 The media acquisition stack runs in its own LXC, outside Kubernetes. I explained why in [my media stack post](/blog/media-stack-two-containers-python-cronjob/). It is one Docker Compose project: NZBHydra2, SABnzbd, Sonarr, Radarr, Bazarr and Jellyseerr, plus a Tor SOCKS proxy and autoheal. Ansible deploys it. Every image was `:latest`:
 
@@ -21,11 +21,11 @@ The media acquisition stack runs in its own LXC, outside Kubernetes. I explained
     image: lscr.io/linuxserver/sonarr:latest
 ```
 
-## The symptom: every download fails, every container is healthy
+## The Symptom: Every Download Fails, Every Container Is Healthy
 
 Docker reported every container healthy the whole time. The NZBHydra2 healthcheck is a `curl -f http://localhost:5076/`, and that kept returning 200 while downloads came back 403. Autoheal had nothing to restart. The containers were fine. The image was too old for the indexer on the other end.
 
-## Why :latest never updated
+## Why :latest Never Updated
 
 `:latest` does not mean "the newest version is running". It means "whatever image was pulled under that tag, the last time something pulled it". When I traced it, I found three separate reasons why nothing ever pulled.
 
@@ -45,7 +45,7 @@ Docker reported every container healthy the whole time. The NZBHydra2 healthchec
 
 The removal was right. But the promise was that updates come through the repo or not at all, and for this compose stack no repo path was ever built. The image had already been stale for months, and from then on nothing was even supposed to update it.
 
-## The fix (ADR-054, #848)
+## The Fix (ADR-054, #848)
 
 The goal was the property ArgoCD already gives the Kubernetes side: merging a change deploys it. Four parts.
 
@@ -113,7 +113,7 @@ Before merging I tested the script on the host: it converged a local compose edi
 
 Since then Renovate has opened and merged 31 dependency PRs for that file, five of them NZBHydra2 digest updates.
 
-## Then I found 13 more
+## Then I Found 13 More
 
 Pinning the media stack made me look at every other compose file Ansible deploys (ADR-071, #964). Thirteen images across nine roles ran on a floating tag or no tag at all. Among them were the reverse proxy in front of the internet-facing services, the LAN DNS filter and the upstream resolver:
 

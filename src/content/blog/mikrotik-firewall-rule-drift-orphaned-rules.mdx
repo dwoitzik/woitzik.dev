@@ -10,7 +10,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-I wrote an [article about building a zero-trust MikroTik firewall with Terraform](/blog/mikrotik-zero-trust-firewall-terraform/): default-deny chains, explicit allow rules, `place_before` for deterministic ordering. It runs on the [RB5009\*](/go/4w08b21), whose hardware-offloaded switching matters once you're carrying multiple VLANs across a trunk. The Terraform code was correct. I ran `terraform plan` regularly and it showed no drift.
+I wrote an [article about building a zero-trust MikroTik firewall with Terraform](/blog/mikrotik-zero-trust-firewall-terraform/): default-deny chains, explicit allow rules, `place_before` for deterministic ordering. It runs on the [RB5009\*](/go/4w08b21), whose hardware-offloaded switching matters once you're carrying multiple VLANs across a trunk. The Terraform code was correct. I ran `terraform plan` regularly, and it showed no drift.
 
 The live router had 77 firewall filter rules. The Terraform configuration tracked 22.
 
@@ -18,7 +18,7 @@ This is how that happened, why a clean `terraform plan` didn't catch it, and how
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## How You End Up With Four Generations of the Same Firewall
+## How You End Up with Four Generations of the Same Firewall
 
 In hindsight the pattern is obvious. Every significant firewall rework, I wrote a fresh, complete set of rules in `firewall_deterministic.tf` and ran `terraform apply`. Terraform created the new rules. It never removed the previous generation, because by then those rules were no longer in its state. Removing a resource from the configuration while it's still in state makes Terraform destroy it on the next apply. A rule that has already dropped out of state, through a reconstruction pass that started over or resources taken out of state rather than destroyed, stays on the router untouched. A couple of rules had a simpler origin: I created them directly via the RouterOS API during a debugging session and never imported them.
 

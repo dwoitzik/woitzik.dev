@@ -1,5 +1,5 @@
 ---
-title: "KRITIS Compliance in Azure: Mapping BSIG §§ 30–39 to Terraform"
+title: "KRITIS Compliance in Azure: Mapping BSIG §§ 30-39 to Terraform"
 description: "The BSIG's technical duties for German KRITIS operators after the NIS2 reform, mapped to Azure Terraform: segmentation, attack detection, and audit trail."
 date: "2026-12-03"
 tags: ["Azure", "Terraform", "Compliance", "Security"]
@@ -22,7 +22,7 @@ If you learned KRITIS as "§8a BSIG": that section no longer exists. The NIS2 im
 Strip away the legal language and the BSIG asks four concrete things of a KRITIS operator's IT systems:
 
 **1. Risk management measures at the state of the art (§30, §31 Abs. 1)**
-Every NIS2 entity must take "appropriate, proportionate and effective" technical and organizational measures, and they should follow the "Stand der Technik" (§30 Abs. 1–2). Operators of critical facilities must go further wherever the effort is not out of proportion to the consequences of an outage (§31 Abs. 1). "Stand der Technik" is a moving target by design: what counted as state of the art in 2022 does not in 2026.
+Every NIS2 entity must take "appropriate, proportionate and effective" technical and organizational measures, and they should follow the "Stand der Technik" (§30 Abs. 1 and 2). Operators of critical facilities must go further wherever the effort is not out of proportion to the consequences of an outage (§31 Abs. 1). "Stand der Technik" is a moving target by design: what counted as state of the art in 2022 does not in 2026.
 
 **2. Systems to detect attacks ("Systeme zur Angriffserkennung", SzA, §31 Abs. 2)**
 Mandatory for KRITIS operators since May 2023 (then under §8a Abs. 1a) and carried over into the new law. The systems must continuously and automatically collect and evaluate relevant parameters from live operations, identify threats, and support remediation. A firewall that produces logs nobody reads does not qualify.
@@ -33,7 +33,7 @@ KRITIS operators must prove to the BSI, through audits, inspections or certifica
 **4. Incident reporting (§32)**
 Significant security incidents go to the joint reporting office of BSI and BBK in three stages: an early warning within 24 hours of becoming aware, an incident notification within 72 hours, and a final report one month after that. You cannot report what your infrastructure never logged.
 
-## Mapping §8a to Azure Architecture
+## Mapping the BSIG Duties to Azure Architecture
 
 ```
 BSIG Requirement                  →    Azure Control
@@ -83,11 +83,11 @@ resource "azurerm_subnet_network_security_group_association" "spoke_bind" {
 }
 ```
 
-The difference from a generic hardening pass is that for KRITIS, this NSG configuration becomes evidence in the §39 audit. An auditor doesn't want a screenshot of the Azure Portal. They want to see that the control existed at deployment time and has stayed in place, and a `terraform plan` showing zero drift demonstrates exactly that.
+The difference from a generic hardening pass is that for KRITIS, this NSG configuration becomes evidence in the §39 audit. An auditor doesn't want a screenshot of the Azure portal. They want to see that the control existed at deployment time and has stayed in place, and a `terraform plan` showing zero drift demonstrates exactly that.
 
 ## Control 2: Systeme zur Angriffserkennung (SzA)
 
-Most infrastructure-as-code write-ups skip this control entirely, and it's the one that is mandatory for KRITIS operators. SzA requires continuous collection and analysis of security-relevant events. In Azure terms, that means flow logs shipped to a Log Analytics workspace, not sitting unused in a Storage Account.
+Most infrastructure-as-code write-ups skip this control entirely, and it's the one that is mandatory for KRITIS operators. SzA requires continuous collection and analysis of security-relevant events. In Azure terms, that means flow logs shipped to a Log Analytics workspace, not sitting unused in a storage account.
 
 Use VNet flow logs, not NSG flow logs. Azure has blocked the creation of new NSG flow logs since June 30, 2025, and retires them entirely on September 30, 2027. VNet flow logs attach to the virtual network and capture traffic for every subnet and NIC in it:
 
@@ -173,7 +173,7 @@ Without this, the first question an incident report has to answer ("when did it 
 
 ## What This Covers and What It Doesn't
 
-This addresses the technical network security and detection controls behind §§30–32 and §39 BSIG. Full KRITIS compliance also requires:
+This addresses the technical network security and detection controls behind §§30-32 and §39 BSIG. Full KRITIS compliance also requires:
 
 - **Determining KRITIS status itself:** the sector thresholds, a legal and organizational question this article does not touch
 - **Registration:** critical facilities register under §8 KRITIS-Dachgesetz (§33 Abs. 2 BSIG), with contact details kept current
@@ -186,7 +186,7 @@ This addresses the technical network security and detection controls behind §§
 A Hub & Spoke deployment built against the KRITIS sections of the BSIG gives you:
 
 - Network segmentation and default-deny as the baseline, not a follow-up ticket
-- VNet flow logs with Traffic Analytics as the network-layer part of "Angriffserkennung", not just log storage
+- VNet flow logs with Traffic Analytics as the network-layer part of "Angriffserkennung," not just log storage
 - Azure Firewall threat intelligence in blocking mode
 - Continuous Azure Policy compliance evidence for the §39 audit
 - A centralized, timestamped log trail that answers the first question of a §32 report

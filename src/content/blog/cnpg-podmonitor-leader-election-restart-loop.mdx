@@ -103,6 +103,6 @@ Both fixes replace a default with explicit configuration: a git-managed PodMonit
 
 ---
 
-One scoping note: the leader-election tuning applies to self-hosted control planes. The renewal is a call to the API server, and here the API server shares the same hardware as the failing disk. On a managed control plane like AKS, EKS, or GKE, the API server lives off the node, so local disk I/O can't delay the renewal. Raising the renew deadline there buys nothing. It only adds up to 50 seconds before another instance can take over during a real leader election failure. Keep the default deadlines, or apply this fix only where the control plane runs on the hardware you're tuning for.
+One scoping note: the leader-election tuning applies to self-hosted control planes. The renewal is a call to the API server, and here the API server shares the same hardware as the failing disk. On a managed control plane like AKS, EKS, or GKE, the API server lives off the node, so local disk I/O can't delay the renewal. Raising the renew deadline there buys nothing. It only adds up to 50 seconds before another instance can take over during a real leader-election failure. Keep the default deadlines, or apply this fix only where the control plane runs on the hardware you're tuning for.
 
 <NewsletterCTA />

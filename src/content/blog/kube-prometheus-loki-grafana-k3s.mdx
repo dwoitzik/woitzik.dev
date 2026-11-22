@@ -449,8 +449,8 @@ No manual dashboard import, no dashboards lost after container restarts. The JSO
 After deploying all components:
 
 - **Metrics**: Prometheus scrapes every k3s node, every bare-metal node, and the MikroTik router. 30 days of history on an NFS-backed PVC.
-- **Logs**: All pod logs and system logs from every node flow into Loki, stored durably on Garage S3. 30 day retention with automatic compaction.
-- **Dashboards**: Grafana shows metrics and logs in a single view, with Loki datasource pre-configured. Custom dashboards deploy via ArgoCD with zero manual steps.
+- **Logs**: All pod logs and system logs from every node flow into Loki, stored durably on Garage S3. 30-day retention with automatic compaction.
+- **Dashboards**: Grafana shows metrics and logs in a single view, with the Loki datasource pre-configured. Custom dashboards deploy via ArgoCD with zero manual steps.
 - **Access**: One SSO login via Authelia. Group membership determines the Grafana role.
 - **Storage efficiency**: Garage serves both Velero backups and Loki log chunks from a single lightweight deployment.
 

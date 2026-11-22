@@ -68,7 +68,7 @@ kubectl delete statefulset <name> -n <namespace> --cascade=orphan
 
 That fixes the template, not the volume. The re-adopted PVC keeps its old `storageClassName`, because that field can't be changed on an existing PVC either. To actually move the data to the new class, copy it to a new PVC and delete the old one; only PVCs created after the change pick up the new template.
 
-## A Second, Different-Looking Bug With a Related Cause: SharedResourceWarning
+## A Second, Different-Looking Bug with a Related Cause: SharedResourceWarning
 
 A related but distinct symptom: a resource flickers between two different specs, or gets pruned entirely, and `.status.conditions` on one of the Applications shows a `SharedResourceWarning`.
 

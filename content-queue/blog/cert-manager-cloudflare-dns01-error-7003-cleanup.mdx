@@ -1,5 +1,5 @@
 ---
-title: "cert-manager Cloudflare DNS-01: Cleanup Fails With Error 7003"
+title: "cert-manager Cloudflare DNS-01: Cleanup Fails with Error 7003"
 description: "cert-manager Cloudflare DNS-01 cleanup failed with error 7003 on DELETE /zones//dns_records. Why the zone ID was empty and how v1.19.6 fixed my wildcard."
 date: "2026-11-23"
 tags: ["Kubernetes", "Cloudflare", "Security", "Debugging"]
@@ -11,7 +11,7 @@ My wildcard certificate for `*.woitzik.dev` was about a week from expiry when I 
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## The setup
+## The Setup
 
 One `Certificate` in `kube-system` covers every service behind Traefik. I described the full setup in [wildcard TLS on k3s with cert-manager and Cloudflare DNS01](/blog/cert-manager-wildcard-k3s-cloudflare/). The part that matters here is the list of names:
 
@@ -34,7 +34,7 @@ spec:
 
 Two names, one for the wildcard and one for the apex. Both are validated with a TXT record at the same name, `_acme-challenge.woitzik.dev`. That detail turns one failed cleanup into a stuck order.
 
-## Why the renewal had already been stuck for weeks
+## Why the Renewal Had Already Been Stuck for Weeks
 
 The 7003 error was the second problem, not the first. The renewal had been failing since 2026-10-12, and the first cause was my own NetworkPolicy. cert-manager runs with:
 
@@ -63,7 +63,7 @@ So its propagation check talks to `1.1.1.1` and `8.8.8.8` directly. The egress p
 
 With DNS reachable, the propagation check passed and the wildcard challenge validated. The certificate still did not renew.
 
-## The symptom: challenge valid, order never completes
+## The Symptom: Challenge Valid, Order Never Completes
 
 Looking at the `Challenge` resources showed the next failure. The wildcard challenge had validated, but cert-manager could not clean it up. The Cloudflare API rejected the delete:
 
@@ -82,7 +82,7 @@ kubectl describe challenge -n kube-system
 
 Those two commands are where this shows up. The `Certificate` itself only tells you that it is not renewing.
 
-## Root cause: Cloudflare stopped returning zone_id
+## Root Cause: Cloudflare Stopped Returning zone_id
 
 This is a known upstream bug, [cert-manager#7540](https://github.com/cert-manager/cert-manager/issues/7540). Cloudflare deprecated the `zone_id` and `zone_name` fields on DNS record responses. cert-manager took the zone ID for the cleanup request from the record it had looked up, so once the field was gone the URL became `/zones//dns_records/<id>`. The error users posted in that issue reads:
 
@@ -94,7 +94,7 @@ The TXT record gets created, the challenge can even validate, and then the delet
 
 The fix is [cert-manager#7549](https://github.com/cert-manager/cert-manager/pull/7549), "chore(issuer/cloudflare): ensure we set ZoneID". It sets the zone ID on the record from the zone lookup instead of relying on the API response. It shipped in v1.17.1 and v1.16.4, with the release note "Fix issuing of certificates via DNS01 challenges on Cloudflare after a breaking change to the Cloudflare API". The workaround people used in the meantime was deleting the leftover `_acme-challenge` TXT records by hand. That has to be repeated on every renewal, so I upgraded instead.
 
-## The fix: upgrade to v1.19.6 (#1020)
+## The Fix: Upgrade to v1.19.6 (#1020)
 
 My cluster runs Kubernetes 1.31. v1.19.6 was the newest cert-manager release that supports it: 1.20 needs 1.32 or newer, and 1.21 needs 1.33. The ArgoCD Application changed in three places:
 
@@ -141,7 +141,7 @@ kubectl get deploy -n cert-manager cert-manager \
 
 The certificate is `Ready=True` with `notAfter` 2027-02-03T14:42:36Z, revision 3. The controller runs `quay.io/jetstack/cert-manager-controller:v1.19.6`.
 
-## Why I only noticed six days before expiry
+## Why I Only Noticed Six Days Before Expiry
 
 The renewal was stuck from 2026-10-12, and the first alert I saw was `CertManagerCertExpirySoon` at seven days left. That gap is a monitoring problem on its own, and it got its own PR (#1021).
 

@@ -10,7 +10,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-**Update (November 2026):** this cluster no longer runs etcd. An earlier attempt at three-server
+**Update (November 2026):** This cluster no longer runs etcd. An earlier attempt at three-server
 embedded etcd caused host freezes, because all three k3s VMs share one physical host and one
 DRAM-less NVMe. Since the rebuild on 2026-08-13 the cluster runs a single k3s server on the
 embedded SQLite datastore. The `cpu.units = 2048` weighting below is still set on the k3s VMs.
@@ -101,7 +101,7 @@ CPU priority and memory priority are separate in Proxmox. `cpu.units` affects CP
 
 On this host, both matter:
 - etcd needs low-latency CPU for fdatasync (solved by `cpu.units`)
-- k3s control-plane needs guaranteed RAM for API server and scheduler (solved by `memory.dedicated = 12284`, the same VM-vs-LXC memory model covered in [the overcommit guard writeup](/blog/overcommit-guard-python-host-freeze/))
+- k3s control plane needs guaranteed RAM for the API server and scheduler (solved by `memory.dedicated = 12284`, the same VM-vs-LXC memory model covered in [the overcommit guard writeup](/blog/overcommit-guard-python-host-freeze/))
 
 The RAM allocation is a hard reservation: 12 GB is always available for the k3s-11 VM. The CPU priority is a soft weighting that only matters when cores are shared. Both are necessary: without RAM priority, the k3s VM could be ballooned down to 4 GB under pressure; without CPU priority, etcd could lose the fdatasync race to Ollama.
 

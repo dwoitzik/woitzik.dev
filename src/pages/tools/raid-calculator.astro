@@ -115,7 +115,7 @@ const faqs = [
   },
   {
     q: "How do mixed drive sizes change the result?",
-    a: "Classic RAID 5, 6 and 10 treat every drive as if it were the smallest one, so extra capacity on larger drives is unused. SHR slices drives and builds RAID across the slices, so usable capacity is the total minus the largest drive (SHR-1) or the two largest (SHR-2). A 4 TB + 2 TB pair in SHR-1 still gives 2 TB, because the mirror can only be as big as the smaller drive, but 2 + 4 + 4 TB gives 6 TB in SHR-1 where RAID 5 gives 4 TB.",
+    a: "Classic RAID 5, 6, and 10 treat every drive as if it were the smallest one, so extra capacity on larger drives is unused. SHR slices drives and builds RAID across the slices, so usable capacity is the total minus the largest drive (SHR-1) or the two largest (SHR-2). A 4 TB + 2 TB pair in SHR-1 still gives 2 TB, because the mirror can only be as big as the smaller drive, but 2 + 4 + 4 TB gives 6 TB in SHR-1 where RAID 5 gives 4 TB.",
   },
   {
     q: "Which RAID level should a home NAS use?",
@@ -123,7 +123,7 @@ const faqs = [
   },
   {
     q: "Does usable capacity match what the NAS shows after formatting?",
-    a: "Not exactly. Beyond parity, the filesystem reserves space for metadata and journal, and vendors usually report capacity in decimal terabytes while the operating system may display binary tebibytes. Expect a small additional difference on top of the parity overhead calculated here.",
+    a: "Not exactly. Beyond parity, the filesystem reserves space for metadata and the journal, and vendors usually report capacity in decimal terabytes while the operating system may display binary tebibytes. Expect a small additional difference on top of the parity overhead calculated here.",
   },
 ];
 
@@ -144,7 +144,7 @@ const related = [
 <ToolLayout
   title="RAID Capacity Calculator"
   path="/tools/raid-calculator/"
-  description="Free RAID capacity calculator: usable storage, space lost to parity and drive failure tolerance for RAID 0, 1, 5, 6, 10, SHR-1 and SHR-2, including mixed drive sizes."
+  description="Free RAID capacity calculator: usable storage, space lost to parity, and drive failure tolerance for RAID 0, 1, 5, 6, 10, SHR-1, and SHR-2, including mixed drive sizes."
   intro="Enter your drive sizes and pick a RAID level to see how much storage you actually get. This is the number to plan against: a 4-drive array of 4 TB disks holds 16 TB raw, but considerably less once redundancy is accounted for."
   faqs={faqs}
   related={related}
@@ -174,7 +174,7 @@ const related = [
         id="raid-sizes-hint"
         class="text-xs text-neutral-500 dark:text-neutral-400 m-0"
       >
-        Comma or space separated, one entry per drive. Decimals allowed, so
+        Comma- or space-separated, one entry per drive. Decimals allowed, so
         <code>3.5, 3.5</code> is a valid pair of 4 TB-class drives.
       </p>
     </div>
@@ -262,7 +262,7 @@ const related = [
   </div>
 
   <h2 class="font-semibold text-lg text-black dark:text-white">
-    All RAID levels for this configuration
+    All RAID Levels for This Configuration
   </h2>
   <div
     class="overflow-x-auto rounded border border-neutral-200 dark:border-neutral-800"
@@ -334,11 +334,11 @@ const related = [
   </p>
 
   <h2 class="font-semibold text-lg text-black dark:text-white">
-    How this is calculated
+    How This Is Calculated
   </h2>
   <p class="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed m-0">
-    RAID 5 stores one parity stripe per drive group and RAID 6 two, so usable
-    capacity is the drive count minus the parity count, multiplied by the
+    RAID 5 stores one parity stripe per drive group and RAID 6 stores two, so
+    usable capacity is the drive count minus the parity count, multiplied by the
     <em>smallest</em> drive in the array. SHR-1 and SHR-2 use the full size of mixed
     drives, so usable capacity is the total minus the largest drive (SHR-1) or the
     two largest drives (SHR-2). RAID 1 mirrors every drive, so only one drive's worth

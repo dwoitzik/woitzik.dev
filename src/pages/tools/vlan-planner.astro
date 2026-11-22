@@ -4,7 +4,7 @@ import ToolLayout from "@components/ToolLayout.astro";
 const faqs = [
   {
     q: "What is the valid VLAN ID range?",
-    a: "802.1Q allocates 12 bits to the VLAN identifier, which allows 0 to 4095. In practice 0 and 4095 are reserved and the usable range is 1 to 4094. ID 1 is the default VLAN that exists on every switch even when nothing is configured, so treat it as the native or untagged VLAN rather than a free ID for your own use.",
+    a: "802.1Q allocates 12 bits to the VLAN identifier, which allows 0 to 4095. In practice, 0 and 4095 are reserved, and the usable range is 1 to 4094. ID 1 is the default VLAN that exists on every switch even when nothing is configured, so treat it as the native or untagged VLAN rather than a free ID for your own use.",
   },
   {
     q: "Why does my VLAN ID show up as invalid?",
@@ -22,14 +22,17 @@ const faqs = [
 
 const related = [
   { href: "/tools/", label: "All tools" },
-  { href: "/tools/subnet-calculator/", label: "IPv4 subnet calculator" },
+  {
+    href: "/tools/subnet-calculator/",
+    label: "IPv4 and IPv6 subnet calculator",
+  },
   {
     href: "/blog/mikrotik-vlan-filtering-terraform-proxmox/",
     label: "VLAN filtering on MikroTik with Terraform and Proxmox",
   },
   {
     href: "/blog/mikrotik-ipv6-nat66-cgn-routeros7/",
-    label: "MikroTik IPv6, NAT66 and CGN in RouterOS 7",
+    label: "MikroTik IPv6, NAT66, and CGN in RouterOS 7",
   },
 ];
 
@@ -90,7 +93,7 @@ const nf = new Intl.NumberFormat("en-GB");
 <ToolLayout
   title="VLAN ID Planner"
   path="/tools/vlan-planner/"
-  description="Free VLAN ID planner: validate 802.1Q VLAN IDs against the 1-4094 range, find duplicates, and locate free ID blocks for MikroTik, UniFi and Proxmox networks."
+  description="Free VLAN ID planner: validate 802.1Q VLAN IDs against the 1 to 4094 range, find duplicates, and locate free ID blocks for MikroTik, UniFi, and Proxmox networks."
   intro="Paste the VLAN IDs you plan to use and check them against the 802.1Q range before they reach a switch. The tool finds out-of-range values, duplicates, and the free blocks left over for the next site or segment."
   faqs={faqs}
   related={related}
@@ -119,7 +122,7 @@ const nf = new Intl.NumberFormat("en-GB");
         id="vlan-ids-hint"
         class="text-xs text-neutral-500 dark:text-neutral-400 m-0"
       >
-        Comma or space separated. 802.1Q allows 1 to {VLAN_MAX}; 0 and 4095 are
+        Comma- or space-separated. 802.1Q allows 1 to {VLAN_MAX}; 0 and 4095 are
         reserved.
       </p>
     </div>
@@ -215,7 +218,7 @@ const nf = new Intl.NumberFormat("en-GB");
   </div>
 
   <h2 class="font-semibold text-lg text-black dark:text-white">
-    Planning conventions
+    Planning Conventions
   </h2>
   <div
     class="overflow-x-auto rounded border border-neutral-200 dark:border-neutral-800"
@@ -289,7 +292,7 @@ const nf = new Intl.NumberFormat("en-GB");
           <td
             class="px-3 py-2 text-neutral-500 dark:text-neutral-400 border-b border-neutral-100 dark:border-neutral-800/60"
           >
-            Reserved for voice, storage or replication VLANs
+            Reserved for voice, storage, or replication VLANs
           </td>
         </tr>
         <tr>
@@ -300,7 +303,7 @@ const nf = new Intl.NumberFormat("en-GB");
             {VLAN_MAX} and 4095
           </th>
           <td class="px-3 py-2 text-neutral-500 dark:text-neutral-400">
-            Top of the range. {VLAN_MAX} is the last assignable ID, 4095 is reserved.
+            Top of the range. {VLAN_MAX} is the last assignable ID; 4095 is reserved.
           </td>
         </tr>
       </tbody>

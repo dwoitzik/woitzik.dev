@@ -19,7 +19,7 @@ The old Vault's unseal keys lived in a Kubernetes Secret in the old cluster. Tha
 
 The chain: **old k3s datastore → unseal keys → new Vault.** Breaking it meant getting exactly one object out of the old datastore without standing up everything that depended on it.
 
-## Breaking the Cycle With a Disposable, Isolated Node
+## Breaking the Cycle with a Disposable, Isolated Node
 
 The datastore itself was a single SQLite file, already extracted during the read-only Tier-1 verification pass and dated to before any later incident touched the VM it came from. Reading it doesn't need a full multi-node cluster. It needs one k3s server process willing to open it and answer API requests.
 

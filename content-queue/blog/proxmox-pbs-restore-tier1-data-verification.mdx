@@ -39,7 +39,7 @@ mount -o ro,noload /dev/nbd0p3 /mnt/inspect
 
 Once mounted, the local-path PVC directories are plain filesystem paths (`/var/lib/rancher/k3s/storage/`). A straight `rsync -a` from the read-only mount to a separate HDD-backed extraction directory gets everything off the restored disk without writing to it.
 
-One finding this surfaced immediately: a worker node's local-path directory had three PVC directories that were duplicates of what the control-plane node already had, identical in bytes and file count: stale, orphaned copies from before those pods were rescheduled. Comparing mtimes settled which copy was current: the control-plane copies were dated to the actual backup window, the worker's were three weeks stale. Preserve both if you're not sure, but only trust the one whose timestamp matches reality.
+One finding this surfaced immediately: a worker node's local-path directory had three PVC directories that were duplicates of what the control-plane node already had, identical in bytes and file count: stale, orphaned copies from before those pods were rescheduled. Comparing mtimes settled which copy was current: the control-plane copies were dated to the actual backup window; the worker's were three weeks stale. Preserve both if you're not sure, but only trust the one whose timestamp matches reality.
 
 The one class of failure read-only mounts can't help with: databases that need to run their own recovery logic to be queryable. SQLite files opened directly on a `ro,noload` mount failed with locking-protocol errors. The same files opened fine once copied to a writable location, where SQLite could create its shared-memory file and process the WAL normally. If you need to query a database from an extracted PVC, copy first, query second.
 

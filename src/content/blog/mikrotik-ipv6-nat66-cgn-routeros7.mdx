@@ -37,7 +37,7 @@ The FritzBox provides:
 
 Internally, I use ULA (`fd00::/8`, RFC 4193), the IPv6 counterpart to RFC 1918 private addressing. It is stable (it doesn't change when the ISP rotates the GUA prefix) and covers all internal communication. The NAT66 rule masquerades ULA sources to the GUA when leaving ether1.
 
-## Step 1: ULA Addresses Per VLAN
+## Step 1: ULA Addresses per VLAN
 
 Each VLAN gets a /64 from `fd00::/8`. For readability I use the VLAN number as the second byte (`fd64` for VLAN 100, since 0x64 is 100). RFC 4193 recommends a random 40-bit Global ID instead; for a single site that never merges with another ULA network, readable prefixes are a trade-off I accept. If you want to check the address range or last address of a prefix before you commit it to a VLAN, the [IPv4 and IPv6 subnet calculator](https://woitzik.dev/tools/subnet-calculator/) shows the network, last address and usable count for any of these:
 

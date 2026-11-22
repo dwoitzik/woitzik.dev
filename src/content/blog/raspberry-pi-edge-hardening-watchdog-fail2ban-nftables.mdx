@@ -22,7 +22,7 @@ The instinct with a small, single-purpose device is to leave it alone: fewer mov
 
 Everything below closes that gap: detect failure independently, recover from total freezes without intervention, and don't introduce a new failure mode along the way.
 
-## Hardware Watchdog: Recovering From a Hang Software Can't See
+## Hardware Watchdog: Recovering from a Hang Software Can't See
 
 Docker restarts a crashed container. A kernel deadlock is different: the whole system stops responding, nothing crashes, nothing logs anything, and nothing is left running to notice the problem or act on it.
 

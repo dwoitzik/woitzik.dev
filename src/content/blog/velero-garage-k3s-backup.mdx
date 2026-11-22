@@ -10,7 +10,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-**Update (2026-09-05):** this cluster has since moved Garage's storage off Longhorn onto a
+**Update (2026-09-05):** This cluster has since moved Garage's storage off Longhorn onto a
 static host-NFS-backed PV/PVC pair. [A separate post](/blog/longhorn-to-nfs-distributed-storage/)
 covers that migration and the reasoning behind it. The Velero/Garage setup below (architecture,
 `replication_factor = 1`, the Deployment itself) is unaffected; only the two PVCs'
@@ -381,7 +381,7 @@ velero restore create --from-backup daily-backup-<timestamp> \
 
 Velero recreates the PVCs and PVs, the node agent restores their data, and the workloads come up bound to the restored PVCs.
 
-## Why Garage Over MinIO
+## Why Garage over MinIO
 
 | | Garage | MinIO |
 |---|---|---|

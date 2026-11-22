@@ -1,5 +1,5 @@
 ---
-title: "A DDNS CNAME With a 60 s TTL Made My Headscale Look Down"
+title: "A DDNS CNAME with a 60 s TTL Made My Headscale Look Down"
 description: "48 probe failures in 17 hours, every one a 9.5 s DNS timeout. Headscale was fine. The cause was a CNAME to MikroTik DDNS with a 60 s TTL on the target."
 date: "2026-12-01"
 tags: ["DNS", "Monitoring", "Networking", "Homelab"]
@@ -7,11 +7,11 @@ tags: ["DNS", "Monitoring", "Networking", "Homelab"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-On 2026-10-16 and 2026-10-17 my critical `SLOAvailabilityFastBurn` alert kept firing for `https://headscale.woitzik.dev`, the control plane every device on my tailnet registers against. The blackbox probe recorded 48 failures in about 17 hours. Headscale was never down. Every failure was a DNS lookup that hit a ceiling of about 9.5 seconds, because the public name was a CNAME to MikroTik's IP Cloud DDNS hostname, and that hostname's A record carries a 60 second TTL. The fix was to stop chasing the router's DDNS: a DNS-only Cloudflare A record, kept current by a small CronJob, with Terraform told to ignore the record's content.
+On 2026-10-16 and 2026-10-17 my critical `SLOAvailabilityFastBurn` alert kept firing for `https://headscale.woitzik.dev`, the control plane every device on my tailnet registers against. The blackbox probe recorded 48 failures in about 17 hours. Headscale was never down. Every failure was a DNS lookup that hit a ceiling of about 9.5 seconds, because the public name was a CNAME to MikroTik's IP Cloud DDNS hostname, and that hostname's A record carries a 60-second TTL. The fix was to stop chasing the router's DDNS: a DNS-only Cloudflare A record, kept current by a small CronJob, with Terraform told to ignore the record's content.
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## The symptom
+## The Symptom
 
 The probe is a Prometheus blackbox job, `blackbox-http`, running the `http_auth_ok` module every 60 seconds against two public names: `headscale.woitzik.dev` and `photos.woitzik.dev`. The burn-rate rules on top of it are the ones from [SLO burn-rate alerting with Prometheus](/blog/slo-burn-rate-alerting-prometheus-k3s/), with a 99.9% target:
 
@@ -28,7 +28,7 @@ The probe is a Prometheus blackbox job, `blackbox-http`, running the `http_auth_
 
 At a 99.9% target, 48 failed probes in 17 hours burns budget fast enough to page. `photos.woitzik.dev`, probed by the same job from the same pod, recorded zero failures in the same window. Same exporter, same network, same resolver. Only one name was failing.
 
-## Diagnosis: the probe never connected
+## Diagnosis: The Probe Never Connected
 
 Two blackbox metrics answered the question before I looked at Headscale at all:
 
@@ -43,7 +43,7 @@ On every probe that *did* resolve, Headscale answered `200`. So the service was 
 
 The successful lookups gave the rest of it away. They were bimodal: p50 0.07 s, p95 8.1 s. Most lookups came back from cache almost instantly, and a meaningful share took eight seconds. Whenever one crossed the ~9.5 s tolerance, the probe failed outright.
 
-## Root cause: two records, two TTLs
+## Root Cause: Two Records, Two TTLs
 
 The public name was a chain:
 
@@ -63,15 +63,15 @@ resource "routeros_ip_cloud" "ddns" {
 
 The CNAME on my side had a 300 s TTL. The A record at the end of the chain belongs to MikroTik and has a 60 s TTL. A recursive resolver can cache the CNAME for five minutes, but it has to go back to MikroTik's authoritative servers for the A record roughly every minute. Those servers intermittently took 8 to 9 seconds to answer. Any lookup that landed on an expired A record paid that price.
 
-The CNAME dated from late August, when Headscale moved off the Cloudflare tunnel and the record was pointed straight at the router's DDNS name. No extra job, because the router already keeps that name current. What it also did was put the resolution latency of my control plane in the hands of a DDNS service I don't control, behind a TTL I can't change.
+The CNAME dated from late August, when Headscale moved off the Cloudflare Tunnel and the record was pointed straight at the router's DDNS name. No extra job, because the router already keeps that name current. What it also did was put the resolution latency of my control plane in the hands of a DDNS service I don't control, behind a TTL I can't change.
 
 This was not only a monitoring problem. Every client resolving `headscale.woitzik.dev` went through the same DDNS target and saw the same eight-second lookups. The probe was just the client that kept a record.
 
-## Why the record is DNS-only in the first place
+## Why the Record Is DNS-Only in the First Place
 
-Headscale cannot sit behind Cloudflare's proxy. Its TS2021 registration protocol does not survive the proxy, and the `Upgrade` header gets dropped by `cloudflared` and Traefik on the tunnel path. That is why, in [my Cloudflare tunnel setup with zero inbound ports](/blog/cloudflare-tunnel-zero-inbound-ports/), Headscale is one of the two exceptions with `proxied = false`. Whatever the fix was, it had to stay a plain DNS record pointing at the WAN IP.
+Headscale cannot sit behind Cloudflare's proxy. Its TS2021 registration protocol does not survive the proxy, and the `Upgrade` header gets dropped by `cloudflared` and Traefik on the tunnel path. That is why, in [my Cloudflare Tunnel setup with zero inbound ports](/blog/cloudflare-tunnel-zero-inbound-ports/), Headscale is one of the two exceptions with `proxied = false`. Whatever the fix was, it had to stay a plain DNS record pointing at the WAN IP.
 
-## The fix (ADR-059, #921)
+## The Fix (ADR-059, #921)
 
 Three parts.
 
@@ -126,7 +126,7 @@ The job runs in the `cert-manager` namespace because the `cloudflare-api-token-s
 
 The record type change has one sharp edge: CNAME to A forces replacement in the Cloudflare provider, so the first apply destroys and recreates the record. The PR stated that blast radius (a brief DNS gap) and the rollback (revert to the CNAME) before the apply went through the `terraform-apply` gate.
 
-## The trade-off
+## The Trade-Off
 
 With the MikroTik DDNS, a WAN IP change propagated in about a minute. Now it takes up to five minutes for the CronJob plus the 300 s TTL. Slower convergence when the IP changes is a better trade than slow resolution on every expired cache entry.
 

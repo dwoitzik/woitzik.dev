@@ -1,6 +1,6 @@
 ---
 title: "Logic App Standard 403 Forbidden with Private Storage: Fix"
-description: "Logic App Standard failed every boot with 403 Forbidden. Private Storage needs four Private Endpoints (blob, file, queue, table), not two. Terraform fix inside."
+description: "Logic App Standard failed every boot with 403 Forbidden. Private Storage needs four private endpoints (blob, file, queue, table), not two. Terraform fix inside."
 date: "2026-08-11"
 updated: "2026-11-04"
 tags: ["Azure", "Terraform", "Logic Apps", "Private Link", "Networking"]
@@ -8,7 +8,7 @@ tags: ["Azure", "Terraform", "Logic Apps", "Private Link", "Networking"]
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Logic App Standard is the hosting model to pick when workflows need VNet integration and a predictable App Service Plan. In a hardened Azure landing zone, its Storage Account is not reachable from the public internet and sits behind Private Endpoints.
+Logic App Standard is the hosting model to pick when workflows need VNet integration and a predictable App Service Plan. In a hardened Azure landing zone, its Storage Account is not reachable from the public internet and sits behind private endpoints.
 
 The deployment succeeded. Resource Group, Storage Account, private endpoints, DNS zones: everything planned cleanly and applied without an error. Then the workflow host refused to start. Every boot ended in the same `403 Forbidden`, roughly 600 milliseconds after the host registered its blob webhook endpoint.
 
@@ -68,14 +68,14 @@ The lesson: when a private Storage Account rejects a request with `403`, the pro
 
 ## The Fix
 
-Two additional Private Endpoints on the same Storage Account, plus their Private DNS zone integration:
+Two additional private endpoints on the same Storage Account, plus their private DNS zone integration:
 
 - `pe-st-queue` → `privatelink.queue.core.windows.net`
 - `pe-st-table` → `privatelink.table.core.windows.net`
 
 The private DNS zones already existed centrally; they just were not attached to this Storage Account. Once Queue and Table resolved to private IPs, the host booted cleanly on the next restart.
 
-The rule for next time: **a Logic App Standard or Function App with private Storage needs all four Storage subresources behind Private Endpoints**, not only the ones that look content-related. Queue and Table are host-internal infrastructure. They appear in no configuration file you edit, which is why they get forgotten.
+The rule for next time: **a Logic App Standard or Function App with private Storage needs all four Storage subresources behind private endpoints**, not only the ones that look content-related. Queue and Table are host-internal infrastructure. They appear in no configuration file you edit, which is why they get forgotten.
 
 ## The Generic Rebuild
 
@@ -107,7 +107,7 @@ resource "azurerm_private_endpoint" "storage" {
 }
 ```
 
-Adding a fifth subresource (e.g. `dfs` for Data Lake) is one list entry instead of a copy-pasted resource block.
+Adding a fifth subresource (e.g., `dfs` for Data Lake) is one list entry instead of a copy-pasted resource block.
 
 The DNS zones are created and linked to the VNet in the same pass, so `*.queue.core.windows.net` resolves privately without touching your DNS infrastructure:
 
@@ -139,7 +139,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "main" {
 
 Two more details from the fix are worth copying.
 
-**1. Order the dependency.** The Logic App must not boot before its private endpoints exist, otherwise the first start races the network configuration:
+**1. Order the dependency.** The Logic App must not boot before its private endpoints exist; otherwise, the first start races the network configuration:
 
 ```hcl
 resource "azurerm_logic_app_standard" "main" {

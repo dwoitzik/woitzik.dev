@@ -11,7 +11,7 @@ I narrowed the Trivy SARIF upload in my homelab CI to `severity: CRITICAL,HIGH`,
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## The setup
+## The Setup
 
 The `security-scan` job in `.github/workflows/ci.yml` runs Trivy three times over the repo: two `format: table` steps restricted to `severity: CRITICAL,HIGH` that print findings in the log, and one `format: sarif` step that uploads to the GitHub Security tab.
 
@@ -25,7 +25,7 @@ note     292   LOW/UNKNOWN
 
 So the Security tab showed 478 alerts while the part CI cares about was 19. A 19-item signal under 459 advisory rows is a signal nobody reads, and because the count never moved, a real regression would have looked exactly like the backlog.
 
-## Attempt 1 (#821): set severity on the SARIF step
+## Attempt 1 (#821): Set Severity on the SARIF Step
 
 The plan in ADR-049 had two parts. Narrow the SARIF upload to the severities the table steps enforce, and move the 19 enforced findings into `.trivyignore` with their evidence. Most of them were deliberate decisions already recorded in manifest comments, for example workloads that crash with `readOnlyRootFilesystem` (I broke [nine containers](/blog/kubernetes-securitycontext-hardening-broke-9-containers/) learning which ones). GitHub closes an alert when a later upload for the same analysis no longer contains it, so the tab should converge to zero without any dismissal API calls.
 
@@ -47,7 +47,7 @@ TRIVY_SEVERITY=CRITICAL,HIGH trivy config kubernetes/ --format sarif --ignorefil
 
 Zero. I merged and called the tab clean.
 
-## Attempt 2 (#822): read the log, misread the log
+## Attempt 2 (#822): Read the Log, Misread the Log
 
 Reading the CI job log afterwards, two things looked off. The action printed `Building SARIF report with all severities`, and the Trivy invocation in the log was `trivy config kubernetes/` with no `--severity` flag.
 
@@ -89,7 +89,7 @@ That way a regression updates the tab and turns CI red in the same run. I tested
 
 The CI run for #822 failed in `Security / Trivy`. The guard found 459 findings in the SARIF I had declared clean less than an hour earlier.
 
-## The actual mechanism
+## The Actual Mechanism
 
 The answer is in the action's `entrypoint.sh` (v0.36.0, the version my workflow uses):
 
@@ -106,7 +106,7 @@ For SARIF output, the action deletes `TRIVY_SEVERITY` before calling Trivy unles
 
 That also explains the log line I dismissed. `Building SARIF report with all severities` is exactly what it says. It was the action telling me it had dropped the filter, and I read it as noise.
 
-## Attempt 3 (#823): the one-word fix
+## Attempt 3 (#823): The One-Word Fix
 
 ```yaml
           severity: CRITICAL,HIGH
@@ -119,17 +119,17 @@ That also explains the log line I dismissed. `Building SARIF report with all sev
 
 I reproduced both settings through the action's own logic: 459 results with `CRITICAL,HIGH`, 0 with `true`. The CI run for #823 passed, including `Security / Trivy`, which means the guard saw an empty SARIF.
 
-## Why the local check lied
+## Why the Local Check Lied
 
 This is the part I'd keep even if you never use Trivy. My reproduction in #821 was correct. `TRIVY_SEVERITY=CRITICAL,HIGH trivy config ...` really returns 0 results with 0.70.0. It just measured a configuration the action never runs, because the action is written specifically to remove that variable. The local number was true and irrelevant.
 
 Nothing in the CI output contradicted me either. `Successfully uploaded results` carries no count, so from the log alone a 0-result upload and a 459-result upload look the same. The only thing that settled it was a check running inside the real pipeline, on the real artifact, after the real action had done its work.
 
-## What is still not verified
+## What Is Still Not Verified
 
-I could not look at the Security tab state through the API. Both tokens I had return `403` for the code-scanning endpoints. The evidence that the tab converges is the guard passing on the uploaded file, plus GitHub's documented behaviour of closing alerts that are absent from a later upload. That's good evidence, but it is not the same as reading the tab, and I'd rather say so than claim it.
+I could not look at the Security tab state through the API. Both tokens I had return `403` for the code-scanning endpoints. The evidence that the tab converges is the guard passing on the uploaded file, plus GitHub's documented behavior of closing alerts that are absent from a later upload. That's good evidence, but it is not the same as reading the tab, and I'd rather say so than claim it.
 
-## What to check in your own workflow
+## What to Check in Your Own Workflow
 
 - **If you use `format: sarif` with trivy-action, set `limit-severities-for-sarif: true`.** Without it, `severity` does nothing for the SARIF output. Any other value, including a severity list, behaves like false.
 - **Grep your job log for `Building SARIF report with all severities`.** If it's there, your SARIF is unfiltered no matter what `severity` says.

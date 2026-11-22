@@ -60,7 +60,7 @@ spec:
       - CreateNamespace=true
 ```
 
-Since Kyverno 1.10 the chart runs separate controllers. The admission controller handles the webhook. The reports controller runs background scans of existing resources and writes the `PolicyReport` objects; it's enabled by default, so it doesn't appear in these values. The background controller handles generate and mutate-existing rules. Without background scanning (`background: true` on each policy plus the reports controller), you only see violations at admission time, and existing non-compliant resources stay invisible.
+Since Kyverno 1.10, the chart runs separate controllers. The admission controller handles the webhook. The reports controller runs background scans of existing resources and writes the `PolicyReport` objects; it's enabled by default, so it doesn't appear in these values. The background controller handles generate and mutate-existing rules. Without background scanning (`background: true` on each policy plus the reports controller), you only see violations at admission time, and existing non-compliant resources stay invisible.
 
 ## Policy 1: Require Resource Limits (Audit)
 
@@ -107,7 +107,7 @@ kubectl get policyreport -A
 kubectl describe policyreport -n apps
 ```
 
-The report shows every pod in `apps`, `monitoring`, and `database` namespaces that's missing resource limits. Fix those, then flip `validationFailureAction` to `Enforce`.
+The report shows every pod in the `apps`, `monitoring`, and `database` namespaces that's missing resource limits. Fix those, then flip `validationFailureAction` to `Enforce`.
 
 ## Policy 2: Disallow Privileged Containers (Enforce)
 

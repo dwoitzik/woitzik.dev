@@ -20,7 +20,7 @@ MikroTik vs Ubiquiti UniFi is the networking debate that never dies in homelab c
 
 **Ubiquiti UniFi Dream Router** if you want plug-and-play setup, a polished UI, and an ecosystem where access points, switches, and cameras all live in one dashboard. You pay a premium and give up depth of control.
 
-MikroTik is for engineers who want to own their network stack. Ubiquiti is for people who want a network that works without deep networking knowledge. Both are valid choices, but for a homelab run as infrastructure-as-code, MikroTik wins clearly.
+MikroTik is for engineers who want to own their network stack. Ubiquiti is for people who want a network that works without deep networking knowledge. Both are valid choices, but for a homelab run as infrastructure as code, MikroTik wins clearly.
 
 ## Quick Comparison
 
@@ -56,7 +56,7 @@ RouterOS 7 on the RB5009 is a Linux-based networking stack exposed through Mikro
 
 The UDR runs UniFi Network, a software-defined networking platform. It provides VLAN segmentation, firewall rules, IDS/IPS (intrusion detection and prevention), traffic identification, a guest portal, and DPI (deep packet inspection). The UniFi Network application, which runs on the UDR itself or on a separate server, manages all of it through a graphical interface.
 
-The UniFi feature set is impressive for what it is, but it is a curated subset. You get the features Ubiquiti decided to build, configured the way Ubiquiti decided to configure them. MikroTik hands you the whole toolbox. For a homelab with Terraform-managed infrastructure that difference decides the matter: MikroTik's API and CLI let you automate everything, while UniFi's official API covers far less than its UI and the rest of the controller API is undocumented.
+The UniFi feature set is impressive for what it is, but it is a curated subset. You get the features Ubiquiti decided to build, configured the way Ubiquiti decided to configure them. MikroTik hands you the whole toolbox. For a homelab with Terraform-managed infrastructure, that difference decides the matter: MikroTik's API and CLI let you automate everything, while UniFi's official API covers far less than its UI and the rest of the controller API is undocumented.
 
 **Winner: MikroTik RB5009** for depth and automation. **UniFi UDR** for managed features out of the box (IDS/IPS, DPI, traffic identification).
 
@@ -135,11 +135,11 @@ Whichever you pick, check the VLAN matrix before you configure anything. The [VL
 
 ### Terraform & Automation Support
 
-This is where MikroTik pulls away for any homelab running infrastructure-as-code.
+This is where MikroTik pulls away for any homelab running infrastructure as code.
 
 The **RouterOS Terraform provider** (`terraform-routeros/routeros`) is mature, actively maintained, and covers nearly every RouterOS resource: interfaces, bridges, VLANs, firewall rules, DHCP, DNS, WireGuard, routing, and more. You can define the whole network stack in HCL, version it in Git, and apply changes through a CI pipeline. That is how I run my homelab: every MikroTik change goes through a PR, gets reviewed, and is applied by a GitHub Actions workflow triggered from a PR comment (Atlantis did this job until August 2026).
 
-On the Ubiquiti side there is no official Terraform provider. The community provider `paultyng/unifi` does cover networks, WLANs, port profiles, and firewall rules, but its repository was archived in April 2026, and community forks carry it on with no guarantee they keep up with new UniFi Network releases. Every controller update risks breaking your IaC, and anything the provider does not model has to be clicked in the UI.
+On the Ubiquiti side, there is no official Terraform provider. The community provider `paultyng/unifi` does cover networks, WLANs, port profiles, and firewall rules, but its repository was archived in April 2026, and community forks carry it on with no guarantee they keep up with new UniFi Network releases. Every controller update risks breaking your IaC, and anything the provider does not model has to be clicked in the UI.
 
 For a homelab that already uses Terraform for Proxmox VMs, MikroTik firewall rules, and Kubernetes resources, that is a dealbreaker. You end up with two workflows for the network: whatever the provider handles, and manual UI clicks for the rest. That is exactly the configuration drift IaC is supposed to prevent.
 
@@ -185,27 +185,27 @@ For a homelab that does not need Wi-Fi from the router (most homelabs have a sep
 
 ## Frequently Asked Questions
 
-### Can MikroTik and UniFi devices coexist on the same network?
+### Can MikroTik and UniFi Devices Coexist on the Same Network?
 
 Yes, without issue. MikroTik handles routing and VLAN segmentation; UniFi APs broadcast VLAN-tagged SSIDs. The key point: the switch port facing the UniFi AP must be a trunk carrying every VLAN that has an SSID. You configure that on the MikroTik side (bridge VLAN filtering) and on the UniFi side (port profile with VLAN tagging). Both platforms handle this standard setup well.
 
-### Is MikroTik really harder to set up than Ubiquiti?
+### Is MikroTik Really Harder to Set Up than Ubiquiti?
 
 Yes, at first. RouterOS takes a few weeks of regular use to reach basic proficiency. UniFi can be configured in an afternoon. The long-term payoff is that once you understand RouterOS, you can build almost any networking scenario yourself, and the L2/L3 concepts carry over to Cisco, Juniper, and other platforms. UniFi knowledge mostly stays inside the UniFi ecosystem.
 
-### Should I use MikroTik for my home Wi-Fi?
+### Should I Use MikroTik for My Home Wi-Fi?
 
 Not as your main Wi-Fi. MikroTik makes access points (hAP ac3, cAP ax), but UniFi's wireless management and roaming are the more polished option. MikroTik excels at routing and switching; let a dedicated AP handle wireless. An RB5009 with a UniFi U6 Lite or U6 Pro is a strong pairing.
 
-### How does MikroTik security compare to Ubiquiti?
+### How Does MikroTik Security Compare to Ubiquiti?
 
 MikroTik's firewall is more configurable but needs manual hardening. RouterOS has a vulnerability history, most prominently the 2018 WinBox flaw (CVE-2018-14847) and the Chimay Red exploit, both against RouterOS 6. MikroTik patches quickly, and the attack surface stays manageable if you keep RouterOS updated, firewall the input chain, and disable unused services. UniFi's IDS/IPS gives you automated threat detection that MikroTik lacks natively, but its black-box nature limits it for anyone who wants full visibility.
 
-### Can I manage MikroTik with Terraform?
+### Can I Manage MikroTik with Terraform?
 
 Yes. The `routeros` provider is mature and actively maintained, at version 1.x, and supports RouterOS 7. It covers interfaces, bridges, VLANs, firewall rules, DHCP, DNS, WireGuard, routing, and more. I manage my entire RB5009 configuration through Terraform: every change goes through Git, gets reviewed, and is applied by a PR-comment GitHub Actions workflow. See the [Terraform VLAN filtering article](/blog/mikrotik-vlan-filtering-terraform-proxmox/) for a real-world example.
 
-### What is the best MikroTik router for a homelab?
+### What Is the Best MikroTik Router for a Homelab?
 
 The RB5009 is the sweet spot. It has seven Gigabit ports plus one 2.5G port (enough for most homelabs), a 10G SFP+ uplink, a switch chip that offloads VLAN filtering, and RouterOS 7 with the full feature set. The hEX S (€70) is the budget option, but it has only a 1G SFP port and a much weaker CPU and switch chip. The CCR2004 (€300+) is overkill for home use unless you need 10 Gbps routing throughput.
 
@@ -213,7 +213,7 @@ The RB5009 is the sweet spot. It has seven Gigabit ports plus one 2.5G port (eno
 
 The comparison has a clear winner for homelabs, but it is not one-sided.
 
-MikroTik wins for any homelab run as infrastructure-as-code. The Terraform provider, granular firewall control, hardware-offloaded VLAN switching, and 10G SFP+ uplink make the RB5009 the right choice for engineers who want to own their network stack. At €180 it is also the better value for routing performance.
+MikroTik wins for any homelab run as infrastructure as code. The Terraform provider, granular firewall control, hardware-offloaded VLAN switching, and 10G SFP+ uplink make the RB5009 the right choice for engineers who want to own their network stack. At €180 it is also the better value for routing performance.
 
 Ubiquiti wins for whole-home networking where ease of use, ecosystem integration, and built-in Wi-Fi matter more than IaC. The UniFi controller is the best consumer network management platform I have used, and the range of switches, APs, and cameras is a strong reason to stay in one ecosystem.
 

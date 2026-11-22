@@ -84,7 +84,7 @@ volumes:
 
 The `data` volume (bucket objects) is on NFS. That's fine: Garage writes objects as plain files and doesn't rely on file locks for them. The `meta` volume (the SQLite database) was *also* on NFS initially. That worked until a Velero backup and a Terraform state write happened at the same time.
 
-Velero calls Garage's S3 API to enumerate backup objects. Terraform calls it to read and write the state file. Both requests end up in SQLite through Garage's metadata layer. Under that concurrent load on an NFS-backed WAL database, pages 169–184 of `db.sqlite` were corrupted.
+Velero calls Garage's S3 API to enumerate backup objects. Terraform calls it to read and write the state file. Both requests end up in SQLite through Garage's metadata layer. Under that concurrent load on an NFS-backed WAL database, pages 169 to 184 of `db.sqlite` were corrupted.
 
 ## The Recovery
 
@@ -98,7 +98,7 @@ sqlite3 db.sqlite ".recover" > recovered.sql
 sqlite3 db_clean.sqlite < recovered.sql
 ```
 
-The `.recover` command scanned every page of the corrupted file and extracted whatever data it could read. For pages 169–184 (the corrupted range), it found partial data: enough to reconstruct the bucket and key metadata, but not enough to guarantee referential integrity.
+The `.recover` command scanned every page of the corrupted file and extracted whatever data it could read. For pages 169 to 184 (the corrupted range), it found partial data: enough to reconstruct the bucket and key metadata, but not enough to guarantee referential integrity.
 
 After recovery, the missing objects (the `terraform-state` bucket and the Atlantis lock key) had to be re-inserted manually with Python:
 

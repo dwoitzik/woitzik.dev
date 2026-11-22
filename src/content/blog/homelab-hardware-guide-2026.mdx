@@ -32,7 +32,7 @@ Buy the backup target first, even if it is only an external USB drive, and add a
 
 ## Network
 
-Pick a router that can do VLANs and a default-drop firewall, and that you can manage as code if infrastructure-as-code is part of the point. For a homelab I would stretch the budget for the [MikroTik RB5009\*](/go/4w08b21) even at the starter level, because rebuilding a flat network into segmented VLANs later costs more time than the price difference. The full comparison against Ubiquiti is in [MikroTik vs Ubiquiti for Home Network 2026](/blog/mikrotik-vs-ubiquiti-home-network-2026/).
+Pick a router that can do VLANs and a default-drop firewall, and that you can manage as code if infrastructure as code is part of the point. For a homelab I would stretch the budget for the [MikroTik RB5009\*](/go/4w08b21) even at the starter level, because rebuilding a flat network into segmented VLANs later costs more time than the price difference. The full comparison against Ubiquiti is in [MikroTik vs Ubiquiti for Home Network 2026](/blog/mikrotik-vs-ubiquiti-home-network-2026/).
 
 ## Edge and DNS
 
@@ -73,14 +73,14 @@ For the Terraform, Ansible and Kubernetes configuration that turns this hardware
 
 ## Frequently Asked Questions
 
-### Do I need a full rack to have a real homelab?
+### Do I Need a Full Rack to Have a Real Homelab?
 
 No. One mini PC, a router you understand and a backup drive is a working homelab. Racks, fans and redundant DNS solve problems you only notice once enough services depend on the setup.
 
-### What is the highest-value upgrade after the starter setup?
+### What Is the Highest-Value Upgrade After the Starter Setup?
 
 A second DNS node with Keepalived failover. When a single resolver goes down, name resolution for the whole network goes with it, and a second small board costs little compared to anything else on this list.
 
-### Should I buy used mini PCs or NAS units?
+### Should I Buy Used Mini PCs or NAS Units?
 
 Used mini PCs are usually fine if you can check the SSD's wear and health data and replace the thermal paste. A used NAS is riskier because you inherit the drives' unknown history along with the enclosure, so I would buy that new.

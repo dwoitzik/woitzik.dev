@@ -123,7 +123,7 @@ After `terraform apply`, the link moves from Pending to Approved in under 30 sec
 
 <ProductCTA variant="inline" slug="azure-rag-enterprise" />
 
-## Step 2: Identity Chaining - Killing Static API Keys
+## Step 2: Identity Chaining, Killing Static API Keys
 
 Approving the link lets AI Search *reach* OpenAI. If static `admin_keys` authenticate that traffic, you will fail a compliance audit. Keys leak, keys get committed to Git, and keys get rotated by someone else at 3am on a Friday.
 
@@ -161,7 +161,7 @@ resource "azurerm_role_assignment" "search_to_openai" {
 
 When the AI Search instance is deleted, its system-assigned identity goes with it, and the role assignment no longer grants anything. There is no credential to rotate and no secret to store.
 
-## Step 3: Private DNS - The Last Trap
+## Step 3: Private DNS, the Last Trap
 
 The last failure mode is DNS. Private Endpoints only work if clients resolve the service name to the endpoint's private IP. If `your-instance.openai.azure.com` still resolves to the public IP because the Private DNS Zone isn't linked to your VNet, the request goes to the public endpoint, which rejects it (public access is disabled), and you get another opaque `403`.
 
@@ -195,7 +195,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "search_vnet_link" {
 }
 ```
 
-`registration_enabled = false` is intentional. Auto-registration is for VM records and has no place in centrally managed Private DNS Zones in [Hub & Spoke](/blog/azure-terraform-hub-spoke-zero-trust/) environments. Inside an existing Hub & Spoke topology, the DNS zones belong in the Hub and get linked across subscriptions, not deployed per workload.
+`registration_enabled = false` is intentional. Auto-registration is for VM records and has no place in centrally managed Private DNS Zones in [Hub & Spoke](/blog/azure-terraform-hub-spoke-zero-trust/) environments. Inside an existing Hub & Spoke topology, the DNS zones belong in the hub and get linked across subscriptions, not deployed per workload.
 
 ## The Result
 

@@ -24,11 +24,11 @@ This is the full post-mortem: the actual sequence of failures and how I traced e
 
 Three-node k3s cluster running on Proxmox VMs (VLAN 20, server subnet), all on a single [BMAX Mini PC\*](/go/4bv3yF1) with 64GB [Crucial DDR4 RAM\*](/go/3QZejZn):
 
-- `vm-srv-k3s-11` - control-plane, 4 cores, 12 GiB dedicated
+- `vm-srv-k3s-11` - control plane, 4 cores, 12 GiB dedicated
 - `vm-srv-k3s-12` - worker, 4 cores, up to 16 GiB (balloon)
 - `vm-srv-k3s-13` - worker, 4 cores, up to 16 GiB (balloon)
 
-Apps namespace runs about 20 workloads: Nextcloud, Authelia, Paperless-ngx, Jellyfin, Home Assistant, Gitea, Mealie, and more. GitOps via ArgoCD; Longhorn for distributed storage.
+The apps namespace runs about 20 workloads: Nextcloud, Authelia, Paperless-ngx, Jellyfin, Home Assistant, Gitea, Mealie, and more. GitOps via ArgoCD; Longhorn for distributed storage.
 
 ## Failure 1: Paperless OOMKilled 16 Times in 5 Hours
 
@@ -46,7 +46,7 @@ resources:
     cpu: 500m
 ```
 
-That 1 GiB ceiling is too low. Tesseract easily needs 2–3 GiB for a high-resolution scanned document. The kernel OOM killer terminates the container every time. Kubernetes restarts it. The next document in the queue triggers another OOM. Repeat sixteen times.
+That 1 GiB ceiling is too low. Tesseract easily needs 2 to 3 GiB for a high-resolution scanned document. The kernel OOM killer terminates the container every time. Kubernetes restarts it. The next document in the queue triggers another OOM. Repeat sixteen times.
 
 The fix was to raise the limits and reduce concurrency to stay under the new ceiling:
 
@@ -67,20 +67,20 @@ env:
 
 **But this didn't explain the load average of 90.**
 
-## Failure 2: The Control-Plane Was Scheduling App Workloads
+## Failure 2: The Control Plane Was Scheduling App Workloads
 
-When I checked where Paperless was running, it was on `vm-srv-k3s-11`, the control-plane.
+When I checked where Paperless was running, it was on `vm-srv-k3s-11`, the control plane.
 
-In a standard k3s setup, the control-plane has a `node-role.kubernetes.io/control-plane:NoSchedule` taint. User workloads shouldn't land there. But somewhere along the way, the Paperless deployment had picked up a toleration:
+In a standard k3s setup, the control plane has a `node-role.kubernetes.io/control-plane:NoSchedule` taint. User workloads shouldn't land there. But somewhere along the way, the Paperless deployment had picked up a toleration:
 
 ```yaml
 tolerations:
   - operator: Exists
 ```
 
-`operator: Exists` with no `key` or `effect` matches **every taint on every node**, including `NoSchedule` on the control-plane. The pod scheduled there, and every OOMKill → restart cycle added another spike of CPU load to a node already running the k3s server (API server and its SQLite datastore), CoreDNS, kube-proxy, and Longhorn replica management.
+`operator: Exists` with no `key` or `effect` matches **every taint on every node**, including `NoSchedule` on the control plane. The pod scheduled there, and every OOMKill → restart cycle added another spike of CPU load to a node already running the k3s server (API server and its SQLite datastore), CoreDNS, kube-proxy, and Longhorn replica management.
 
-I removed the blanket toleration entirely. Paperless has no reason to run on the control-plane.
+I removed the blanket toleration entirely. Paperless has no reason to run on the control plane.
 
 With the toleration removed and the memory limit raised, load on `vm-srv-k3s-11` dropped from 90 to 1.04 immediately. But two more problems had already developed in the background.
 
@@ -199,7 +199,7 @@ Scheduler thinks workers have less capacity → over-schedules control-plane
 (back to top)
 ```
 
-Each failure made the next one worse. Raising the memory limit without fixing the toleration would have helped Paperless but left the control-plane overloaded. Fixing the toleration without fixing the balloon minimum would have moved the problem to a worker node with 3.8 GiB of visible capacity. The DNS storm was a side effect of the restart churn, but the 30-second cache would have caused its own trouble as the cluster grew.
+Each failure made the next one worse. Raising the memory limit without fixing the toleration would have helped Paperless but left the control plane overloaded. Fixing the toleration without fixing the balloon minimum would have moved the problem to a worker node with 3.8 GiB of visible capacity. The DNS storm was a side effect of the restart churn, but the 30-second cache would have caused its own trouble as the cluster grew.
 
 ## What Would Have Caught This Earlier
 
@@ -207,7 +207,7 @@ A few things would have surfaced these issues before they compounded:
 
 **1. OOMKill alerting.** Paperless had a limit; it was just too low, so a "require limits" admission policy would not have caught it. An alert on `kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}` would have fired on the first OOMKill instead of me finding the sixteenth. An admission policy that rejects blanket `operator: Exists` tolerations outside `kube-system` would have stopped failure 2 outright.
 
-**2. Control-plane taint monitoring.** A simple alert on `kube_pod_info{node="vm-srv-k3s-11"} unless kube_pod_info{namespace="kube-system"}` would have fired the moment a user workload landed on the control-plane.
+**2. Control-plane taint monitoring.** A simple alert on `kube_pod_info{node="vm-srv-k3s-11"} unless kube_pod_info{namespace="kube-system"}` would have fired the moment a user workload landed on the control plane.
 
 **3. Node capacity validation in Terraform.** The balloon minimum belongs in the VM definition review, ideally validated against the memory a worker needs to register usefully.
 
@@ -226,6 +226,6 @@ The cluster has been stable since. Paperless processes the same document batches
 
 ---
 
-The same failure modes (resource limits set without measuring peak usage, overly permissive scheduling constraints, hypervisor-level capacity mismatches) appear in enterprise Kubernetes deployments running on Azure VMs or bare-metal. The only difference is scale: one misconfigured limit in a 500-node cluster can trigger the same DNS storm, just with three extra zeros behind the query count.
+The same failure modes (resource limits set without measuring peak usage, overly permissive scheduling constraints, hypervisor-level capacity mismatches) appear in enterprise Kubernetes deployments running on Azure VMs or bare metal. The only difference is scale: one misconfigured limit in a 500-node cluster can trigger the same DNS storm, just with three extra zeros behind the query count.
 
 <NewsletterCTA />

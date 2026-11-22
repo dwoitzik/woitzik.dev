@@ -43,8 +43,8 @@ const postStrings = {
     thanks: "Thanks for the feedback!",
     share: "Share",
     shareOn: (name: string) => `Share on ${name}`,
-    keepReading: "Keep reading",
-    newsletterTitle: "More like this in your inbox",
+    keepReading: "Keep Reading",
+    newsletterTitle: "More Like This in Your Inbox",
     newsletterDescription:
       "New Terraform modules and articles by email. No spam.",
     newsletterButton: "Subscribe",
@@ -103,7 +103,7 @@ export function dateRange(start: Date | string, end?: Date | string) {
   });
 
   if (!endDate) {
-    return `${startFormatted} - Present`;
+    return `${startFormatted} to present`;
   }
 
   const endFormatted = endDate.toLocaleDateString("en-US", {
@@ -111,7 +111,7 @@ export function dateRange(start: Date | string, end?: Date | string) {
     year: "numeric",
   });
 
-  return `${startFormatted} - ${endFormatted}`;
+  return `${startFormatted} to ${endFormatted}`;
 }
 // URL slug for a tag: lowercase, whitespace and slashes to hyphens. Tags with
 // spaces used to produce /blog/tag/chaos engineering/ style URLs; vercel.json

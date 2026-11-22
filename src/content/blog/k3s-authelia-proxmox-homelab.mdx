@@ -10,7 +10,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-**Update (2026-09-09):** this cluster has since moved persistent storage off Longhorn onto NFS.
+**Update (2026-09-09):** This cluster has since moved persistent storage off Longhorn onto NFS.
 All three k3s nodes here run as VMs on a single physical host, so Longhorn's replica-distribution
 guarantee was never real: every "replica" landed on the same underlying NVMe. When a node dropped
 out briefly, Longhorn's RWO failover logic tried to attach the volume on a second node while the
@@ -245,7 +245,7 @@ Kubernetes injects environment variables for every Service in the namespace. A S
 
 **Failure Mode 2: The Read-Only Filesystem**
 
-The filesystem `notifier` needs a writable path for its notification file (where password reset and verification messages land instead of being emailed). `/config` is mounted from a ConfigMap, and ConfigMap volumes are read-only in Kubernetes.
+The filesystem `notifier` needs a writable path for its notification file (where password-reset and verification messages land instead of being emailed). `/config` is mounted from a ConfigMap, and ConfigMap volumes are read-only in Kubernetes.
 
 Wrong:
 ```yaml
@@ -295,7 +295,7 @@ server:
   address: 'tcp://0.0.0.0:9091/'
 ```
 
-Older guides set `server.host` and `server.port` separately. Those keys are deprecated since Authelia 4.38. Current 4.x releases still map them automatically and log a warning, but they are scheduled for removal, and a major version bump disables the automatic migration. If you copy config from an older guide, check every key name against the current Authelia documentation.
+Older guides set `server.host` and `server.port` separately. Those keys have been deprecated since Authelia 4.38. Current 4.x releases still map them automatically and log a warning, but they are scheduled for removal, and a major version bump disables the automatic migration. If you copy config from an older guide, check every key name against the current Authelia documentation.
 
 The same release moved `session.domain` and the top-level `default_redirection_url` into a `session.cookies` list, one entry per cookie domain, each with its own `authelia_url`. The config below uses the new layout. `default_redirection_url` must not be the same URL as `authelia_url`.
 

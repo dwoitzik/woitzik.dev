@@ -16,7 +16,7 @@ Both of my <AffiliateLink href="/go/4wNS0oI">Raspberry Pi 4Bs</AffiliateLink>, t
 
 ## The Question Wasn't New, Just Never Fully Closed
 
-An earlier decision had already ruled out putting the Pis into etcd for two reasons: SD-card write fragility against etcd's fsync-heavy raft log, and mixing a critical-path responsibility (DNS) with Kubernetes blast radius on the same small boxes. Separately, etcd got pulled out of this cluster entirely in favor of k3s's embedded SQLite datastore. That settles the first objection structurally: there is no etcd role left to put on the Pis at all.
+An earlier decision had already ruled out putting the Pis into etcd for two reasons: SD-card write fragility against etcd's fsync-heavy Raft log, and mixing a critical-path responsibility (DNS) with Kubernetes blast radius on the same small boxes. Separately, etcd got pulled out of this cluster entirely in favor of k3s's embedded SQLite datastore. That settles the first objection structurally: there is no etcd role left to put on the Pis at all.
 
 But that earlier ruling was scoped to etcd *membership*. It never addressed the option that was still live on disk: the Pis as plain k3s **agents**, meaning workers with no control-plane role. Being agent-only instead of server-only doesn't change the blast-radius argument, but the original decision never said so, and a disabled-but-installed agent binary is exactly the kind of half-finished state that invites a future me (or a future automated recovery pass) to assume it was meant to be finished.
 
@@ -39,7 +39,7 @@ Both Pis stay out of k3s entirely: no control-plane role, no agent role. Their j
 
 If Pi compute is ever needed for cluster workloads, the prerequisite is USB-SSD boot on both Pis first. That is a real hardware migration, not a config flag, followed by a multi-night stable baseline before trusting anything critical to it, and then joining as workers only, never control-plane. Given the two k3s VM workers' current utilization, I'm not close to needing that.
 
-## The Part That Looks Like a Contradiction (But Isn't)
+## The Part That Looks like a Contradiction (but Isn't)
 
 Around the same time I was ruling the Pis *out* of the cluster, I also decided to give one of them (`rpi-srv-02`, which now has a USB-SATA SSD attached) an important job: hosting [Headscale](/blog/headscale-oidc-k3s-authelia/), the Tailscale control plane that gates remote access to this whole network, as a standalone Docker Compose service.
 

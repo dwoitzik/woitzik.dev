@@ -13,13 +13,13 @@ The upgrade path was easy to test, because it runs on every upgrade. The rollbac
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## The setup
+## The Setup
 
 The cluster is three VMs on one Proxmox host: a single k3s server on SQLite and two agents. The host can't reach the VMs over the network (VLAN firewall), but all three run the QEMU guest agent, so `qm guest exec` gives the host a command channel that doesn't depend on the cluster network or SSH.
 
 The script only runs on nights with a successful PBS backup in the last six hours and no Velero backup in progress. Before touching anything it checks the cluster is healthy, snapshots the three VMs and adds an Alertmanager silence for the expected maintenance alerts. After every node it runs the same checks: every node Ready, no serving pod unready, ingress answering through Traefik several times in a row, every ExternalSecret synced. Any failure stops all three VMs, rolls them back, starts the server first and checks again.
 
-## Finding zero: the drill that didn't drill
+## Finding Zero: The Drill That Didn't Drill
 
 The first scheduled drill logged two lines and exited:
 
@@ -32,7 +32,7 @@ The copy of the script on the host predated the `--drill` flag. An unknown optio
 
 The fix was boring: render the script from the current template, then run `--drill --dry-run` against the real host and confirm it reaches the plan instead of the early exit. The lesson wasn't boring. A rehearsal only counts if you rehearse the artifact that will actually run, and "it exited 0" is not evidence that it did anything.
 
-## Finding one: the rollback worked, the cluster didn't
+## Finding One: The Rollback Worked, the Cluster Didn't
 
 The second night the drill really ran. Snapshots at 02:00, rollback, VMs started server first. Every VM came back. The health check failed anyway, and the script correctly reported that the cluster needed attention.
 
@@ -49,7 +49,7 @@ A normal node drain never shows this, because pods move a few at a time and the 
 
 The immediate fix was to move one movable pod (Velero, 448 MiB requested) off that node. The database scheduled within seconds. The real fix, so a cold start can't strand a pinned pod again, comes before the nightly timer is switched on.
 
-## Finding two: the silence rolled back with everything else
+## Finding Two: The Silence Rolled Back with Everything Else
 
 The script silences maintenance alerts before it starts and expires the silence at the end. At the end of the drill, the expiry failed:
 
@@ -61,7 +61,7 @@ Alertmanager keeps its silences and notification log on a volume inside the clus
 
 Anything that protects the maintenance window has to live outside the thing being rolled back, or be re-applied after the rollback.
 
-## Finding three: the failure that was there all along
+## Finding Three: The Failure That Was There All Along
 
 While I was untangling the drill, a separate problem surfaced. The SSD on one of my Raspberry Pis had dropped off the USB bus at 05:16 that morning:
 
@@ -83,7 +83,7 @@ That line now lives in the Ansible role that manages the Pi's boot command line,
 
 The part that bothered me more: `node_filesystem_readonly` for that mount had been `1` the entire time. The metric was there, but no rule looked at it. There is one now, and it covers every scraped host, not just the Pi.
 
-## What changed
+## What Changed
 
 - **Drill before trusting a rollback**, and drill the deployed artifact. `--drill --dry-run` against the real host proves the code path is reachable before you schedule the downtime.
 - **A rollback is a cold start.** Pods pinned to a node by local storage need to be placed before movable pods fill that node.

@@ -98,7 +98,7 @@ spec:
     secretName: lab-wildcard-tls
 ```
 
-Since mid-2025 the community edition console is reduced to an object browser. Bucket, user, and policy management happen through the `mc` CLI.
+Since mid-2025 the community-edition console is reduced to an object browser. Bucket, user, and policy management happen through the `mc` CLI.
 
 ## Bucket Configuration
 
@@ -122,7 +122,7 @@ mc admin policy attach minio readwrite cnpg-wal --user cnpg-user
 
 MinIO's built-in `readwrite` policy covers every bucket, though. Restricting a user to `cnpg-wal` alone takes a custom policy scoped to `arn:aws:s3:::cnpg-wal` and `arn:aws:s3:::cnpg-wal/*`, created with `mc admin policy create` and attached with `mc admin policy attach minio <policy> --user cnpg-user`.
 
-## Integrating With CNPG
+## Integrating with CNPG
 
 CNPG's Barman backup target points at MinIO for continuous WAL archiving:
 

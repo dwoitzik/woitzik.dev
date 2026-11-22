@@ -98,19 +98,19 @@ For a homelab specifically (as opposed to embedded or GPIO-driven projects, wher
 
 ## Frequently Asked Questions
 
-### Is the Rock 5B actually faster than the Raspberry Pi 5?
+### Is the Rock 5B Actually Faster than the Raspberry Pi 5?
 
 In multi-threaded benchmarks and anything that can use the RK3588's NPU or video codecs, yes, by a clear margin. In homelab service hosting (reverse proxies, DNS, lightweight containers) the difference is far less noticeable than the spec sheet suggests, because those workloads rarely saturate either board's CPU.
 
-### Should I buy an RK3588 board for k3s?
+### Should I Buy an RK3588 Board for k3s?
 
 For a worker node running a handful of lightweight pods, either family works. The Pi 5 now goes up to 16GB, which covers most edge-node use. If you need more than that, the 32GB Orange Pi 5 Plus is the only option here. Budget extra time for kernel/driver troubleshooting on either RK3588 board if you hit an edge case.
 
-### Does the Raspberry Pi 5 support NVMe boot?
+### Does the Raspberry Pi 5 Support NVMe Boot?
 
 Yes, via the official M.2 HAT+ (or third-party equivalents) on the PCIe 2.0 x1 interface. It's a separate purchase, unlike the Rock 5B and Orange Pi 5 Plus, which have the M.2 slot on-board.
 
-### What about power draw?
+### What About Power Draw?
 
 All three boards idle in the low single-digit watts in published measurements. The differences are a few watts at most, not a category difference, and not enough on their own to decide anything for a homelab running a handful of these devices.
 

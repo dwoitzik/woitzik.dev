@@ -104,7 +104,7 @@ identity_providers:
         token_endpoint_auth_method: 'client_secret_basic'
 ```
 
-The redirect URIs have to match what each service actually sends, character for character. Proxmox VE and PBS redirect back to their web UI origin (`https://pve.woitzik.dev`, `https://backup.woitzik.dev`), not to a dedicated callback path. Headscale's callback path is `/oidc/callback`, and Grafana's generic OAuth integration uses `/login/generic_oauth`. The `client_secret` values are argon2id hashes: Authelia only needs the hash to verify the secret, and the plaintext lives in each service's own OIDC settings, so the hash can sit in git.
+The redirect URIs have to match what each service actually sends, character for character. Proxmox VE and PBS redirect back to their web UI origin (`https://pve.woitzik.dev`, `https://backup.woitzik.dev`), not to a dedicated callback path. Headscale's callback path is `/oidc/callback`, and Grafana's generic OAuth integration uses `/login/generic_oauth`. The `client_secret` values are argon2id hashes: Authelia only needs the hash to verify the secret, and the plaintext lives in each service's own OIDC settings, so the hash can sit in Git.
 
 Key detail: every client uses `client_secret_basic`, including ArgoCD. I originally had ArgoCD on `client_secret_post`, assuming it sent the secret in the POST body. It doesn't. ArgoCD's built-in OIDC client (not Dex) sends client credentials via HTTP Basic auth, and Authelia rejects a client that authenticates with a method other than the configured one with `invalid_client`. Setting `token_endpoint_auth_method: client_secret_basic` on the ArgoCD client fixed the login.
 
@@ -236,7 +236,7 @@ Both probes hit `/api/health`, which, as the schema bug showed, only confirms th
 
 Two things, if starting over:
 
-1. **Start with Vault from day one.** Migrating from plain Kubernetes Secrets to Vault-backed ExternalSecrets after the fact required the `creationPolicy: Merge` dance, which wouldn't have been necessary if the secrets had never been in git.
+1. **Start with Vault from day one.** Migrating from plain Kubernetes Secrets to Vault-backed ExternalSecrets after the fact required the `creationPolicy: Merge` dance, which wouldn't have been necessary if the secrets had never been in Git.
 
 2. **Check each client's token endpoint auth method against its source, not its docs page.** The ArgoCD `invalid_client` failure cost more time than any other client, and the fix was one line once I knew what ArgoCD actually sends.
 

@@ -44,7 +44,7 @@ The LXC path avoids all of that: an LXC shares the host's kernel, so the host ke
 
 ### The Traffic-Isolation Rethink
 
-The acquisition LXC has two different outbound flows, and my first pass treated them as one problem. SABnzbd connects to Eweka (my Usenet provider) over NNTPS on port 563, which is already TLS-encrypted between my box and Eweka's servers. The usual copyright-notice pipeline works by rights-holders joining BitTorrent swarms and logging peer IPs; a Usenet download has no swarm and no peers, so there is nothing for that monitoring to observe. NZBHydra2's indexer search queries are a different flow entirely: HTTP/HTTPS lookups against third-party indexer sites, which *does* expose the home IP to whoever runs the other end, the same as browsing any site directly.
+The acquisition LXC has two different outbound flows, and my first pass treated them as one problem. SABnzbd connects to Eweka (my Usenet provider) over NNTPS on port 563, which is already TLS-encrypted between my box and Eweka's servers. The usual copyright-notice pipeline works by rights holders joining BitTorrent swarms and logging peer IPs; a Usenet download has no swarm and no peers, so there is nothing for that monitoring to observe. NZBHydra2's indexer search queries are a different flow entirely: HTTP/HTTPS lookups against third-party indexer sites, which *does* expose the home IP to whoever runs the other end, the same as browsing any site directly.
 
 Wrapping the whole LXC in gluetun/Mullvad "solved" both at once, but it was the wrong tool for either. A VPN on the download path costs throughput for no privacy benefit beyond what Eweka's own TLS already provides, and a shared VPN exit IP risks Eweka flagging the account for apparent account sharing. I tore gluetun out two days after standing it up and replaced it with a model that matches the two flows:
 
@@ -184,7 +184,7 @@ Without this CronJob, stuck downloads sit indefinitely. Sonarr and Radarr only a
 
 ## What I'd Change
 
-1. **Replace hardcoded Endpoints with DNS.** The manual Endpoints pattern works but is fragile: if an LXC's IP changes, I have to update the Endpoints by hand. An `ExternalName` Service pointing at a DNS name (Headscale MagicDNS entries, for example) would survive IP changes (Traefik's Kubernetes CRD provider needs `allowExternalNameServices` enabled for that). The core `Endpoints` API is also deprecated since Kubernetes 1.33 in favor of `EndpointSlice`, so the hand-written objects need migrating anyway.
+1. **Replace hardcoded Endpoints with DNS.** The manual Endpoints pattern works but is fragile: if an LXC's IP changes, I have to update the Endpoints by hand. An `ExternalName` Service pointing at a DNS name (Headscale MagicDNS entries, for example) would survive IP changes (Traefik's Kubernetes CRD provider needs `allowExternalNameServices` enabled for that). The core `Endpoints` API has also been deprecated since Kubernetes 1.33 in favor of `EndpointSlice`, so the hand-written objects need migrating anyway.
 
 2. **Move the CronJob to a native LXC cron.** The Python script runs in a k3s Pod but talks to LXC-hosted services. It has no business being in the cluster. A systemd timer on the media acquisition LXC would be simpler.
 

@@ -35,7 +35,7 @@ That is the core principle: **Terraform state describes access rules, not the se
 
 ## The Six Stages
 
-### Stage 1: Policies (lowest risk)
+### Stage 1: Policies (Lowest Risk)
 
 Import existing Vault policies into Terraform. A policy only describes access rules, and importing one changes nothing about how Vault operates.
 
@@ -109,11 +109,11 @@ resource "vault_kubernetes_auth_backend_role" "eso" {
 
 **Risk**: Low for importing existing roles, medium for NEW roles, because those change what pods can access. Least-privilege check: compare each role's `bound_service_account_names` and `token_policies` against the live config.
 
-### Stage 5: Additional Auth Methods (deferred)
+### Stage 5: Additional Auth Methods (Deferred)
 
 Userpass, OIDC or other auth methods beyond Kubernetes. Only Kubernetes auth is in use today, since all Vault access goes through ESO. If no other auth methods exist, skip this stage.
 
-### Stage 6: App Policies (purely additive)
+### Stage 6: App Policies (Purely Additive)
 
 Import the per-app policies, one per ESO-managed secret path. Each policy controls exactly which secret path an app's role can read.
 

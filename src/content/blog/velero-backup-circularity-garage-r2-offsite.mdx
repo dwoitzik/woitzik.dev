@@ -43,13 +43,13 @@ On 2026-07-12, an unclean Garage shutdown (OOM kill) left `db.sqlite` corrupted.
 
 ## The Four Options
 
-### Option A: Consolidate meta + data on one volume
+### Option A: Consolidate Meta + Data on One Volume
 
 Move `garage-meta` from `local-path` to NFS (same backend as `garage-data`). Both PVCs on the same storage class → same snapshot/restore fate.
 
 **Verdict**: Fixes torn state but not circularity. NFS for SQLite is proven fragile: the 06-23 corruption happened while `garage-meta` was on `nfs-client`, and moving it back would reopen that. The opposite direction, moving data to `local-path`, needs disk I don't have yet.
 
-### Option B: External off-cluster target (Cloudflare R2)
+### Option B: External Off-Cluster Target (Cloudflare R2)
 
 Activate the existing `r2-offsite` backup storage location. Velero dual-targets: in-cluster Garage for speed + off-cluster Cloudflare R2 for bootstrap.
 
@@ -58,17 +58,17 @@ Cluster lost → Garage gone → Velero still has offsite copy on R2
 Bootstrap: rebuild cluster → ArgoCD → Velero → restore from R2
 ```
 
-**Cost**: ~$0.015/GB/month on R2, egress free, first 10 GB of storage free each month. At current backup size (~5–10 GiB), negligible. **Risk**: near zero. It's additive; no existing backup path changes.
+**Cost**: ~$0.015/GB/month on R2, egress free, first 10 GB of storage free each month. At current backup size (~5 to 10 GiB), negligible. **Risk**: near zero. It's additive; no existing backup path changes.
 
 **Verdict**: Directly solves circularity. The existing R2 config is ready and only needs credentials and a "go".
 
-### Option C: PBS as the primary recovery layer
+### Option C: PBS as the Primary Recovery Layer
 
 Lean into PBS as the from-scratch recovery path. PBS already backs up all VMs/LXCs (including the k3s VMs that carry Garage's data). Velero becomes a convenience layer for single-app restore, not the bootstrap path.
 
 **Verdict**: Already the real bootstrap path (DR Tier 1-4). Velero is Tier 5, usable only if Garage survived. PBS is the real safety net. The circularity is a Velero-level problem, not a PBS-level one.
 
-### Option D: Combine B + C (what I chose)
+### Option D: Combine B + C (What I Chose)
 
 Activate R2 offsite for Velero (breaks circularity) and treat PBS as the primary VM-level recovery layer. Velero becomes the single-app/namespace convenience tool with a real offsite target.
 

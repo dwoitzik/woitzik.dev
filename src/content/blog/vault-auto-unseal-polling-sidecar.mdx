@@ -83,7 +83,7 @@ spec:
 
 The `hashicorp/vault` image has no `kubectl`, and the sidecar doesn't need it: the two unseal key shares come in as environment variables via `secretKeyRef` on the `vault-unseal-keys` Secret, so the kubelet resolves them at pod start and the ServiceAccount needs no RBAC on Secrets at all. The loop talks to Vault's HTTP API (`/v1/sys/seal-status`, `/v1/sys/unseal`) with the busybox `wget` that ships in the image. I moved off the `vault` CLI for the polling because the binary is around 500 MB, and under a 64Mi memory limit it can never stay in page cache, so every 5-second exec reread it from disk.
 
-## The Security Trade-off
+## The Security Trade-Off
 
 In a KMS-based auto-unseal setup, no unseal key is stored anywhere the cluster can read. The KMS holds a key that Vault uses to decrypt its root key (formerly called the master key), which in turn protects the keyring that encrypts the storage. An attacker who copies Vault's storage can't unseal it without access to that KMS key, which lives outside the cluster boundary under its own IAM policy.
 

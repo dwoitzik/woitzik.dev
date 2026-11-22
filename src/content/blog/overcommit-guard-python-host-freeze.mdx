@@ -10,7 +10,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-My Proxmox host froze three times in one week. The root cause was RAM pressure pushing ZFS into an I/O stall on a single shared NVMe. After fixing the freeze (ZFS tuning, cache=none+aio=native), I needed a way to stop it from happening again: a CI guard that catches memory overcommit before it reaches the host. It's the same host where uncontrolled boot storms once pushed load average to 147; memory pressure and I/O pressure are two versions of the same single-host bottleneck.
+My Proxmox host froze three times in one week. The root cause was RAM pressure pushing ZFS into an I/O stall on a single shared NVMe. After fixing the freeze (ZFS tuning, cache=none+aio=native), I needed a way to stop it from happening again: a CI guard that catches memory overcommit before it reaches the host. It's the same host where uncontrolled boot storms once pushed the load average to 147; memory pressure and I/O pressure are two versions of the same single-host bottleneck.
 
 The first version of the guard was wrong. It summed VM and LXC memory allocations together against one ceiling, and flagged 85 GB as "allocated" on a host with 62 GB of physical RAM. A live check showed only 41 GB in use, with 21 GB available. The guard was overstating pressure by 40 GB because it treated two different memory physics as the same thing.
 
@@ -22,7 +22,7 @@ The fix was a two-tier model that understands the difference between a VM reserv
 
 ### VM `dedicated`: Real Reservation
 
-When you set `dedicated = 12288` (12 GB) on a Proxmox VM, QEMU maps 12 GB of guest RAM. The host doesn't fault in every page at boot, but the guest treats all of it as its own: a Linux guest's page cache fills it over time, and without ballooning the host never gets those pages back. With PCI passthrough, the full amount is pinned the moment the VM starts. Either way, plan for the whole 12 GB being gone.
+When you set `dedicated = 12288` (12 GB) on a Proxmox VM, QEMU maps 12 GB of guest RAM. The host doesn't fault in every page at boot, but the guest treats all of it as its own: a Linux guest's page cache fills it over time, and without ballooning, the host never gets those pages back. With PCI passthrough, the full amount is pinned the moment the VM starts. Either way, plan for the whole 12 GB being gone.
 
 Treat it as a hard reservation. If the sum of all VM `dedicated` values plus ZFS ARC plus host overhead exceeds physical RAM, the host is overcommitted. The kernel will start swapping, ZFS will stall waiting for I/O, and the freeze pattern repeats.
 
@@ -88,7 +88,7 @@ VMs can have both `dedicated` (ceiling) and `floating` (balloon-driven floor). W
 The guard conservatively uses `dedicated`, not `floating`, because:
 1. The balloon only inflates *after* pressure is detected. It reacts to pressure; it doesn't prevent it.
 2. A sudden allocation spike (Ollama loading a 26B model) can't wait for the balloon to reclaim memory.
-3. The guard exists to catch *pending* risk, not to model *steady-state* usage
+3. The guard exists to catch *pending* risk, not to model *steady-state* usage.
 
 `floating` values are parsed and printed for visibility, never counted in the hard gate.
 

@@ -16,7 +16,7 @@ const faqs = [
   },
   {
     q: "How many hosts does a /24 leave for VLANs and gateways?",
-    a: "254 usable addresses, of which the router interface consumes one. Splitting a /24 into /26s gives four networks of 62 usable hosts each, which is a common pattern for separating management, IoT, guests and servers on one uplink.",
+    a: "254 usable addresses, of which the router interface consumes one. Splitting a /24 into /26s gives four networks of 62 usable hosts each, which is a common pattern for separating management, IoT, guests, and servers on one uplink.",
   },
   {
     q: "How many usable addresses does an IPv6 subnet have?",
@@ -24,11 +24,11 @@ const faqs = [
   },
   {
     q: "Why does IPv6 have no broadcast address?",
-    a: "IPv6 replaced broadcast with multicast, so there is no reserved all-host bits address. The highest address of the range is simply the last usable address and it is not excluded. That is why the calculator shows the last address for IPv6 instead of a broadcast address, and it is also why no wildcard mask appears: IPv6 access lists are written in prefix notation rather than against an inverted bitmask.",
+    a: "IPv6 replaced broadcast with multicast, so no address with all host bits set is reserved. The highest address of the range is simply the last usable address, and it is not excluded. That is why the calculator shows the last address for IPv6 instead of a broadcast address, and it is also why no wildcard mask appears: IPv6 access lists are written in prefix notation rather than against an inverted bitmask.",
   },
   {
     q: "Is a /127 or /128 IPv6 subnet usable?",
-    a: "Yes. RFC 6164 applies the same reasoning to IPv6 that RFC 3021 applies to IPv4: a /127 is a point-to-point link with 2 usable addresses and a /128 is a single host with 1. Treating them like a normal subnet and subtracting two would leave zero addresses, which is why the calculator special-cases both.",
+    a: "Yes. RFC 6164 applies the same reasoning to IPv6 that RFC 3021 applies to IPv4: a /127 is a point-to-point link with 2 usable addresses, and a /128 is a single host with 1. Treating them like a normal subnet and subtracting two would leave zero addresses, which is why the calculator special-cases both.",
   },
 ];
 
@@ -44,7 +44,7 @@ const related = [
   },
   {
     href: "/blog/mikrotik-ipv6-nat66-cgn-routeros7/",
-    label: "MikroTik IPv6, NAT66 and CGN in RouterOS 7",
+    label: "MikroTik IPv6, NAT66, and CGN in RouterOS 7",
   },
 ];
 
@@ -266,8 +266,8 @@ const default6Usable = usableHosts6(default6.prefix);
 <ToolLayout
   title="IPv4 and IPv6 Subnet Calculator"
   path="/tools/subnet-calculator/"
-  description="Free IPv4 and IPv6 subnet calculator: network address, broadcast or last address, netmask, wildcard mask, usable host count and subnet splitting for any CIDR notation."
-  intro="Enter any IPv4 or IPv6 address in CIDR notation to get the network address, the broadcast or last address in the range, the netmask and how many hosts you can actually use. IPv4 point-to-point and host routes follow RFC 3021, IPv6 point-to-point and host routes follow RFC 6164."
+  description="Free IPv4 and IPv6 subnet calculator: network address, broadcast or last address, netmask, wildcard mask, usable host count, and subnet splitting for any CIDR notation."
+  intro="Enter any IPv4 or IPv6 address in CIDR notation to get the network address, the broadcast or last address in the range, the netmask, and how many hosts you can actually use. IPv4 point-to-point and host routes follow RFC 3021; IPv6 point-to-point and host routes follow RFC 6164."
   faqs={faqs}
   related={related}
 >
@@ -525,7 +525,7 @@ const default6Usable = usableHosts6(default6.prefix);
   <div id="ref-tables" class="flex flex-col gap-8">
     <section id="ref-ipv4" class="space-y-4">
       <h2 class="font-semibold text-lg text-black dark:text-white">
-        Host counts by prefix
+        Host Counts by Prefix
       </h2>
       <div
         class="overflow-x-auto rounded border border-neutral-200 dark:border-neutral-800"
@@ -596,7 +596,7 @@ const default6Usable = usableHosts6(default6.prefix);
     </section>
     <section id="ref-ipv6" class="space-y-4">
       <h2 class="font-semibold text-lg text-black dark:text-white">
-        IPv6 host counts by prefix
+        IPv6 Host Counts by Prefix
       </h2>
       <div
         class="overflow-x-auto rounded border border-neutral-200 dark:border-neutral-800"

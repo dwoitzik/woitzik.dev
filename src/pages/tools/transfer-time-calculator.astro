@@ -8,11 +8,11 @@ const faqs = [
   },
   {
     q: "What is a realistic efficiency figure to pick?",
-    a: "It depends entirely on the two ends. Two modern machines with a direct cable on 2.5 GbE can approach 90% of line rate. A NAS over gigabit ethernet to a laptop with a spinning drive on the other end is often limited by the disk, not the network, and might sit at 50% or less. Pick the share of line rate you actually expect and treat the theoretical figure as the ceiling.",
+    a: "It depends entirely on the two ends. Two modern machines with a direct cable on 2.5 GbE can approach 90% of line rate. A NAS over Gigabit Ethernet to a laptop with a spinning drive on the other end is often limited by the disk, not the network, and might sit at 50% or less. Pick the share of line rate you actually expect and treat the theoretical figure as the ceiling.",
   },
   {
-    q: "Why is my backup slower on Wi-Fi than on ethernet?",
-    a: "Wi-Fi advertises a link rate that is shared and negotiated per frame, and the usable throughput is a fraction of it. A client on 5 GHz with a 866 Mbit link will see far less than 866 Mbit of real transfer because of contention, retries and protocol overhead. That gap between advertised and actual throughput is also what makes bufferbloat visible, since a saturated link queues packets and latency climbs before throughput does.",
+    q: "Why is my backup slower on Wi-Fi than on Ethernet?",
+    a: "Wi-Fi advertises a link rate that is shared and negotiated per frame, and the usable throughput is a fraction of it. A client on 5 GHz with an 866 Mbit link will see far less than 866 Mbit of real transfer because of contention, retries, and protocol overhead. That gap between advertised and actual throughput is also what makes bufferbloat visible, since a saturated link queues packets and latency climbs before throughput does.",
   },
   {
     q: "Does this account for compression or deduplication?",
@@ -87,8 +87,8 @@ const defaultReal = defaultTheoretical / (DEFAULT_EFFICIENCY / 100);
 <ToolLayout
   title="Network Transfer Time Calculator"
   path="/tools/transfer-time-calculator/"
-  description="Free calculator for how long a file or backup takes to transfer over 100 Mbit to 25 Gbit ethernet, at line rate or at the share of throughput you actually expect."
-  intro="Work out how long a copy actually takes before you start it. Enter the data size and the link speed, pick the share of line rate you expect to see, and get the wall-clock time for a NAS backup, a media library sync or an offsite replication job."
+  description="Free calculator for how long a file or backup takes to transfer over 100 Mbit to 25 Gbit Ethernet, at line rate or at the share of throughput you actually expect."
+  intro="Work out how long a copy actually takes before you start it. Enter the data size and the link speed, pick the share of line rate you expect to see, and get the wall-clock time for a NAS backup, a media library sync, or an offsite replication job."
   faqs={faqs}
   related={related}
 >
@@ -228,7 +228,7 @@ const defaultReal = defaultTheoretical / (DEFAULT_EFFICIENCY / 100);
   </div>
 
   <h2 class="font-semibold text-lg text-black dark:text-white">
-    The same transfer across link speeds
+    The Same Transfer Across Link Speeds
   </h2>
   <div
     class="overflow-x-auto rounded border border-neutral-200 dark:border-neutral-800"

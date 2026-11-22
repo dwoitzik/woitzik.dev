@@ -46,7 +46,7 @@ cleanupController:
     leaderElectionRetryPeriod: "10s"
 ```
 
-The cleanup-controller template renders each entry with `range $key, $value := .Values.cleanupController.extraArgs` and emits `--{{ $key }}={{ $value }}`. Over a map, that gives flag name and value. Over a list, Go templates hand `range` the index as the key and the item as the value, so the first item becomes `--0=` followed by the whole string. The rendered result:
+The cleanup-controller template renders each entry with `range $key, $value := .Values.cleanupController.extraArgs` and emits `--{{ $key }}={{ $value }}`. Over a map, that gives the flag name and value. Over a list, Go templates hand `range` the index as the key and the item as the value, so the first item becomes `--0=` followed by the whole string. The rendered result:
 
 ```bash
 # What the binary actually receives:
@@ -102,7 +102,7 @@ cleanupController:
     leaderElectionRetryPeriod: "10s"
 ```
 
-A one-line change. The pod started cleanly and the crash-loop stopped.
+A one-line change. The pod started cleanly and the crash loop stopped.
 
 ## The Pattern
 

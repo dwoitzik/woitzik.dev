@@ -165,7 +165,7 @@ resources:
 
 Two runners capped at 2 GiB each is 4 GiB at most, negligible on a 64GB machine. The runners share CPU with the other k3s workloads: the scheduler reserves only the 500m request, and `cpu: "2"` is a throttling ceiling, not a reservation. Note that with Docker-in-Docker the job containers run inside the dind sidecar, so set limits on that container too.
 
-## The Trade-off
+## The Trade-Off
 
 Gitea Actions is not as mature as GitHub Actions. Matrix builds and actions from the GitHub marketplace work, but some workflow syntax is ignored or only partly supported: `jobs.<job_id>.environment`, problem matchers, error annotations, complex `runs-on` expressions, and GitHub-only `permissions` scopes such as `id-token`. For a homelab infrastructure repo that runs Terraform, Ansible, and container builds, those gaps don't matter. Terraform changes still go through [Atlantis](/blog/mikrotik-terraform-gitops-firewall-management/) for the actual apply, so Gitea Actions only needs to handle lint and plan. The YAML syntax is the same, the runner runs on your hardware, and there's no minute limit.
 

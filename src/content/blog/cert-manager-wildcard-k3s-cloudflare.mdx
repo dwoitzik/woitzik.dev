@@ -213,7 +213,7 @@ The most common failure: the Cloudflare API token doesn't have DNS edit permissi
 
 ## The Timing Problem
 
-DNS-01 challenges take longer than HTTP-01. TXT record propagation alone can take 30–60 seconds, Let's Encrypt verification adds another lookup, and the whole challenge typically completes in 2–5 minutes. If you're used to HTTP-01 finishing in 30 seconds, this feels slow, but it's normal.
+DNS-01 challenges take longer than HTTP-01. TXT record propagation alone can take 30 to 60 seconds, Let's Encrypt verification adds another lookup, and the whole challenge typically completes in 2 to 5 minutes. If you're used to HTTP-01 finishing in 30 seconds, this feels slow, but it's normal.
 
 The cert-manager logs show the flow:
 

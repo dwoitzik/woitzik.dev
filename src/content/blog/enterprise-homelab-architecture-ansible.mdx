@@ -10,7 +10,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-**Update (2026-09-09):** the Atlantis/Cloudflared exposure described in section 3 below is no
+**Update (2026-09-09):** The Atlantis/cloudflared exposure described in section 3 below is no
 longer how this runs. Atlantis's public webhook has since been removed entirely and replaced
 with a self-hosted GitHub Actions runner that polls outbound instead of accepting inbound PR
 webhooks, and the public tunnel allowlist has narrowed to exactly two hostnames, neither of them
@@ -60,7 +60,7 @@ This is the most important design decision in the lab:
 
 If your primary DNS runs on a Proxmox VM, the whole network loses name resolution every time you reboot the hypervisor for kernel updates. So I moved core networking services to physical Raspberry Pis.
 
-With `keepalived`, the Pi nodes share a Virtual IP (VIP). If Pi-1 dies, Pi-2 takes over the IP within seconds. They run [Unbound (recursive DNS) and AdGuard Home (filtering) on keepalived HA](/blog/unbound-adguard-keepalived-homelab/), plus the internal Nginx Proxy Manager. I can shut down the main server entirely and the house WiFi and DNS keep working.
+With `keepalived`, the Pi nodes share a Virtual IP (VIP). If Pi-1 dies, Pi-2 takes over the IP within seconds. They run [Unbound (recursive DNS) and AdGuard Home (filtering) on keepalived HA](/blog/unbound-adguard-keepalived-homelab/), plus the internal Nginx Proxy Manager. I can shut down the main server entirely and the house Wi-Fi and DNS keep working.
 
 ### 3. Application & Management Tiers
 The heavy lifting happens on the main Proxmox cluster, with management tools separated from standard applications.

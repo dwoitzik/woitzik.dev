@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-I'd already [restored three VMs read-only to inspect their disks](/blog/proxmox-pbs-restore-tier1-data-verification/), extracted what I needed, and never issued a single `qm start` against any of them. So when the newly-provisioned production VMs started failing SSH in a way that made no sense, the last place I looked was the VMs I was certain I'd never turned on.
+I'd already [restored three VMs read-only to inspect their disks](/blog/proxmox-pbs-restore-tier1-data-verification/), extracted what I needed, and never issued a single `qm start` against any of them. So when the newly provisioned production VMs started failing SSH in a way that made no sense, the last place I looked was the VMs I was certain I'd never turned on.
 
 ## The Symptoms Didn't Point at the Real Cause
 
@@ -19,7 +19,7 @@ A hard reset of each VM (`qm reset`) "fixed" the SSH issue, and both came back c
 
 ## The Actual Number That Cracked It
 
-`ping -c10` to one of the VMs returned round-trip times of 7–10 **seconds**. Not milliseconds. No SSH setting explains that; it's a host starved of resources, not a slow network path.
+`ping -c10` to one of the VMs returned round-trip times of 7 to 10 **seconds**. Not milliseconds. No SSH setting explains that; it's a host starved of resources, not a slow network path.
 
 ```bash
 cat /proc/pressure/io

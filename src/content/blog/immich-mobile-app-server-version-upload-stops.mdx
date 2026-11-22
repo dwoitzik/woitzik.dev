@@ -11,13 +11,13 @@ The Immich mobile app on my phone stopped uploading photos. Selecting photos and
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## The symptom
+## The Symptom
 
 Immich runs on my k3s cluster as `immich-server`, `immich-ml`, `immich-redis` and `immich-postgres-0`, with the photo library on an NFS export. The phone backs up over the home LAN. On 2026-10-18 I noticed that backups had stopped. No error dialog on the phone that pointed anywhere useful, and nothing on the server side that looked like a failure.
 
 My first suspicion was infrastructure, because that is where things usually break in my setup: storage, the database, or the LAN ingress path.
 
-## Ruling out the infrastructure
+## Ruling Out the Infrastructure
 
 I worked through the stack from the bottom:
 
@@ -28,7 +28,7 @@ I worked through the stack from the bottom:
 
 Every one of those checks was green, and none of them could explain the problem. A failing upload would leave a trace somewhere in that list. There was none, which meant the uploads were not failing. They were not happening.
 
-## What the request log showed
+## What the Request Log Showed
 
 The useful signal was in the server's own request log, once I stopped looking for errors and looked at which endpoints the phone actually called. The app was connected and busy:
 
@@ -44,7 +44,7 @@ Authentication worked and sync worked. What was missing was `POST /api/assets`. 
 
 The one call in that list that reads like a gate is `/api/server/version`. The app asks the server what version it is, every time.
 
-## The session table had the answer
+## The Session Table Had the Answer
 
 Immich records the client build for every session in its Postgres database. The `session` table has an `appVersion` column, so I queried it:
 
@@ -64,7 +64,7 @@ GET /api/server/version -> {"major":3,"minor":2,"patch":2,"prerelease":null}
 
 App 3.3.3, server v3.2.2. The Immich mobile app refuses to sync or upload when the server is older than the app build. That guard lives entirely on the phone. The server never sees a rejected upload because the app never sends one, so every server-side health signal stays green while backups stop.
 
-## I had fixed exactly this a month earlier
+## I Had Fixed Exactly This a Month Earlier
 
 The reason the server was on v3.2.2 is PR #747, from 2026-09-17. Its title says it all: "bump immich to v3.2.2 to match mobile app 3.2.1 sync requirement". Back then the app had jumped to 3.2.1 while the server was still on v3.1.0, with the same result: no uploads.
 
@@ -96,7 +96,7 @@ That rule should have caught v3.3.3. It didn't, and I only found out why weeks l
 
 CI still has to pass, the stateful PR-only group still applies, and majors are never auto-merged. The v3.3.6 update (#1060) landed the same day. If you run Renovate with `minimumReleaseAge` and pull images from anything other than Docker Hub, check whether your updates actually arrive.
 
-## The fix (#925, ADR-061)
+## The Fix (#925, ADR-061)
 
 The immediate fix was a manual bump of `immich-server` and `immich-machine-learning` to v3.3.3, pinned by digest, in `kubernetes/apps/immich/immich.yml`:
 
@@ -115,15 +115,15 @@ Before applying it I took a `pg_dump` and stored it next to Immich's own daily d
 
 Once app and server versions matched, uploads resumed.
 
-## Writing it down as a standing coupling
+## Writing It Down as a Standing Coupling
 
 This is not a one-off bug, so I recorded it as ADR-061 and as a known gotcha in the Immich README. The coupling is permanent: the phone updates itself whenever the store decides to, the server updates when I (or Renovate) decide to, and any gap where the app is newer means backups stop with no server-side error.
 
 The README entry says where to look: the app checks `/api/server/version` against its own build, and `session.appVersion` records what each client reports. That table is the fastest way to see which builds your users are running, without asking anyone to open the app's settings screen.
 
-It also corrected something in my own documentation. In my [operating model post](/blog/operating-model-auto-update-human/) I listed Immich among the apps with data migrations that stay PR-only. For the server and ML images that is no longer true: minor, patch and digest updates auto-merge, and only majors wait for me. The data migration risk is still real, which is why the pre-upgrade dump habit matters more now, not less.
+It also corrected something in my own documentation. In my [operating model post](/blog/operating-model-auto-update-human/) I listed Immich among the apps with data migrations that stay PR-only. For the server and ML images that is no longer true: minor, patch and digest updates auto-merge, and only majors wait for me. The data-migration risk is still real, which is why the pre-upgrade dump habit matters more now, not less.
 
-## What I check now
+## What I Check Now
 
 - **No errors is not the same as no failures.** When a client-driven action stops, look at which endpoints the client calls, not only at error lines. A missing `POST` explains more than a clean log.
 - **Query `session.appVersion` first** when the Immich app misbehaves. Compare it to `GET /api/server/version`. If the app is newer, you have found it.
@@ -131,6 +131,6 @@ It also corrected something in my own documentation. In my [operating model post
 - **Verify that your auto-update rule actually fires.** A Renovate rule that never opens a PR looks exactly like a rule with nothing to do. Run Renovate in debug mode once and read the list of pending updates.
 - **Take a database dump before every Immich bump**, even a patch. A downgrade is not an image swap.
 
-The same pattern of a green status hiding a broken function came up in my [health probe post](/blog/kubernetes-health-probes-host-header-trap/): the checks I had were all real, they just measured something other than "can the phone upload a photo".
+The same pattern of a green status hiding a broken function came up in my [health probe post](/blog/kubernetes-health-probes-host-header-trap/): the checks I had were all real, they just measured something other than "can the phone upload a photo."
 
 <NewsletterCTA />

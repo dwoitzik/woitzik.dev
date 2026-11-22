@@ -212,7 +212,7 @@ resource "azurerm_private_endpoint" "kv_pe" {
 }
 ```
 
-From the internet, the vault's public FQDN still resolves, but with public network access disabled the service rejects every request that doesn't arrive through the Private Endpoint. Inside the VNet, the Private DNS zone resolves the same name to the endpoint's private IP. This is access control at the network layer, which falls under Article 21(2)(i).
+From the internet, the vault's public FQDN still resolves, but with public network access disabled, the service rejects every request that doesn't arrive through the Private Endpoint. Inside the VNet, the Private DNS zone resolves the same name to the endpoint's private IP. This is access control at the network layer, which falls under Article 21(2)(i).
 
 ## Control 5: Identity Without Static Credentials
 

@@ -100,7 +100,7 @@ When k3s-12 goes down, the pods reschedule to k3s-11 or k3s-13, mount the same N
 | Data path | Block device (iSCSI frontend, synchronous replica writes) | File-level over NFS |
 | Node failure tolerance | Yes | No (single server) |
 
-NFS gives up replication and node-failure tolerance. If the NFS server dies, every PVC it serves is unavailable. On a single physical host that is the same risk as with Longhorn, because both storage systems live on the same NVMe. Longhorn's replication doesn't help when the underlying disk is the single point of failure.
+NFS gives up replication and node-failure tolerance. If the NFS server dies, every PVC it serves is unavailable. On a single physical host, that is the same risk as with Longhorn, because both storage systems live on the same NVMe. Longhorn's replication doesn't help when the underlying disk is the single point of failure.
 
 ### What NFS Gives Back
 

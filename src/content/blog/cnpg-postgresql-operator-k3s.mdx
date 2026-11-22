@@ -14,7 +14,7 @@ Nextcloud's PostgreSQL database ran as a StatefulSet with a Longhorn PVC. When t
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-> **Update (November 2026):** the manifests below describe the two-instance pattern, not what my cluster runs today. In the repo, CNPG manages the Authelia, Firefly III, n8n, Scanopy and Synapse databases in the `database` namespace, each with `instances: 1` on `local-path`, so there is no replica to fail over to. Their base backups and WAL go to a dedicated `cnpg-backups` bucket on Garage, scheduled by a `ScheduledBackup`. Nextcloud's Postgres stayed a plain StatefulSet on an NFS-backed PVC and was never moved to CNPG.
+> **Update (November 2026):** The manifests below describe the two-instance pattern, not what my cluster runs today. In the repo, CNPG manages the Authelia, Firefly III, n8n, Scanopy and Synapse databases in the `database` namespace, each with `instances: 1` on `local-path`, so there is no replica to fail over to. Their base backups and WAL go to a dedicated `cnpg-backups` bucket on Garage, scheduled by a `ScheduledBackup`. Nextcloud's Postgres stayed a plain StatefulSet on an NFS-backed PVC and was never moved to CNPG.
 
 ## Why Not Just StatefulSets?
 
@@ -156,7 +156,7 @@ cnpg_collector_last_available_backup_timestamp            # last base backup, Un
 
 Grafana alert: `cnpg_pg_replication_lag > 5`. Replication is asynchronous by default, so a replica that far behind means a failover would lose the most recent writes.
 
-## The Trade-off
+## The Trade-Off
 
 CNPG adds complexity: an operator, Barman for backups and streaming replication to keep an eye on. The benefit is PostgreSQL that survives a node failure without depending on Longhorn's storage reconstruction. For a single-host homelab this is the right trade-off. The [BMAX Mini PC*](/go/4bv3yF1) has enough RAM for two PostgreSQL instances, and failover is faster than waiting for Longhorn to rebuild.
 

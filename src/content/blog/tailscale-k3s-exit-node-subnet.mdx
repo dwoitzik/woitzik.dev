@@ -100,7 +100,7 @@ tailscale status --json | jq '.Peer[] | {Name: .HostName, Online: .Online, RX: .
 
 On the control-plane side, `headscale nodes list-routes` is the ground truth for which routes are advertised, approved, and actually serving. After any routing change, check it instead of trusting the command's exit status.
 
-## The Trade-off
+## The Trade-Off
 
 With Tailscale's hosted control plane, your device list, IPs, and connection metadata live on their servers. Running Headscale moves that state onto your own hardware, at the cost of operating one more service; the data plane is WireGuard either way. If you don't want a coordination server at all, plain WireGuard on MikroTik, managed with Terraform, is still the alternative.
 

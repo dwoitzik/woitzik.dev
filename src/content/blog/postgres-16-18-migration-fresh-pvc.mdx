@@ -10,7 +10,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-PostgreSQL major version upgrades are not swap-the-image operations. When Renovate opened a PR bumping `postgres:16.14-alpine` to `postgres:18.4-alpine` for my Nextcloud and Paperless databases, merging it as-is would have crash-looped both: the on-disk format of the data directory changes between major versions, and PG18 refuses to start against a PG16 data directory.
+PostgreSQL major-version upgrades are not swap-the-image operations. When Renovate opened a PR bumping `postgres:16.14-alpine` to `postgres:18.4-alpine` for my Nextcloud and Paperless databases, merging it as-is would have crash-looped both: the on-disk format of the data directory changes between major versions, and PG18 refuses to start against a PG16 data directory.
 
 Both are plain `StatefulSet` Postgres instances (`postgres-nextcloud` and `postgres-paperless` in the `apps` namespace), not operator-managed. My [Authelia](/blog/k3s-authelia-proxmox-homelab/) database runs on a CloudNativePG cluster with no pinned image tag, so Renovate never touched it. The migration took a fresh PVC per app, a dump and restore, a mount-path change the PG18 image enforces, and one missing role that kept Nextcloud from logging in.
 
@@ -32,7 +32,7 @@ FATAL:  database files are incompatible with server
 DETAIL:  The data directory was initialized by PostgreSQL version 16, which is not compatible with this version 18.4.
 ```
 
-`pg_upgrade` is the official tool for in-place major upgrades. It needs the old and the new binaries side by side, and the official `postgres:*-alpine` images ship exactly one major version. For a database on a 5 GiB volume the simpler path is a logical dump from PG16 and a restore into an empty PG18 instance.
+`pg_upgrade` is the official tool for in-place major upgrades. It needs the old and the new binaries side by side, and the official `postgres:*-alpine` images ship exactly one major version. For a database on a 5 GiB volume, the simpler path is a logical dump from PG16 and a restore into an empty PG18 instance.
 
 ## The Migration Procedure
 
@@ -50,7 +50,7 @@ kubectl exec -n apps postgres-nextcloud-0 -- \
   pg_dump -U nextcloud nextcloud > nextcloud-pre18.sql
 ```
 
-The dump contains schema and data of that one database. It does **not** contain roles: roles are cluster-wide objects, and only `pg_dumpall --globals-only` exports them. That detail comes back below.
+The dump contains the schema and data of that one database. It does **not** contain roles: roles are cluster-wide objects, and only `pg_dumpall --globals-only` exports them. That detail comes back below.
 
 As a second recovery path I took a Velero on-demand backup (`nextcloud-pg-pre18`) before changing anything:
 
@@ -137,7 +137,7 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO oc_dw;
 
 `LOGIN` is all it needs. It's an application role, so no `REPLICATION` or superuser attributes. Creating it **before** the restore is the cleaner order: then the `ALTER OWNER` statements succeed and ownership matches the old cluster. `occ config:system:get dbuser` tells you the role name up front. Paperless had no such mismatch (`PAPERLESS_DBUSER` and `POSTGRES_USER` are both `paperless`).
 
-After that, `occ maintenance:mode --off`, then `occ status` and `occ user:list` on Nextcloud. On Paperless I checked row counts in `django_migrations` and `documents_document` and the celery logs of a fresh pod.
+After that, `occ maintenance:mode --off`, then `occ status` and `occ user:list` on Nextcloud. On Paperless I checked row counts in `django_migrations` and `documents_document` and the Celery logs of a fresh pod.
 
 ## Verify the Dump Before Anything Else
 
@@ -164,8 +164,8 @@ Rollback stayed trivial the whole time: point the StatefulSet back at the old PV
 
 ---
 
-Azure Database for PostgreSQL Flexible Server has the same constraint. Its in-place major version upgrade runs `pg_upgrade` behind a single API call, and the alternative is a dump-and-restore migration to a new server. The managed service hides the mechanics, but the rule is identical: major versions are not compatible at the storage layer.
+Azure Database for PostgreSQL Flexible Server has the same constraint. Its in-place major-version upgrade runs `pg_upgrade` behind a single API call, and the alternative is a dump-and-restore migration to a new server. The managed service hides the mechanics, but the rule is identical: major versions are not compatible at the storage layer.
 
-[The Linux Command Line\*](/go/4gEAhv9) is worth having on the shelf for exactly this kind of migration - `pg_dump`, `pg_restore`, `kubectl cp`, and a dozen other shell tools chained together under time pressure go a lot smoother when the shell itself isn't also something you're learning in the moment.
+[The Linux Command Line\*](/go/4gEAhv9) is worth having on the shelf for exactly this kind of migration: `pg_dump`, `pg_restore`, `kubectl cp`, and a dozen other shell tools chained together under time pressure go a lot smoother when the shell itself isn't also something you're learning in the moment.
 
 <NewsletterCTA />

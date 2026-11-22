@@ -105,7 +105,7 @@ AdGuard only uses bootstrap servers to resolve upstream hostnames. The upstream 
 
 AdGuard Home handles filtering (ads, trackers, malware domains). Unbound handles resolution. Each piece does one job. AdGuard keeps its own 64 MB cache with optimistic caching on top, so a repeat lookup usually never reaches Unbound at all.
 
-## The Performance Trade-off
+## The Performance Trade-Off
 
 Recursive resolution is slower for cold queries: Unbound has to walk the DNS hierarchy, which typically adds tens of milliseconds and can reach a few hundred for distant or slow authoritative servers. Cached queries are faster than any public resolver, because the answer comes from memory on the Pi instead of a network round-trip. I have not benchmarked my own setup against a forwarding config, so there is no latency table here. `dig` prints a `Query time` line; running the same name twice against your resolver shows the cold and cached cases directly.
 

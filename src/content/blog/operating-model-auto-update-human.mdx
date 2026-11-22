@@ -30,11 +30,11 @@ Stateless workloads where a bad version costs a `git revert`, nothing more:
 - Development tools (pre-commit hooks, linters)
 - Non-critical utilities (SearXNG, Mealie, MySpeed)
 
-Renovate holds each update until the release is at least 3 days old (`minimumReleaseAge`), then opens the PR, CI runs, and the PR auto-merges once it's green. If the new version breaks, rollback is reverting that commit. ArgoCD's `selfHeal` doesn't roll back a bad release on its own: it keeps the cluster matching git, and after the merge git says "new version".
+Renovate holds each update until the release is at least 3 days old (`minimumReleaseAge`), then opens the PR, CI runs, and the PR auto-merges once it's green. If the new version breaks, rollback is reverting that commit. ArgoCD's `selfHeal` doesn't roll back a bad release on its own: it keeps the cluster matching Git, and after the merge Git says "new version".
 
 ### PR-Only, Always (Manual Review Required)
 
-Stateful and critical services where a bad upgrade can cause data loss or auth outage:
+Stateful and critical services where a bad upgrade can cause data loss or an auth outage:
 
 - **Databases:** CNPG Postgres, Redis/Valkey
 - **Auth:** [Authelia](/blog/k3s-authelia-proxmox-homelab/), [Vault](/blog/vault-auto-unseal-polling-sidecar/)
@@ -73,7 +73,7 @@ Only explicitly named warnings that matter at steady state:
 - `KubeNodeNotReady`: a node is unreachable
 - `CertManagerCertExpirySoon`: a certificate is close to expiry
 - `VeleroBackupPartialFailure`: backup completed with warnings
-- `ProxmoxStorageCapacityHigh`: the host storage pool crossed its early warning threshold
+- `ProxmoxStorageCapacityHigh`: the host storage pool crossed its early-warning threshold
 
 `KubePodCrashLooping` and `KubeJobFailed` used to be on this list. In August I took them off: they fired constantly for routine, mostly self-healing events (a CronJob's Job failing once and retrying, a pod bouncing during a deploy) and were the main source of notification noise. They are still visible in Prometheus and Grafana, just not pushed to my phone.
 
@@ -93,7 +93,7 @@ The principle: **an alert nobody acts on trains people to ignore Discord.** Ever
 
 Every ArgoCD Application in the repo has `syncPolicy.automated.selfHeal: true`. A merged manifest change deploys itself, and manual `kubectl` drift on anything ArgoCD tracks gets reverted within minutes.
 
-This is the primary self-healing mechanism. If I patch a Deployment by hand while debugging, ArgoCD reverts it on the next sync cycle. The cluster always converges to the git state.
+This is the primary self-healing mechanism. If I patch a Deployment by hand while debugging, ArgoCD reverts it on the next sync cycle. The cluster always converges to the Git state.
 
 ### Docker Containers: restart: unless-stopped
 
@@ -101,7 +101,7 @@ The media stack, Minecraft, AdGuard, and Unbound all run with `restart: unless-s
 
 ### Kyverno: Audit First, Then Enforce Namespace by Namespace
 
-Kyverno started in Audit mode: it reported violations in PolicyReports without blocking anything, because a bad policy in Enforce mode silently blocks legitimate deploys and on a single-operator homelab nobody notices quickly.
+Kyverno started in Audit mode: it reported violations in PolicyReports without blocking anything, because a bad policy in Enforce mode silently blocks legitimate deploys, and on a single-operator homelab, nobody notices quickly.
 
 That has since moved one step further. The default is still `Audit`, but `require-resource-limits` and `disallow-latest-tag` are enforced in the namespaces whose manifests I write myself (`apps`, `database`, `security`), and `disallow-privileged-containers` is enforced more widely. Enforcing in `monitoring` taught me why not everywhere: the next Grafana restart was blocked because the upstream chart's sidecars ship without resource limits. A clean PolicyReport only covers pods that exist at that moment. The details are in [the Kyverno post](/blog/kyverno-supply-chain-security-kubernetes/).
 

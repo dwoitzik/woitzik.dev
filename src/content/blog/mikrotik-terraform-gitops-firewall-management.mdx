@@ -191,9 +191,9 @@ Every rule change is visible in the PR before it touches the live router.
 
 The rule of thumb: anything that affects traffic flow or network behavior is in Terraform. One-time setup and the router's own maintenance stay in RouterOS.
 
-This split only works because the RouterOS provider covers nearly every resource. On UniFi the community Terraform provider was archived in April 2026, which is a large part of why [MikroTik beats Ubiquiti UniFi for a homelab run as code](/blog/mikrotik-vs-ubiquiti-home-network-2026/).
+This split only works because the RouterOS provider covers nearly every resource. On UniFi, the community Terraform provider was archived in April 2026, which is a large part of why [MikroTik beats Ubiquiti UniFi for a homelab run as code](/blog/mikrotik-vs-ubiquiti-home-network-2026/).
 
-## The LED Night-Mode
+## The LED Night Mode
 
 The RB5009's LEDs are bright enough to be annoying in a dark room. RouterOS can switch them on a schedule via the system scheduler, so that went into Terraform too:
 
@@ -215,7 +215,7 @@ resource "routeros_system_scheduler" "led_on_day" {
 }
 ```
 
-Two scheduler entries: LEDs off at 22:00, back on at 06:00, repeating every `1d` (RouterOS interval syntax; `00:24:00` would mean 24 minutes). The accepted values changed between firmware versions: on RouterOS 7.24.1 `all-leds-off` takes `never`/`immediate`, and the older `no` is rejected. Reviewed in a PR and applied by Atlantis like everything else. It's the most trivial thing in the network stack and the change that made my partner the happiest.
+Two scheduler entries: LEDs off at 22:00, back on at 06:00, repeating every `1d` (RouterOS interval syntax; `00:24:00` would mean 24 minutes). The accepted values changed between firmware versions: on RouterOS 7.24.1, `all-leds-off` takes `never`/`immediate`, and the older `no` is rejected. Reviewed in a PR and applied by Atlantis like everything else. It's the most trivial thing in the network stack and the change that made my partner the happiest.
 
 ## The Anti-Patterns
 

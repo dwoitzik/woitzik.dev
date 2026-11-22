@@ -107,17 +107,17 @@ function emailButton(href: string, label: string): string {
 
 const DAY0_SUBJECT = "Your Azure Zero-Trust Terraform Cheat Sheet";
 const DAY0_BODY = emailBody(`
-  <p style="margin:0 0 16px">Thanks for signing up. Here are the 8 Terraform patterns: NSGs, Private Endpoints, Managed Identities, Forced Tunneling, and the NIS2/ISO 27001 control map.</p>
+  <p style="margin:0 0 16px">Thanks for signing up. Here are the 8 Terraform patterns: NSGs, Private Endpoints, Managed Identities, forced tunneling, and the NIS2/ISO 27001 control map.</p>
   <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin:20px 0">
     <tr><td align="center" style="padding:0">
       ${emailButton(
         "https://woitzik.dev/downloads/azure-zero-trust-terraform-cheatsheet.pdf",
-        "Download Cheat Sheet (PDF) &rarr;",
+        "Download the cheat sheet (PDF) &rarr;",
       )}
     </td></tr>
   </table>
   <hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0">
-  <p style="margin:0 0 8px;font-size:13px;color:#737373">I write about Azure Terraform, zero-trust networking and compliance automation, mostly from things that broke in real deployments. Every module I publish is free and MIT licensed.</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#737373">I write about Azure Terraform, zero-trust networking, and compliance automation, mostly from things that broke in real deployments. Every module I publish is free and MIT licensed.</p>
   <p style="margin:16px 0 0;font-size:13px;color:#737373">David<br><a href="https://woitzik.dev" style="color:#0ea5e9;text-decoration:none">woitzik.dev</a></p>
 `);
 
@@ -125,11 +125,11 @@ const DAY3_SUBJECT = "The Azure Firewall cycle error on first apply";
 const DAY3_BODY = emailBody(`
   <p style="margin:0 0 16px">Hi,</p>
   <p style="margin:0 0 16px">If you've built forced tunneling with Azure Firewall in Terraform, you may have hit this on the first apply: <code>Error: Cycle: azurerm_subnet_route_table_association...</code></p>
-  <p style="margin:0 0 16px">The route table needs the firewall's private IP as next hop. The firewall needs its subnet first. The route table association binds everything to the spoke subnets at the same time. Structured the wrong way, Terraform can't work out the order and gives up.</p>
+  <p style="margin:0 0 16px">The route table needs the firewall's private IP as the next hop. The firewall needs its subnet first. The route table association binds everything to the spoke subnets at the same time. Structured the wrong way, Terraform can't work out the order and gives up.</p>
   <p style="margin:0 0 16px">The article covers:</p>
   <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 16px">
     <tr><td style="padding:0 0 6px 20px;font-size:15px;color:#404040">&bull;&nbsp; The resource ordering that breaks the cycle</td></tr>
-    <tr><td style="padding:0 0 6px 20px;font-size:15px;color:#404040">&bull;&nbsp; The KMS bypass routes for Windows activation (Microsoft currently lists three global KMS IPs: 20.118.99.224, 40.83.235.53 and 23.102.135.246)</td></tr>
+    <tr><td style="padding:0 0 6px 20px;font-size:15px;color:#404040">&bull;&nbsp; The KMS bypass routes for Windows activation (Microsoft currently lists three global KMS IPs: 20.118.99.224, 40.83.235.53, and 23.102.135.246)</td></tr>
     <tr><td style="padding:0 0 0 20px;font-size:15px;color:#404040">&bull;&nbsp; The Azure AD bypass route, and what fails without it</td></tr>
   </table>
   <p style="margin:0 0 20px">
@@ -143,17 +143,17 @@ const DAY3_BODY = emailBody(`
 const DAY7_SUBJECT = "If you're facing a compliance deadline";
 const DAY7_BODY = emailBody(`
   <p style="margin:0 0 16px">Hi,</p>
-  <p style="margin:0 0 16px">If someone in your org has brought up ISO 27001, NIS2 or KRITIS lately, the infrastructure part probably landed on your desk.</p>
+  <p style="margin:0 0 16px">If someone in your org has brought up ISO 27001, NIS2, or KRITIS lately, the infrastructure part probably landed on your desk.</p>
   <p style="margin:0 0 16px">The controls themselves are documented well enough. What's missing is the mapping to actual Terraform resources.</p>
   <p style="margin:0 0 8px;font-weight:600;color:#0a0a0a">The cheat sheet covers the basics; the modules go further:</p>
   <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin:16px 0;border:1px solid #e5e5e5;border-radius:6px">
     <tr><td style="padding:14px 16px;border-bottom:1px solid #e5e5e5">
-      <p style="margin:0 0 4px;font-weight:700;font-size:14px;color:#0a0a0a">Hub &amp; Spoke - Zero-Trust Edition <span style="color:#10b981">Free</span></p>
+      <p style="margin:0 0 4px;font-weight:700;font-size:14px;color:#0a0a0a">Hub &amp; Spoke: Zero-Trust Edition <span style="color:#10b981">Free</span></p>
       <p style="margin:0;font-size:13px;color:#737373">Zero-trust NSG baselines, central Private DNS Zones, and lifecycle handling for DINE policies.</p>
     </td></tr>
     <tr><td style="padding:14px 16px">
-      <p style="margin:0 0 4px;font-weight:700;font-size:14px;color:#0a0a0a">Azure Firewall - Forced Tunneling Edition <span style="color:#10b981">Free</span></p>
-      <p style="margin:0;font-size:13px;color:#737373">No cycle error, KMS and Azure AD bypass routes included.</p>
+      <p style="margin:0 0 4px;font-weight:700;font-size:14px;color:#0a0a0a">Azure Firewall: Forced Tunneling Edition <span style="color:#10b981">Free</span></p>
+      <p style="margin:0;font-size:13px;color:#737373">No cycle error; KMS and Azure AD bypass routes included.</p>
     </td></tr>
   </table>
   <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin:20px 0">
@@ -168,7 +168,7 @@ const DAY7_BODY = emailBody(`
 const CONFIRM_SUBJECT = "Please confirm your subscription to woitzik.dev";
 function confirmBody(link: string): string {
   return emailBody(`
-  <p style="margin:0 0 16px">Please confirm that you want to receive emails from woitzik.dev: the Azure Zero-Trust Terraform cheat sheet now, and new articles and Terraform modules afterwards.</p>
+  <p style="margin:0 0 16px">Please confirm that you want to receive emails from woitzik.dev: the Azure Zero-Trust Terraform cheat sheet now, and new articles and Terraform modules afterward.</p>
   <p style="margin:0 0 24px"><a href="${link}" style="display:inline-block;background:#0a0a0a;color:#ffffff;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:8px">Confirm subscription</a></p>
   <p style="margin:0 0 8px;font-size:13px;color:#737373">The link is valid for 7 days. If you did not sign up, ignore this email and nothing will happen.</p>
   <p style="margin:16px 0 0;font-size:13px;color:#737373">David<br><a href="${SITE}" style="color:#0f766e;text-decoration:none">woitzik.dev</a></p>`);
@@ -230,7 +230,7 @@ export default async function handler(
 
   if (!email || !EMAIL_RE.test(email)) {
     res.writeHead(400);
-    res.end(JSON.stringify({ error: "Valid email address required" }));
+    res.end(JSON.stringify({ error: "A valid email address is required." }));
     return;
   }
 

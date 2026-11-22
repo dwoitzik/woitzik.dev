@@ -10,7 +10,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Most guides for running a model like Gemma 4 26B locally assume a large Nvidia GPU. I tried it on a mini PC in my homelab, deployed entirely as Infrastructure as Code (IaC): Terraform builds the Proxmox LXC container, Ansible installs Ollama and Open-WebUI.
+Most guides for running a model like Gemma 4 26B locally assume a large NVIDIA GPU. I tried it on a mini PC in my homelab, deployed entirely as Infrastructure as Code (IaC): Terraform builds the Proxmox LXC container, Ansible installs Ollama and Open WebUI.
 
 An earlier version of this post presented an AMD iGPU workaround as the way to get hardware acceleration. It never held up under real load, and a CPU-only run later froze the whole host. This version describes what is actually in the repository today and why.
 
@@ -139,9 +139,9 @@ The lesson I took from this applies well beyond AI: a manual step next to IaC is
 
 **Large pulls look like a hang.** A 26B model is a big download. The `ollama pull` task can sit for a long time without output, which is easy to mistake for a stuck playbook.
 
-## 5. Open-WebUI as the Frontend
+## 5. Open WebUI as the Frontend
 
-Open-WebUI runs as a Docker container in the server stack, pointed at the AI container:
+Open WebUI runs as a Docker container in the server stack, pointed at the AI container:
 
 ```yaml
 services:
@@ -161,7 +161,7 @@ volumes:
   open-webui-data:
 ```
 
-Because `OLLAMA_BASE_URL` points at the AI container's IP, Open-WebUI finds the model on first start, with no configuration in the interface.
+Because `OLLAMA_BASE_URL` points at the AI container's IP, Open WebUI finds the model on first start, with no configuration in the interface.
 
 ## Where It Stands Now
 
