@@ -1,0 +1,127 @@
+---
+title: "10-Zoll-Rack im Homelab: Aufbau mit Mini-PC und MikroTik"
+description: "Mein 10-Zoll-Rack im Homelab: Mini-PC mit Proxmox, Raspberry Pis und MikroTik RB5009. Was darin steckt, warum ich es gewählt habe und was ich ändern würde."
+lang: de
+translationOf: "homelab-hardware-tour-physical-rack"
+date: "2026-12-15"
+tags: ["Homelab", "Hardware", "Networking"]
+---
+
+<em>Werbung: Dieser Beitrag enthält Amazon-Affiliate-Links (mit &#42; markiert). Als Amazon-Partner verdiene ich an qualifizierten Verkäufen. Für dich kostet es nichts extra.</em>
+
+Alles, worüber dieser Blog schreibt (der k3s-Cluster, das VLAN-Setup auf MikroTik, die per Terraform verwalteten VMs), läuft auf echter Hardware in meiner Wohnung. Ich werde ziemlich oft gefragt, wie das aussieht, deshalb hier der Rundgang: was im Rack steckt, warum ich mich für jedes Teil entschieden habe und was ich anders machen würde, wenn ich noch einmal von vorn anfinge.
+
+**[Kompletten Homelab-Infrastruktur-Code auf GitHub ansehen](https://github.com/dwoitzik/homelab-infrastructure)**
+
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [Inside My Homelab: The Hardware Behind Every Article on This Blog →](/blog/homelab-hardware-tour-physical-rack/).
+
+## Rack und Stromversorgung
+
+Alles steckt in einem kompakten 10-Zoll-Rack: nicht die 19-Zoll-Serverschränke, die man von Rechenzentrumsfotos kennt, sondern eine verkleinerte Variante, die in ein Arbeitszimmer passt.
+
+**Das Gehäuse:** Ich nutze einen [DIGITUS 10-Zoll-Wandschrank mit 6 HE\*](/go/4pGBkxb). Sechs Höheneinheiten nehmen alles unten Beschriebene auf und lassen noch Platz, und die geschlossene Bauform dämpft die Geräusche spürbar. Für 10 Zoll statt 19 Zoll habe ich mich aus drei Gründen entschieden: Der Schrank passt an eine einzelne Wandhalterung, ohne dass die Befestigung einen Wandständer treffen muss, die Geräuschdämmung ist bei dem kleineren Volumen, das weniger mitschwingt, spürbar besser, und für jedes Gerät, das ich betreibe, gibt es eine Variante im 10-Zoll-Format. Ein 19-Zoll-Rack im Arbeitszimmer ist übertrieben, solange du nicht mehrere ausgewachsene Server betreibst.
+
+**Fachböden und Luftstrom:** Für die Raspberry Pis und kleinere Geräte nutze ich einen [DIGITUS 10-Zoll-Fachboden mit 1 HE, gelocht\*](/go/456lv9g). Die Lochung ist wichtiger, als es klingt: Sie hält den Luftstrom durchs Rack in Bewegung, statt die Wärme rund um die Pis zu stauen.
+
+**Kühlung:** Weil das Rack geschlossen ist, reicht passive Kühlung nicht immer aus. Ich habe ein Set [ARCTIC P12 120-mm-Lüfter\*](/go/44vgXJy) als Abluft eingebaut. Sie sind leise, bewegen aber genug Luft, um die Temperaturen stabil zu halten. Der eigentliche Test war der Sommer: Bei geschlossenem Rack und 28°C Raumtemperatur erreichte die NVMe des Proxmox-Hosts unter Dauerlast 72°C. Nachdem ich die P12 als Abluft eingebaut hatte, die die warme Luft oben herausziehen, sank der Wert auf 58°C. Das entscheidende Detail: Ich habe sie als Abluft montiert, nicht als Zuluft. In einem kleinen Rack ist es wirksamer, die heiße Luft herauszuziehen, als kühle Luft hineinzudrücken, weil der gelochte Fachboden von unten bereits für passive Zuluft sorgt.
+
+**Stromverteilung:** Alles hängt an einer [DIGITUS 10-Zoll-Steckdosenleiste mit 4 Steckplätzen\*](/go/3RiBttM), die ganz unten montiert ist. Sie passt ins 10-Zoll-Profil und hält das Kabelgewirr klein.
+
+Wenn du die Leistungsaufnahme des gesamten Racks im Leerlauf (47 W) und unter Last (120 W) kennst, weißt du genau, wie viel USV-Kapazität du brauchst und ob sich ein bestimmtes Mini-PC-Upgrade angesichts der zusätzlichen Wärme lohnt.
+
+## Rechenleistung
+
+### Primärer Proxmox-Host
+
+Das ist das Arbeitspferd des ganzen Labs. Hier läuft alles vom [lokalen KI-Stack mit Ollama](/blog/deploying-gemma-proxmox-iac/) (englischer Artikel) bis zum Großteil meiner k3s-Worker-Nodes.
+
+Ich betreibe einen älteren BMAX B5A Pro (Ryzen 7 5825U). Wenn du heute einen kaufst, ist der aufgerüstete [BMAX Mini-PC mit Ryzen 7 8745HS\*](/go/4bv3yF1) der direkte Nachfolger, mit einer deutlich schnelleren Radeon-780M-GPU und DDR5-Unterstützung. Wenn du andere Geräte für dieselbe Rolle vergleichst: Der [Vergleich der besten Mini-PCs fürs Homelab](/blog/mini-pc-fuer-homelab-2026/) stellt vier aktuelle Modelle nach Ausstattung, Leerlaufverbrauch und NIC gegenüber.
+
+**Das Speicher-Upgrade:** Ab Werk kommen diese Mini-PCs meist mit bescheidenem RAM. Ich habe meinen Node mit einem [Crucial 64GB DDR4 SODIMM Kit\*](/go/3QZejZn) auf 64GB aufgerüstet (oder mit dem [Crucial 64GB DDR5 SODIMM Kit\*](/go/4aUt06I), wenn du das neuere BMAX-Modell mit DDR5 nimmst). Ich habe mich für Crucial entschieden, weil Mini-PC-Plattformen bei der Speicherkompatibilität wählerisch sein können und diese Kiste rund um die Uhr läuft. Die 64GB sind kein Luxus. Sie sind das Minimum, um eine k3s-Control-Plane, mehrere Worker-Workloads und lokale LLM-Inferenz gleichzeitig zu betreiben, ohne dass sie sich um Ressourcen streiten. Die OOM-Kaskade, über die ich in [How a 1 GiB Memory Limit Took Down My Entire k3s Cluster](/blog/k3s-cascading-failure-oomkill-dns-storm/) (englischer Artikel) geschrieben habe, entstand zum Teil, weil ich unterschätzt hatte, wie schnell sich der Speicher füllt, wenn Proxmox per Ballooning RAM entzieht und kubelet die falsche Kapazität ausliest.
+
+**Backup-Speicher:** Für lokale Backups und reine Dateiablage hängt eine [Seagate Portable 2TB externe Festplatte\*](/go/4vxwLpY) direkt per USB am Host. Sie ist das Backup-Ziel, auf das sich das [Disaster-Recovery-Runbook](/blog/backup-restore-test-never-verified-network-conflict/) (englischer Artikel) bezieht, und bewusst unabhängig vom Cluster gehalten, denn ein Backup, das von genau dem System abhängt, *von dem* du wegsicherst, fällt zusammen mit ihm aus. Wenn du Backups lieber ganz vom Hypervisor-Host fernhalten willst, ist ein NAS der einfachere Weg; der Artikel [Best NAS for Home Backup and Homelab Use](/blog/nas-fuer-backup-homelab-2026/) (englischer Artikel) vergleicht fünf Geräte mit zwei und vier Schächten.
+
+### Edge-Nodes
+
+Für redundante, stromsparende Edge-Rechenleistung (Keepalived-Nodes, schlanke k3s-Agents und lokales DNS) betreibe ich einen Raspberry-Pi-Cluster.
+
+Angefangen habe ich mit dem [db-tronic Raspberry Pi 4 (8GB) Starter Set\*](/go/4wNS0oI). Es kam als komplettes Kit mit Gehäuse, Netzteil und SD-Karte, was die Einzelbestellung der Komponenten erspart.
+
+Wenn du heute einen neuen Node aufbaust, greif direkt zum neueren [db-tronic Raspberry Pi 5 (8GB) Starter Set\*](/go/4wETNfv). Der Leistungssprung bei containerisierten Workloads ist groß.
+
+Auf den Pis laufen AdGuard Home und Unbound als DNS für das gesamte Netzwerk, als Active/Passive-Paar über Keepalived. Echte Hardware heißt: kein Proxmox-Snapshot, kein PBS-Backup, kein `terraform destroy && apply` zur Wiederherstellung. Deshalb ist die [Härtung](/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables/) (englischer Artikel) mit Watchdog, fail2ban und nftables so wichtig. Ein abgestürzter k3s-Pod wird in Sekunden neu eingeplant. Ein Raspberry Pi, der sich komplett aufhängt, bleibt hängen, bis jemand den Stecker zieht.
+
+## Netzwerk
+
+In der Netzwerkschicht passiert der Großteil der Technik. Sie ist das physische Rückgrat hinter den Artikeln über VLAN-Filtering und die Zero-Trust-Firewall auf MikroTik.
+
+**Das Gateway:** Am Anfang der Kette steht ein [AVM FRITZ!Box 6591 Kabelmodem\*](/go/4f5WDEI) (wenn du das moderne Pendant mit Wi-Fi 6 suchst, schau dir die [FRITZ!Box 6690 Cable\*](/go/4f2yuid) an).
+
+**Core-Router:** Hinter dem Modem sitzt das Gehirn meines Netzwerks: der [MikroTik RB5009 Router\*](/go/4w08b21). Dieses eine Gerät hat ersetzt, was früher ein separater Router plus ein dummer Switch war. RouterOS gibt mir volles VLAN-Filtering und Firewall-Regeln, alles über Terraform verwaltet. (Bis [Headscale](/blog/headscale-oidc-k3s-authelia/) (englischer Artikel) im Mai 2026 den Fernzugriff übernommen hat, terminierte er auch mein WireGuard-VPN.)
+
+**Verkabelung:** Um Router, Patchpanel und Server auf dem engen Raum des 10-Zoll-Racks zu verbinden, nutze ich kurze [deleyCON CAT7-Patchkabel mit 0,5 m\*](/go/4plOgZ5). Kabel mit 50 cm halten das Rack auch ohne Kabelführungsbügel aufgeräumt.
+
+Den RB5009 habe ich gezielt den günstigeren hEX- oder hAP-Modellen von MikroTik vorgezogen, und zwar wegen des Switch-Chips. Volles Hardware-Offloading für VLAN-getaggten Traffic wird wichtig, sobald ein Proxmox-Trunk-Port mehrere VLANs trägt. Software-geswitchte VLANs auf den günstigeren Modellen bringen Latenz mit, die du unter Dauerlast *bemerken wirst*.
+
+Hier ist der echte Terraform-Code, der die VLAN-Matrix konfiguriert, derselbe Code, der jede Firewall-Regel, jeden Bridge-Eintrag und jede IP-Adresse im Netzwerk erzeugt:
+
+```hcl
+locals {
+  homelab_vlans = {
+    "vlan20-srv"    = 20
+    "vlan30-dmz"    = 30
+    "vlan40-iot"    = 40
+    "vlan100-admin" = 100
+  }
+
+  rpi_port_mapping = {
+    "ether6" = 20 # RPi 4B #1 (Keepalived Node A)
+    "ether7" = 20 # RPi 4B #2 (Keepalived Node B)
+  }
+
+  proxmox_port = "ether5"
+}
+```
+
+Dieser `locals`-Block ist die einzige Quelle der Wahrheit. Trägst du hier ein VLAN ein, erzeugt Terraform die Interfaces, DHCP-Server, Einträge in der Bridge-Matrix und Firewall-Regeln. Einen Raspberry Pi in ein anderes VLAN zu verschieben heißt, eine einzige Zahl zu ändern. Das vollständige Setup steht im [Artikel zum MikroTik VLAN-Filtering](/blog/mikrotik-vlan-filtering-terraform-proxmox/) (englischer Artikel).
+
+Dieselbe Default-Deny-Haltung überträgt sich auf Azure, wo sie über NSGs, Azure Firewall und Private Link umgesetzt wird. Die Bausteine sind andere, aber das Denken in RouterOS-Regelketten lässt sich direkt übertragen.
+
+## Werkbank und Bücherregal (Werkzeug und Technik, die ich empfehle)
+
+Ein Homelab ist nie fertig, und für die Pflege braucht es das richtige Werkzeug. Hier ist die Ausrüstung auf meinem Schreibtisch und die Bücher, die geprägt haben, wie ich Infrastruktur baue.
+
+### Werkzeug
+
+**Der Werkzeugkoffer:** Jedes Mal, wenn ich einen Mini-PC öffnen oder eine M.2-SSD tauschen muss, greife ich zum [iFixit Pro Tech Toolkit\*](/go/4wKbVEW). Es hat bisher jedes Sicherheitsbit gehabt, das ich gebraucht habe, und hält jahrelang.
+
+**Beschriftung:** VLANs und komplexe Patchpanels funktionieren nicht ohne beschriftete Kabel. Ich nutze das [Brother PT-H110 Beschriftungsgerät\*](/go/4wcr4PG), um beim Verfolgen von Verbindungen nicht den Verstand zu verlieren. Nachdem ich zum dritten Mal 20 Minuten damit verbracht hatte, ein Kabel zu verfolgen, weil „ich mir schon merke, welches das ist“, habe ich es gekauft. Es hätte mein erster Kauf sein sollen.
+
+**Kabelmanagement:** Keine Kabelbinder aus Plastik im Rack! Ich nutze eine [15-m-Rolle Klett-Kabelbinder\*](/go/4bnvY3K), weil sie wiederverwendbar sind und sich nicht so fest zuziehen lassen, dass sie ein Kabel quetschen, wie es mit Kabelbindern passieren kann.
+
+**Strommessung:** Weil die Strompreise in Deutschland kein Witz sind, hängt mein komplettes Rack an einer [TP-Link Tapo P110 smarten Steckdose mit Verbrauchsmessung\*](/go/3STKPwD), damit ich die genaue Leistung und den Leerlaufverbrauch verfolgen kann.
+
+### Leseempfehlungen
+
+- [Designing Data-Intensive Applications von Martin Kleppmann\*](/go/4aUtkCs): Das beste Buch, das ich über verteilte Systeme, Datenbanken und Skalierbarkeit kenne. Lesenswert für alle, die Kubernetes betreiben.
+- [The Phoenix Project von Gene Kim\*](/go/4f4RHQf): Ein Roman über IT und DevOps. Er ist unterhaltsam und wird allen, die in der IT arbeiten, schmerzhaft vertraut vorkommen.
+- [The Linux Command Line von William Shotts\*](/go/4gEAhv9): Die beste Einführung in die Bash-Shell, die du täglich nutzt, wenn du Server ohne Bildschirm verwaltest.
+- [Netzwerke: Verstehen, Einrichten, Administrieren\*](/go/4f3kTar): Ein gründlicher deutschsprachiger Leitfaden zur Netzwerkarchitektur von Grund auf.
+
+---
+
+## Was ich bei einem Neuanfang ändern würde
+
+Drei Dinge, in umgekehrter Reihenfolge ihrer Wichtigkeit:
+
+**1. Den RB5009 zuerst kaufen, nicht als zweiten Router.** Ich habe mit einem günstigeren MikroTik hEX angefangen und bin ihm schnell entwachsen: Die software-geswitchten VLANs kamen mit dem Trunk-Traffic von Proxmox nicht mit. Sobald mehrere getaggte VLANs über einen Trunk laufen, ist das Hardware-Offloading des RB5009 für VLAN-getaggten Traffic Pflicht und keine nette Zugabe.
+
+**2. Mit dem Pi 5 anfangen, nicht mit dem Pi 4.** Der Pi 4B reicht für DNS und Keepalived völlig aus, aber der Pi 5 ist bei containerisierten Workloads ein großer Schritt nach vorn. Wenn du heute neu kaufst, lass den 4er ganz weg.
+
+**3. Kabel vom ersten Tag an beschriften.** Habe ich nicht gemacht. Vor der Beschriftung war mein Patchpanel ein Knäuel identischer Kabel, in dem ich einem einzelnen Port nur von Hand hinterhertasten konnte. Das Beschriftungsgerät von Brother hatte sich durch eingesparte Fehlersuche innerhalb einer Woche bezahlt gemacht.
+
+---
+
+Wenn du den Terraform- und Ansible-Code sehen willst, der aus dieser Hardware den k3s-Cluster, die Proxmox-VMs und die Netzwerksegmentierung macht, über die dieser Blog schreibt: Das komplette [homelab-infrastructure-Repo](https://github.com/dwoitzik/homelab-infrastructure) ist öffentlich auf GitHub. Die Ansible-Schicht, die den ganzen Stack orchestriert, erkläre ich im Artikel über meine [Homelab-Architektur auf Enterprise-Niveau](/blog/enterprise-homelab-architecture-ansible/) (englischer Artikel).
+
+Nichts davon ist nur fürs Homelab relevant: Terraform + Ansible + Atlantis ist derselbe Steuerkreis, den Unternehmen auf Azure betreiben, und die Hub-and-Spoke-Topologie, die Mikrosegmentierung per NSG und das Forced Tunneling erwachsen alle aus dem Denkmodell, das du dir aufbaust, wenn du einen MikroTik und ein paar Proxmox-Nodes verwaltest.
