@@ -43,17 +43,20 @@ const ASINS: Record<string, string> = {
   "gitops-kubernetes-book": "1617297275",
 };
 
-// Amazon Associates tracking IDs, one per marketplace this account is
-// registered in. Every other country falls back to the DE storefront, the
-// marketplace the ASIN catalog above was sourced from and one that ships across
-// the EU.
+// Amazon Associates tracking IDs. Every other country falls back to the DE
+// storefront, the marketplace the ASIN catalog above was sourced from and one
+// that ships across the EU.
+//
+// FR, ES, PL and NL accounts exist (tags woitzikdev0f0-21, woitzikdev0a-21,
+// woitzikdev00-21, woitzikdev03-21) but are deliberately not routed here.
+// Every account needs three qualifying sales within 180 days of sign-up or
+// Amazon closes it, and as of 2026-11-23 no account had a single sale: the
+// ~30 clicks a month were split across seven storefronts. Sending EU visitors
+// to amazon.de concentrates roughly two thirds of all clicks on the DE account
+// (deadline about 2027-01-11). Re-add a storefront once traffic can carry it.
 const MARKETPLACES: Record<string, { domain: string; tag: string }> = {
   GB: { domain: "amazon.co.uk", tag: "woitzikdev0e-21" },
   US: { domain: "amazon.com", tag: "woitzikdev-20" },
-  FR: { domain: "amazon.fr", tag: "woitzikdev0f0-21" },
-  ES: { domain: "amazon.es", tag: "woitzikdev0a-21" },
-  PL: { domain: "amazon.pl", tag: "woitzikdev00-21" },
-  NL: { domain: "amazon.nl", tag: "woitzikdev03-21" },
 };
 const DEFAULT_MARKETPLACE = { domain: "amazon.de", tag: "woitzikdev-21" };
 
