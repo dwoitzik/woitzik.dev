@@ -53,3 +53,13 @@ jobs:
           done
           echo "first URL status: $code"
           node scripts/indexnow.mjs $URLS
+
+      - name: Resubmit sitemap to Google Search Console
+        if: steps.publish.outputs.published_count != '0'
+        continue-on-error: true
+        env:
+          GSC_SA_KEY: ${{ secrets.GSC_SA_KEY }}
+        run: |
+          [ -n "$GSC_SA_KEY" ] || { echo "GSC_SA_KEY not set, skipping"; exit 0; }
+          pip install --quiet google-api-python-client google-auth
+          python3 scripts/gsc-submit-sitemap.py
