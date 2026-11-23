@@ -36,7 +36,7 @@ Pick a router that can do VLANs and a default-drop firewall, and that you can ma
 
 ## Edge and DNS
 
-Once every service depends on local DNS, one resolver is a single point of failure for the whole network. Two small boards running the same resolver with Keepalived failover fix that cheaply, and they should stay on light, read-mostly duties because SD cards wear out under heavy writes. The board comparison is in [Raspberry Pi 5 Alternatives Compared 2026](/blog/raspberry-pi-5-alternatives-2026/); the setup itself is in [HA DNS for Homelab](/blog/unbound-adguard-keepalived-homelab/).
+Once every service depends on local DNS, one resolver is a single point of failure for the whole network. Two small boards running the same resolver with Keepalived failover fix that cheaply, and they should stay on light, read-mostly duties because SD cards wear out under heavy writes. The board comparison is in [Raspberry Pi 5 Alternatives 2026](/blog/raspberry-pi-5-alternatives-2026/); the setup itself is in [HA DNS for Homelab](/blog/unbound-adguard-keepalived-homelab/).
 
 ## Power, Cooling and Rack
 
@@ -66,7 +66,7 @@ These tiers describe scope, not a fixed shopping list. Current prices are in eac
 | Compute host | [Best Mini PC for Homelab 2026](/blog/best-mini-pc-homelab-2026/) |
 | Storage/NAS | [Best NAS for Home Backup 2026](/blog/best-nas-home-backup-2026/) |
 | Network | [MikroTik vs Ubiquiti for Home Network 2026](/blog/mikrotik-vs-ubiquiti-home-network-2026/) |
-| Edge/DNS | [Raspberry Pi 5 Alternatives Compared 2026](/blog/raspberry-pi-5-alternatives-2026/) |
+| Edge/DNS | [Raspberry Pi 5 Alternatives 2026](/blog/raspberry-pi-5-alternatives-2026/) |
 | Rack, power, cooling | [Inside My Homelab: The Hardware Tour](/blog/homelab-hardware-tour-physical-rack/) |
 
 For the Terraform, Ansible and Kubernetes configuration that turns this hardware into a working homelab, the [full source is on GitHub](https://github.com/dwoitzik/homelab-infrastructure), and the [architecture writeup](/blog/enterprise-homelab-architecture-ansible/) covers how the Ansible layer ties it together.
