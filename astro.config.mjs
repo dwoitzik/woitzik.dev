@@ -125,12 +125,15 @@ export default defineConfig({
   integrations: [
     mdx(),
     sitemap({
-      // noindex pages stay out of the sitemap
+      // noindex pages stay out of the sitemap. Tag pages are noindex,follow:
+      // Search Console reported them as "crawled, currently not indexed" or
+      // never fetched them (2026-11-23), so listing them only spent crawl
+      // budget that the articles need. Crawlers still follow their links.
       filter: (page) =>
         ![
           "https://woitzik.dev/search/",
           "https://woitzik.dev/subscribed/",
-        ].includes(page),
+        ].includes(page) && !page.startsWith("https://woitzik.dev/blog/tag/"),
       namespaces: { xhtml: true },
       // Google reads the hreflang cluster from the sitemap as well as from the
       // page head. Emitting it here means the relationship between an English
