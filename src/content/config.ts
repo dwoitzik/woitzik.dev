@@ -4,6 +4,9 @@ const blog = defineCollection({
   type: "content",
   schema: z.object({
     title: z.string(),
+    // Optional shorter <title> for search results when the on-page headline
+    // runs past the ~60 characters Google shows. The H1 keeps `title`.
+    seoTitle: z.string().max(65).optional(),
     description: z.string(),
     date: z.coerce.date(),
     updated: z.coerce.date().optional(),
