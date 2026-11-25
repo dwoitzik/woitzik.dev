@@ -1,0 +1,138 @@
+---
+title: "Raspberry Pi SSD Went Read-Only: Disabling UAS for a JMS583 Bridge"
+seoTitle: "Raspberry Pi SSD Read-Only Under UAS: JMS583 Quirk Fix"
+description: "A JMicron JMS583 USB bridge aborted under UAS, dropped off the bus and left a Pi's SSD read-only for 15 hours. The usb-storage quirk and the alert I added."
+date: "2026-12-18"
+tags: ["Homelab", "Hardware", "Monitoring", "Debugging"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+One of my Raspberry Pis has a USB SSD that holds the second copy of my photo library and the Litestream replicas of my Vaultwarden and Headscale databases. On 2026-11-19 at 05:16 the SSD's USB bridge, a JMicron JMS583 (`152d:0583`), aborted commands under UAS and dropped off the USB bus. ext4 put `/mnt/ssd` into emergency read-only mode. Every job that writes there stopped, and nothing told me. The filesystem stayed read-only for about 15 hours, although Prometheus had the answer the whole time. The fix was one kernel parameter, `usb-storage.quirks=152d:0583:u`, plus an alert I should have had from the start.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## What Lives on That SSD
+
+The Pi is `rpi-srv-02`, a Raspberry Pi 4B. Its main job is backup DNS: it runs AdGuard and Unbound in a VRRP pair with `rpi-srv-01`, which normally holds the virtual IP. The setup and hardening of both Pis is in [Hardening Unattended Raspberry Pi Edge Nodes](/blog/raspberry-pi-edge-hardening-watchdog-fail2ban-nftables/).
+
+The SD card is not trusted with anything write-heavy, so a USB-SATA adapter with an SSD hangs off the Pi, mounted at `/mnt/ssd`. Over time it picked up the jobs I wanted off the main Proxmox host:
+
+- **The Immich mirror.** The photo library lives on a single USB stick on the Proxmox host. A nightly timer there snapshots it to `/mnt/ssd/immich-library/`, and that is the library's only other copy.
+- **Litestream replicas.** The Litestream sidecars next to Vaultwarden and Headscale in k3s ship their SQLite changes to `/mnt/ssd/litestream-replicas/{headscale,vaultwarden}`. The replica survives the loss of the Proxmox host and restores with `litestream restore`, with a recovery point under a minute old.
+
+Both are exactly the kind of job that fails without anyone noticing. Backups and replicas run in the background, and nobody looks at them until the day they are needed.
+
+## What Happened
+
+The kernel log on `rpi-srv-02` showed the sequence: `uas_eh_abort_handler` aborting commands, then `USB disconnect`, then `Device offlined`. With the block device gone from under it, ext4 switched the filesystem to emergency read-only. The mount point still existed and still listed the old files, so from the outside it looked fine. Writes simply failed.
+
+I rebooted the Pi. The SSD came back, stayed up for about a minute, and then the same UAS aborts started again. That ruled out a one-off glitch.
+
+The obvious other suspect on a Pi 4 with a USB disk is power. `vcgencmd get_throttled` returned `0x0`, so the Pi had not seen undervoltage. That left the bridge itself. The JMS583 is a known UAS problem child on the Pi 4, and the vendor and product ID `152d:0583` is what the kernel needs to treat it differently.
+
+How I noticed after roughly 15 hours is not recorded in the repo. What is recorded is that no alert fired.
+
+## Why Nothing Alerted
+
+This is the part that bothered me more than the hardware. The Pi runs node_exporter, scraped as `10.0.20.3:9100`, and node_exporter exports `node_filesystem_readonly` for every mount. For the entire outage this series was `1`:
+
+```text
+node_filesystem_readonly{instance="10.0.20.3:9100",mountpoint="/mnt/ssd"} 1
+```
+
+No rule looked at it. The alerts that did cover the SSD were built for other failure modes:
+
+- `ImmichMirrorSSDFull` checks free space on `/mnt/ssd`. A read-only filesystem is not full.
+- `ImmichLibraryBackupStale` fires when the last successful library copy is more than 36 hours old. A 15-hour outage never gets there.
+
+Nothing watched the Litestream replicas from the Pi's side. So the disk was effectively gone, two backup paths had stopped, and every check I had stayed green. I had alerts for "the backup is old" and "the disk is full", but not for "the disk cannot be written".
+
+## Root Cause: UAS on a JMS583 Bridge
+
+Linux has two drivers for USB mass storage. The older `usb-storage` speaks the Bulk-Only Transport protocol. `uas` (USB Attached SCSI) is newer, supports command queuing and is faster when the bridge implements it correctly. When a device advertises UAS, the kernel picks `uas` by default.
+
+Some bridges advertise UAS and then misbehave under it. The kernel's error handler aborts the stuck commands, the device resets or disconnects, and whatever filesystem sits on top loses its disk. That matches the log lines here exactly.
+
+The kernel's way around this is the `usb-storage.quirks` parameter. It takes `VID:PID:flags` entries, and the `u` flag tells the kernel to ignore UAS for that device and fall back to plain `usb-storage`. Because it has to be in place when the device is first bound, it goes on the kernel command line and takes effect at boot.
+
+## The Fix in Ansible
+
+I did not want to hand-edit `cmdline.txt` on the Pi. All Pi tuning already lives in an Ansible role, `rpi_optimize`, so the role got a new list variable that defaults to empty:
+
+```yaml
+---
+rpi_optimize_reboot: false
+# VID:PID:flags entries for usb-storage.quirks (e.g. "152d:0583:u" disables UAS).
+rpi_optimize_usb_storage_quirks: []
+```
+
+The task writes the list into `cmdline.txt` next to whichever `config.txt` the role already detected (`/boot/firmware/` on Bookworm, `/boot/` on older images):
+
+```yaml
+# Some USB-SATA/NVMe bridges drop off the bus under UAS on the Pi 4; the
+# quirk makes the kernel use plain usb-storage for them. Takes effect at boot.
+- name: Set usb-storage quirks on the kernel command line
+  ansible.builtin.replace:
+    path: "{{ rpi_optimize_config_txt | dirname }}/cmdline.txt"
+    regexp: '^(.*?)(\s+usb-storage\.quirks=\S+)?\s*$'
+    replace: '\1 usb-storage.quirks={{ rpi_optimize_usb_storage_quirks | join(",") }}'
+  when: rpi_optimize_usb_storage_quirks | length > 0
+```
+
+`cmdline.txt` is a single line, so the regex captures everything before an existing `usb-storage.quirks=` entry (if any) and replaces that entry with the current list. Running it twice gives the same line, and changing the list updates the entry in place instead of appending a second one. With an empty list the task is skipped, so the Pi without a problem bridge is untouched.
+
+Only `rpi-srv-02` sets the quirk, in its host vars:
+
+```yaml
+# The SSD's JMicron JMS583 bridge (152d:0583) aborts and disconnects under UAS.
+rpi_optimize_usb_storage_quirks:
+  - "152d:0583:u"
+```
+
+The trade is speed. Plain `usb-storage` has no command queuing, so a UAS-capable SSD can get slower. For a disk that receives a nightly photo snapshot and a trickle of SQLite pages, that does not matter. A disk that disappears matters a lot.
+
+The apply plan in the PR (#1237) was: run the role, reboot `rpi-srv-02` (safe, because it is the DNS backup and the VIP sits on `rpi-srv-01`), fsck the SSD, then check the mounts and replication. Rollback was revert, run the role, reboot.
+
+## The Alert I Was Missing
+
+The second PR (#1238) added a rule that would have caught this within minutes, on any host, not just this Pi:
+
+```yaml
+# ext4 remounts read-only (errors=remount-ro or emergency_ro) when a disk
+# drops off; every service on it fails quietly until someone looks.
+- alert: HostFilesystemReadOnly
+  expr: node_filesystem_readonly{fstype=~"ext4|xfs|btrfs", mountpoint!~"/boot.*"} == 1
+  for: 10m
+  labels:
+    severity: critical
+  annotations:
+    summary: "{{ $labels.mountpoint }} on {{ $labels.instance }} is read-only"
+    description: >
+      The filesystem went read-only, usually after I/O errors or a disk
+      that dropped off the bus. Check dmesg on the host; anything writing
+      there (backups, replicas) has stopped.
+```
+
+Two filters keep it quiet on healthy systems. The `fstype` match limits it to disk filesystems, so pseudo filesystems, tmpfs and overlay mounts never match. The `mountpoint` exclusion skips `/boot` and `/boot/firmware`. It applies to every node_exporter job: the k3s nodes, both Pis, the Proxmox host and the LXCs. When I opened the PR the expression returned `0` for every series, so it started inactive rather than firing on something I had forgotten about.
+
+Ten minutes is long enough to ignore a brief remount during maintenance and short enough that a dropped disk is a page, not a 15-hour gap.
+
+## How It Is Verified Now
+
+The SSD also holds the PostgreSQL warm standby for Authelia, under `/mnt/ssd/postgres-authelia-standby`, and its ADR references this incident. The systemd unit has `RequiresMountsFor=/mnt/ssd` and the role refuses to run without the mount, so if the bridge drops off again the standby stops instead of quietly writing to the SD card. It then surfaces as `HostFilesystemReadOnly`, or after 30 minutes at the latest as the standby's own streaming alert.
+
+What I did not record is the post-reboot check itself: there is no saved `lsusb -t` output showing the bridge bound to `usb-storage` instead of `uas`, and no write-up of the fsck result. The only recorded signal is the one above: when the alert PR went up, `node_filesystem_readonly` was `0` on every host, `/mnt/ssd` included. If you follow this post, save that output when you do it. I should have.
+
+## What to Check in Your Own Setup
+
+- **Run `lsusb` and look up your bridge's ID.** If a USB SSD on a Pi 4 shows `uas_eh_abort_handler` followed by `USB disconnect` in `dmesg`, the bridge and UAS are the first suspect.
+- **Rule out power before blaming the bridge.** `vcgencmd get_throttled` should return `0x0`. If it does not, fix the supply first.
+- **Use `usb-storage.quirks=VID:PID:u` on the kernel command line** for a bridge that fails under UAS, then confirm with `cat /proc/cmdline` and `lsusb -t` after the reboot that the device's driver is `usb-storage`, not `uas`.
+- **Manage `cmdline.txt` with an idempotent replace**, not by appending. It is one line, and a second copy of a parameter is easy to create and hard to spot.
+- **Alert on `node_filesystem_readonly`.** If you run node_exporter, you already have the metric. A read-only disk is not full and not old yet, so freshness and capacity alerts will not catch it for hours.
+- **Ask what each backup alert actually measures.** Mine covered "too old after 36 hours" and "over 90 percent full". Neither covered "cannot write at all".
+
+The rest of my monitoring stack is described in [kube-prometheus-stack and Loki on k3s with Grafana SSO](/blog/kube-prometheus-loki-grafana-k3s/). This rule now sits in its silent-failure group, next to the backup checks that missed this one.
+
+<NewsletterCTA />

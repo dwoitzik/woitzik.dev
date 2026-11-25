@@ -1,0 +1,132 @@
+---
+title: "A Weekly Ansible Check-Mode Drift Report, and the Sysctls Debian 13 Ignored at Boot"
+seoTitle: "Ansible Check-Mode Drift Report and Debian 13 sysctl.conf"
+description: "A weekly Ansible check-mode run from my Proxmox host found tasks that always report changed, and sysctls lost on reboot because Debian 13 ignores sysctl.conf."
+date: "2026-12-29"
+tags: ["Ansible", "Homelab", "Debugging", "Monitoring"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+Nothing in my homelab compared the hosts with the Ansible code. A merged role change reached a host only when someone ran the playbook. That is how #1115 was merged and never applied, and signups on the Vaultwarden standby on rpi-srv-02 stayed open for weeks. So I built a weekly `--check --diff` run of every playbook from the Proxmox host, with an ntfy message only when something drifts (ADR-084). For that to be worth reading, check mode itself had to stop lying. The first sweep found tasks that report a change on every run, and something worse: forwarding sysctls that had not survived a reboot, because Debian 13 no longer reads `/etc/sysctl.conf` at boot. rpi-srv-02 had come back up with IPv6 forwarding off.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Why Ansible Had No Drift Signal
+
+Kubernetes drift is covered by ArgoCD self-heal and a scheduled drift workflow (ADR-027), Terraform drift by the plan on every PR. Ansible had nothing. The [Kubernetes version of this gap](/blog/gitops-merged-not-applied-argocd-drift/) bit me before.
+
+The blocker had always been the control host. Only the admin VLAN can SSH into every VLAN, and nothing runs there unattended. ADR-084 weighed three options:
+
+1. **The GitHub Actions runner.** It would need SSH from the server VLAN into management, and would hold a root key for every host on a machine that executes workflow code.
+2. **A Kubernetes CronJob.** Same direction problem, plus the SSH key and vault password as cluster Secrets.
+3. **pve-mgmt-01**, the Proxmox host. Already root on every guest it hosts, and it only needs SSH from management into the server and DMZ VLANs, the direction trust already flows.
+
+I picked the Proxmox host. The `ansible_drift_check` role installs ansible-core in a venv under `/opt/ansible-drift-check`, keeps a clone of the public repo reset to `origin/main` on every run, and stores the vault password and ntfy topic in `/etc/ansible-drift-check` with mode 0600. A dedicated ed25519 key is authorized on every inventory host. Firewall rules `fwd_09h_pve_ansible_srv` and `fwd_09i_pve_ansible_dmz` open tcp/22 from 10.0.10.10 to the server and DMZ VLANs. The timer:
+
+```ini
+[Timer]
+OnCalendar=Sun *-*-* 06:30:00
+RandomizedDelaySec=900
+Persistent=true
+```
+
+The script runs `site.yml --check --diff` once per inventory host, then four standalone playbooks. It reads each `PLAY RECAP` and puts every host with `changed`, `failed` or `unreachable` above zero into one ntfy message, with up to eight changed task names and the log path. A clean run sends nothing. It is report only: several roles restart DNS on the Pis, so applying stays a deliberate step.
+
+Per the ADR, any task that reports `changed` on an unchanged host is a weekly false alarm and has to be fixed, not tolerated.
+
+## What the First Check-Mode Sweep Found
+
+The first `--check --diff` sweep of every playbook against every host came back with a list of fixes, collected in PR #1260.
+
+**Tasks that always reported a change:**
+
+- **tailscale apt key.** `get_url` without a checksum reported a change on every check-mode run. The fix pins the key's sha256, which also means a rotated signing key fails loudly instead of being trusted silently.
+- **litestream .deb.** Downloaded to `/tmp`, which is cleared on reboot, so the download ran every time and the check-mode install failed. It now only runs when `package_facts` shows the pinned version missing.
+- **Jellyseerr settings.** A Python script rewrote `settings.json` and restarted Jellyseerr on every run, and was skipped in check mode. It now compares before writing, and runs in check mode without writing.
+- **tailscale DNAT target.** The rule that sends the MetalLB VIP's port 443 to Traefik's NodePort followed the Traefik pod's node (`items[0].status.hostIP`). The pods had moved to k3s-12 and k3s-13, the live rule still pointed at 10.0.20.11, and the iptables module would have added a second rule behind the first on every move. The Service uses `externalTrafficPolicy: Cluster`, so the NodePort answers on every node. The target is now fixed to the k3s server node, which matches the live rule.
+
+The Jellyseerr change is the pattern I'd reuse:
+
+```yaml
+  register: media_acquisition_jellyseerr_result
+  # Runs in check mode too: the script only writes outside check mode.
+  check_mode: false
+  changed_when: media_acquisition_jellyseerr_result.stdout == 'changed'
+  notify: Restart jellyseerr
+```
+
+Inside the script, the write is guarded by `if '{{ ansible_check_mode }}' != 'True'`, and it prints `unchanged` when the sorted JSON before and after is identical.
+
+## Root Cause: Debian 13 Skips /etc/sysctl.conf
+
+The tailscale and unbound roles set kernel parameters with `ansible.posix.sysctl`, without `sysctl_file`. The module's default file is `/etc/sysctl.conf`. With `sysctl_set: true` it also sets the running value, so right after every playbook run the values were correct and nothing looked wrong.
+
+The Debian 13 (trixie) release notes, section 5.1.15 "[/etc/sysctl.conf is no longer honored](https://www.debian.org/releases/trixie/release-notes/issues.en.html#etc-sysctl-conf-is-no-longer-honored)", say it directly: "In Debian 13, systemd-sysctl no longer reads /etc/sysctl.conf." The notes recommend local settings as snippets in `/etc/sysctl.d/*.conf`. My Pis run trixie. So the file Ansible maintained was correct, and nothing applied it at boot.
+
+rpi-srv-02 rebooted on November 19. From PR #1260:
+
+- it came up with `net.ipv6.conf.all.forwarding=0`
+- tailscaled logged `Subnet routing is enabled, but IP forwarding is disabled`
+- that warning stopped once Docker set IPv4 forwarding
+
+IPv4 came back only as a side effect of Docker. The unbound role's buffer sizes (`net.core.rmem_max` and `net.core.wmem_max`, the task shown in [my Unbound and AdGuard post](/blog/unbound-adguard-keepalived-homelab/)) were written to the same file. The PR records that those values were live on the Pis when it was opened; it does not record what they were right after the reboot.
+
+## The Fix
+
+Every sysctl task now names a file under `/etc/sysctl.d`:
+
+```yaml
+- name: Enable IP forwarding (IPv6)
+  ansible.posix.sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: "1"
+    sysctl_set: true
+    # Debian 13 no longer reads /etc/sysctl.conf at boot.
+    sysctl_file: /etc/sysctl.d/99-tailscale-forwarding.conf
+    state: present
+    reload: true
+```
+
+The unbound role writes `/etc/sysctl.d/99-unbound-buffers.conf`. Check mode from the branch showed only the two new sysctl files per Pi for `tailscale.yml`, and `changed=0` for media-acq and litestream-standby. The only live value that changed was IPv6 forwarding on rpi-srv-02, from 0 to 1, with no service restart. `tailscale.yml` was applied one Pi at a time. The planned post-apply checks: `/proc/sys/net/ipv6/conf/all/forwarding` on both Pis, `systemd-analyze cat-config sysctl.d` listing the new files, DNS, the tailnet subnet route, and `curl -k https://10.0.20.200` from a Pi.
+
+## What the First Timer Runs Found on the Control Side
+
+The first live run reached every DMZ host and pve-mgmt-01, and failed on every server-VLAN host with `Permission denied (publickey)`. The key had `from="10.0.10.10"`, but the router masquerades management-to-server traffic to the server gateway (`srcnat_masquerade_mgmt_to_srv`), so sshd saw 10.0.20.1. The key now allows `from="10.0.10.10,10.0.20.1"` (#1262). Admin sessions also arrive as 10.0.20.1 there, so on those hosts `from=` only keeps a copied key out of the DMZ and IoT VLANs.
+
+That run also sent a 17-error ntfy message. The script now treats more than half the targets failing as a broken control side: it writes `ansible_drift_check_success 0`, sends no ntfy, and lets Alertmanager report it once a day.
+
+The verification run after that (#1263) reached every host and failed on three, all for control-node reasons:
+
+- **Version skew.** The checker ran ansible-core 2.18, the workstation that applies changes runs 2.16.3. `deb822_repository` writes keys in a different order in 2.18, so the PBS repository file showed as drift. The checker is now pinned to 2.16.3.
+- **Missing Python modules.** `password_hash()` in the adguard role needed passlib, and later a bcrypt backend (#1265).
+- **`delegate_to: 10.0.20.11`.** A bare IP has no inventory vars, so the SSH user fell back to the controller's, which was root on the Proxmox host. It now delegates to `vm-srv-k3s-11` by inventory name.
+- **ssh-keyscan on OpenSSH 10.** The Proxmox host's OpenSSH prints the banner comment on stdout, which ended up in a pinned known_hosts entry. The `immich_library_backup` role now filters it out.
+
+The second verification run came after a rollback drill rebooted all three k3s VMs, and found two more fixes that had not survived a reboot (#1265). `/etc/hosts` had reverted, because Proxmox's cloud-init user data sets `manage_etc_hosts: true` and re-renders the file from its template on every boot. And vm-srv-k3s-11's fstab named root `/dev/sda1` while root was `/dev/sdb1` that boot: the two disks swap names between boots. The role now rewrites the cloud-init template and writes the root entry by `UUID=`. [The search domain post](/blog/proxmox-cloudinit-dns-search-domain-drift/) is another case of Proxmox cloud-init overriding my config.
+
+## How It Is Verified Now
+
+The script writes textfile metrics for node_exporter: success, last run timestamp, drifted targets and error targets. A dead timer must not look like a clean week, so this alert covers it:
+
+```yaml
+- alert: AnsibleDriftCheckStale
+  expr: |
+    (time() - ansible_drift_check_last_run_timestamp_seconds > 8 * 86400)
+    or ansible_drift_check_success == 0
+    or absent(ansible_drift_check_last_run_timestamp_seconds)
+  for: 1h
+```
+
+It routes to Discord with a 24h repeat; drift goes to ntfy. The ADR-030 standby playbook is back in the list now that it has been applied, and a check-mode run against the live standby reports no changes. #1265 named a full run with no drift and no errors as its final check, with one known exception for a pending pve-mgmt-01 change. The result of that run is not written down in the repo, so I won't claim it here.
+
+## What to Check in Your Own Setup
+
+- **On Debian 13, grep for sysctls in `/etc/sysctl.conf`.** Anything there is not applied at boot. In Ansible, every `ansible.posix.sysctl` task without `sysctl_file` writes there by default.
+- **Compare the running value with the boot value.** `sysctl_set: true` hides the problem until the next reboot. Reboot a host on purpose and diff `/proc/sys` against what you expect.
+- **Run your playbooks with `--check --diff` twice in a row.** Any task that reports `changed` on the second run will turn a drift report into noise. Usual suspects: `get_url` without a checksum, downloads to `/tmp`, scripts without a compare step.
+- **Check and apply with the same ansible-core version.** Modules can render files differently across versions.
+- **Do not `delegate_to` a bare IP.** It skips inventory vars, including `ansible_user`.
+- **Alert on the checker, not only on what it finds.** A silent drift report is only good news if you know it ran.
+
+<NewsletterCTA />

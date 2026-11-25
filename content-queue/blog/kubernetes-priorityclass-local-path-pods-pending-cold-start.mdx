@@ -1,0 +1,134 @@
+---
+title: "Kubernetes local-path Pod Stuck Pending After a Reboot: Fixing It with PriorityClasses"
+seoTitle: "local-path Pod Pending After Reboot: PriorityClass Fix"
+description: "After a k3s cold start, movable pods filled the node a local-path Postgres pod was pinned to, and it sat Pending for 18 hours. Two PriorityClasses fixed it."
+date: "2027-01-20"
+tags: ["Kubernetes", "Storage", "Homelab", "Debugging"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+After a rollback drill restarted all three k3s VMs at once, `database/postgres-synapse-1` sat Pending for 18 hours. The scheduler's reason was short: `1 Insufficient memory, 2 node(s) didn't match PersistentVolume's node affinity`. Its data lives on a `local-path` volume, so it can only run on one node, and on the cold start other pods got to that node first and used up its memory. None of those pods needed to be there. They could have run on either of the other two nodes. Every pod in the cluster had the same priority, so the scheduler had no reason to move any of them.
+
+The fix was two PriorityClasses and six small PRs (#1239 to #1244) on 2026-11-19, written down as ADR-083. A seventh PR the next day fixed the drift check that the new kind broke.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Why local-path Pods Are Pinned
+
+My cluster uses `nfs-client` as the default storage class and `local-path` for anything with an embedded database. SQLite and Postgres data directories do not belong on NFS. I learned that the hard way when [Garage's SQLite metadata corrupted over NFS](/blog/nfs-vs-local-path-sqlite-trap/). The cost of `local-path` is that the PersistentVolume is a directory on one node's disk, and the PV carries a node affinity for that node. A pod that mounts it can only ever schedule there.
+
+When I counted, twenty PVs used `local-path`: the five CNPG Postgres instances in `database`, Vault, Grafana, Uptime Kuma, the two `pg-dump` targets, the Vault snapshot target and ten app Deployments (Gitea, Headscale and its subnet router, Home Assistant, Mealie, Nextcloud, Open WebUI, Scanopy, Vaultwarden). Every one of those pods has exactly one node it can use.
+
+## What Happened
+
+The trigger was a drill of the nightly k3s upgrade script from ADR-082. On failure, that script stops all three VMs, rolls them back to a Proxmox snapshot and starts them again. During the drill, all three nodes came back together and every pod was scheduled from scratch.
+
+At that moment, every pod in the cluster had priority 0 except CoreDNS, metrics-server and the local-path provisioner. The scheduler placed pods in whatever order its queue produced them. Movable pods landed on `vm-srv-k3s-12` first and took its memory. When `postgres-synapse-1` came up, the only node its PV allowed was full, and the other two were ruled out by the PV affinity. That is exactly what the event says: one node with insufficient memory, two nodes that did not match the volume.
+
+It stayed that way for 18 hours, because to the scheduler every pod on `vm-srv-k3s-12` was as important as the database. How the pod finally got scheduled was not recorded.
+
+## Root Cause: Equal Priority Means No Preemption
+
+Kubernetes has a mechanism for this case. The [pod priority and preemption docs](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/) describe it: when a pod cannot be scheduled, the scheduler looks for a node where removing one or more pods with *lower* priority would let it fit. Pods with equal or higher priority are never victims. With everything at 0, there were no candidates at all.
+
+A few details from the docs shaped the design:
+
+- **Priority is set at admission.** The priority admission controller turns `priorityClassName` into an integer when the pod is created. Creating a PriorityClass, or adding the field to a template, changes nothing for pods that already exist. They have to be recreated.
+- **A pod that names a missing PriorityClass is rejected.** That decides the rollback order: remove the workload references before the classes.
+- **Victims get their normal graceful termination.** Preemption is not a kill -9. The pending pod gets a `nominatedNodeName` and waits for the victims to exit, and it is not guaranteed to land on that node.
+- **User classes can go up to 1 billion.** `system-cluster-critical` (2000000000) and `system-node-critical` (2000001000) sit above that range.
+
+For a pod pinned by its PV, there is only one candidate node, so preemption does exactly what I want: it frees room on that node, and the evicted movable pods get rescheduled on the others.
+
+## The Fix: Two Classes at the Same Value
+
+ADR-083 weighed four options. A descheduler reacts on a timer after the fact. Moving the data to `nfs-client` removes the pinning, but it brings back the NFS problem. Ordering the cold start in the rollback script only covers that one path, not a host power loss or a manual restart of all three VMs. A PriorityClass covers every case, because the scheduler applies it on every placement.
+
+The classes, from `kubernetes/system/infrastructure/priority-classes.yml`:
+
+```yaml
+# Pods that can only run on one node outrank movable pods, so the scheduler
+# preempts movable pods instead of leaving pinned ones Pending after a cold
+# start. Equal values: neither tier preempts the other (ADR-083).
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: node-pinned-stateful
+value: 1000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: Pods bound to a node by a local-path PersistentVolume.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: node-daemon
+value: 1000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: DaemonSet pods; one per node, cannot run anywhere else.
+```
+
+The second class exists because of the first. DaemonSet pods are tied to their node by construction, just like local-path pods. If I had only raised the databases, a pinned Postgres instance on a full node could have preempted the MetalLB speaker, Alloy or node-exporter on that node. Giving both classes the same value means neither tier can preempt the other, and both can preempt default-priority pods. CoreDNS, metrics-server and the local-path provisioner stay far above both, and the `trivy-scan` class at -1000000 stays the first victim.
+
+## Rolling It Out
+
+I split the rollout by restart risk:
+
+1. **#1239:** the two classes and the ADR. No workload used them yet, so nothing changed.
+2. **#1240:** `node-daemon` on all six DaemonSets: `sysctl-fix`, `crowdsec`, the MetalLB speaker, node-exporter, Alloy and the Velero node-agent. Four of them are set through chart values, so I checked each chart key against the pinned chart version's templates.
+3. **#1241:** `node-pinned-stateful` on the ten app Deployments with a local-path PVC, found from the live PVs (`storageClassName: local-path`, then claimRef, then pod, then owner).
+4. **#1242:** Grafana, Uptime Kuma, Vault and the Vault snapshot target.
+5. **#1243:** `postgres-scanopy`, the least important database, plus the `pg-dump` target in `database`.
+6. **#1244:** the remaining CNPG clusters (firefly, n8n, synapse, authelia).
+
+For a plain Deployment it is one line in the pod template:
+
+```yaml
+    spec:
+      priorityClassName: node-pinned-stateful
+```
+
+For CNPG it is a field on the `Cluster`, which the operator passes to the instance pod:
+
+```yaml
+spec:
+  instances: 1
+  priorityClassName: node-pinned-stateful
+```
+
+The plan had one PR per database, so each single-instance database restarted alone. #1243 showed that was unnecessary. CNPG 1.30 does not roll an instance when only `priorityClassName` changes, because its pod spec comparison (`ComparePodSpecs` in `pkg/specs/podspec_diff.go`) does not look at priority. Merging the Cluster change restarted nothing. So I put the remaining four in one PR and deleted each `postgres-<name>-1` pod by hand, one at a time, waiting for "Cluster in healthy state" and continuous archiving before the next. `postgres-scanopy-1` was back in about 20 seconds on the same node and PVC.
+
+Vault had the same trap for a different reason. Its StatefulSet uses `updateStrategy: OnDelete`, so `vault-0` only picked up the class after I deleted it once.
+
+Both cases follow from "priority is set at admission". If a controller never recreates the pod, the new class never applies. A Synced ArgoCD app here tells you nothing about the running pod's priority. I wrote more about that gap in [Three Fixes Were Merged. None of Them Had Taken Effect.](/blog/gitops-merged-not-applied-argocd-drift/)
+
+## Testing the Preemption Itself
+
+Before relying on it, I reproduced the drill failure in a throwaway `preempt-test` namespace on `vm-srv-k3s-13`:
+
+- a pause Deployment at `node-pinned-stateful` with a local-path PVC, its nodeSelector removed so only the PV affinity pinned it, scaled to 0
+- a default-priority filler Deployment that took the node to 99% of allocatable memory, with one filler replica left Pending ("No preemption victims found")
+- the pinned pod scaled back to 1
+
+Two filler pods got `Preempted by pod <pinned uid> on node vm-srv-k3s-13`, and the pinned pod was Running within seconds. No pod outside the test namespace was preempted. I deleted the namespace and its PV afterwards.
+
+The trade: a cold start can now evict Traefik, ArgoCD or an app from a full node, and it reschedules elsewhere. If the whole cluster is short of memory, the movable pod stays Pending instead of the database, which is the order I want.
+
+## The Side Effect: The Drift Check Failed
+
+From #1239 on, the scheduled declared-vs-live check failed with `NO READ ACCESS: PriorityClass/node-pinned-stateful`. The drift-checker ServiceAccount could not read the new cluster-scoped kind. It was the second time this had happened, after the same failure with CNPG ObjectStores in #1236, and both times it only showed up after the merge.
+
+#1245 added `get` and `list` on `scheduling.k8s.io` `priorityclasses` to the checker's RBAC. It also added `ci/drift-checker-readable-kinds.txt`, a list of every group and kind the checker can read, each verified with `kubectl auth can-i`, plus a pre-commit hook and CI job that fail when a manifest declares a kind missing from that list. The next new kind fails in its own PR instead of in a cron run.
+
+## What to Check in Your Own Setup
+
+- **List your node-pinned pods.** `kubectl get pv` filtered on `local-path` (or any storage class with node affinity) shows which pods can only run on one node.
+- **Check their priority.** `kubectl get pod -o custom-columns=NAME:.metadata.name,PRIO:.spec.priority`. If they are all 0, preemption cannot help them.
+- **Raise DaemonSets to the same level.** Otherwise your pinned pods can preempt node agents.
+- **Recreate the pods.** Priority is set at admission. Watch for `OnDelete` StatefulSets and operators like CNPG that ignore the field when deciding whether to roll.
+- **Test it.** Fill a node with a default-priority Deployment and confirm the pinned pod preempts it.
+- **Exempt short-lived Jobs on purpose.** I left the `nextcloud-cron` CronJob at default priority. It runs every five minutes, and a high-priority Job could evict a movable pod on every run when the node is tight, while a missed run is harmless.
+
+<NewsletterCTA />

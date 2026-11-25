@@ -1,0 +1,178 @@
+---
+title: "Proxmox Backup Server Garbage Collection Failed: Permission Denied on a Jellyfin Shader Cache"
+seoTitle: "PBS Garbage Collection Failed: Permission Denied Fix"
+description: "PBS garbage collection failed every night with permission denied: Jellyfin's Mesa shader cache sat inside the datastore with mode 0700. No chunk was freed."
+date: "2026-12-22"
+tags: ["Proxmox", "Backup", "Homelab", "Debugging", "Monitoring"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+From 2026-11-22 on, garbage collection on my Proxmox Backup Server datastore failed every night. Not one chunk was freed in that time, and nothing alerted on it. The cause had nothing to do with backups. Jellyfin's container image sets `XDG_CACHE_HOME=/cache`, Mesa created its shader caches there with mode 0700, and on the Proxmox host that `/cache` was a directory inside the PBS datastore. PBS garbage collection stops when it hits a subdirectory it cannot read. Fixing it turned up a second problem in the same directory tree, and the whole thing ended with daily backups, a weekly verify job and alerts on GC and verify results.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## The Error
+
+The GC task log on `Local-Backups` showed the same line every night:
+
+```text
+marking used chunks failed: cannot continue garbage-collection safely, permission denied on: "/mnt/pbs-storage/jellyfin-cache/radv_builtin_shaders"
+```
+
+The datastore path is `/mnt/pbs-storage`. Jellyfin's cache lived at `/mnt/pbs-storage/jellyfin-cache`. By the last failed run, 14.3 GB were pending removal and could not be removed.
+
+Nothing alerted on it. GC and verify results lived only in the PBS task log. My existing PBS alert watched the vzdump job-end hook, so backups kept succeeding, the hook kept reporting, and the datastore just stopped shrinking.
+
+## How a Media Server Cache Ended Up Inside a Backup Datastore
+
+The layout came from the ZFS side. The HDD pool is called `archive`, and the dataset `archive/jellyfin-cache` was mounted on the host at `/mnt/pbs-storage/jellyfin-cache`. That host path is bind-mounted into CT 203 (`ct-srv-jellyfin-01`) as `/jellyfin-cache`, and the Docker Compose file maps it to `/cache` inside the Jellyfin container:
+
+```yaml
+    volumes:
+      - {{ jellyfin_base_dir }}/config:/config
+      - /jellyfin-cache:/cache
+```
+
+For Jellyfin's own cache (images, transcodes) that was harmless. The problem was a variable I never set myself. The `jellyfin/jellyfin` image sets `XDG_CACHE_HOME=/cache`. Jellyfin does VAAPI hardware transcoding through `/dev/dri/renderD128` in this container, so Mesa runs, and Mesa follows `XDG_CACHE_HOME`. It created three directories there:
+
+- `mesa_shader_cache`
+- `mesa_shader_cache_db`
+- `radv_builtin_shaders`
+
+All three were mode 0700, owned by host UID 100000 (container root in an unprivileged LXC). PBS runs GC as the `backup` user, which cannot enter them.
+
+## Why PBS Refuses to Continue
+
+PBS garbage collection reads every index file under its datastore directory to mark the chunks that are still in use. Anything not marked gets removed later. If it cannot read a directory, it cannot prove that the directory contains no index files, so freeing chunks would be unsafe. It aborts instead, which is the "cannot continue garbage-collection safely" in the error. That is the right behavior for a backup tool. It just means any directory inside the datastore path that the `backup` user cannot read blocks GC completely.
+
+## First Attempt: Move the Dataset (#1288, Closed)
+
+The clean fix looked like moving `archive/jellyfin-cache` out of `/mnt/pbs-storage` to `/mnt/jellyfin-cache` and pointing CT 203's mount point at the new path. The Terraform plan disagreed:
+
+```text
+      ~ mount_point {
+          - mount_options     = [] -> null
+          ~ path_in_datastore = "/mnt/pbs-storage/jellyfin-cache" -> (known after apply)
+          ~ volume            = "/mnt/pbs-storage/jellyfin-cache" -> "/mnt/jellyfin-cache" # forces replacement
+            # (8 unchanged attributes hidden)
+        }
+# ...
+Plan: 1 to add, 0 to change, 1 to destroy.
+```
+
+The bpg/proxmox provider (v0.120.0 here) forces replacement of the whole container when a `mount_point` volume changes. Rebuilding the Jellyfin LXC to move a cache directory was not worth it, so I closed the PR.
+
+## The Fix That Shipped (#1290)
+
+Instead of moving the cache dataset, I moved Mesa's cache out of it. One environment variable in the Jellyfin role's compose template:
+
+```yaml
+    environment:
+      - TZ={{ jellyfin_tz }}
+      - JELLYFIN_PublishedServerUrl={{ jellyfin_published_url }}
+      # The image points XDG_CACHE_HOME at /cache, so Mesa puts its 0700 shader caches
+      # there. /cache sits inside the PBS datastore directory on the host, and PBS
+      # garbage collection aborts on any subdirectory it cannot read.
+      - XDG_CACHE_HOME=/config/xdg-cache
+```
+
+`JELLYFIN_CACHE_DIR` stays `/cache`, so Jellyfin's own cache does not move. Only the XDG cache, which Mesa uses, goes to `/config/xdg-cache`.
+
+The apply steps from the PR:
+
+1. `zfs snapshot archive/jellyfin-cache@pre-xdg` (only cache, but cheap).
+2. Run the `jellyfin` role, which recreates the container.
+3. Remove the three 0700 Mesa directories from `/mnt/pbs-storage/jellyfin-cache`. Mesa rebuilds them under `/config/xdg-cache`.
+4. `proxmox-backup-manager garbage-collection start Local-Backups`.
+
+Step 3 matters. Changing the variable only stops new directories from appearing there. The old ones keep blocking GC until they are deleted.
+
+## The Second Problem: 2905 Warnings
+
+With the shader cache gone, the first successful GC since 2026-11-22 ran. It removed 115.9 GiB and left 235 GiB on disk. It also ended with `WARNINGS: 2905`, every one of them like this:
+
+```text
+unable to access non-existent chunk ... required by "/mnt/pbs-storage/backups/ct/<110|200|301|302>/2026-04-2x.../*.didx"
+```
+
+`/mnt/pbs-storage/backups` was the dataset `archive/backups`: 18.1 G, created 2026-04-29, a complete datastore of my retired PBS container `ct-mgmt-pbs-01`, with its own `.chunks`, its own `.gc-status` and April backups of CTs 110, 200, 301 and 302. It had no mountpoint of its own and inherited one from `archive`, which put it inside the live datastore.
+
+Same mechanism as before, different symptom. GC reads every index file under the datastore directory. It found the old store's `.didx` files, tried to mark their chunks in the live `.chunks`, and could not find them. This time the files were readable, so GC finished but warned. Nothing referenced the dataset: `/etc/pve`, fstab and the PBS config had no hits for it.
+
+The fix (#1302) gave it its own mountpoint through the `pve_host_mounts` role:
+
+```yaml
+  # The retired ct-mgmt-pbs-01's datastore (2026-04, guests 110/200/301/302). It
+  # inherited a mountpoint inside the live datastore, where every GC read its
+  # indexes and warned about thousands of chunks that live store does not have.
+  - name: archive/backups
+    mountpoint: /mnt/retired-pbs-datastore
+    owner: "100034"
+    group: "100034"
+    mode: "0755"
+```
+
+No data was deleted. Whether the April backups can go is a separate decision. Rollback would be `zfs inherit mountpoint archive/backups` and a revert. The checks the PR set: `zfs get mountpoint archive/backups` shows `/mnt/retired-pbs-datastore`, the contents (`ct/110 200 301 302`) are intact, `/mnt/pbs-storage/backups` is gone, and a manual GC on `Local-Backups` ends `OK` with no warnings.
+
+## Making GC Failures Visible (#1289)
+
+The real failure here was not the permission bit. It was a GC that failed every night from 2026-11-22 without anyone seeing it. While I was in there, the live state had two more gaps:
+
+- The vzdump job `nightly-backup` ran every other day (`*-*-01/2 03:00:00`), despite its name.
+- `proxmox-backup-manager verify-job list` was empty. 146 of 148 snapshots had never been verified.
+
+The `pbs` Ansible role now handles all of it on the Proxmox host. It sets the vzdump schedule to `*-*-* 03:00:00` when it differs. The job itself stays hand-made, because the Terraform provider cannot express "all guests except one". It creates and maintains a verify job:
+
+```yaml
+pbs_verify_job_id: weekly-verify
+pbs_verify_schedule: "sun 06:30"
+pbs_verify_outdated_after_days: 30
+```
+
+With `--ignore-verified true --outdated-after 30`, a weekly run skips snapshots verified in the last 30 days, so it mostly reads new chunks.
+
+For alerting, a small script, `pbs-job-metrics.py`, runs from cron every 15 minutes. It calls the PBS API through `proxmox-backup-debug api get` for `/admin/gc`, `/admin/verify` and the snapshot list, and writes `pbs_jobs.prom` for the node_exporter textfile collector. Before the PR, I ran it against the live host and its output matched the task log: GC 0, 2 snapshots ok, 146 none.
+
+A follow-up commit in the same PR handled one detail. While a GC or verify task is running, PBS drops `last-run-state` and `last-run-endtime` from the job status. A naive script would report an end time of 0 during every long run and fire the stale alerts. The script carries the previous values over instead:
+
+```python
+def metric(name, value, help_text, labels="", running=False):
+    if running:
+        value = previous.get(f"{name}{labels}")
+        if value is None:
+            return
+    # ...
+
+gc = next((g for g in api("/admin/gc") if g.get("store") == STORE), {})
+gc_running = "last-run-state" not in gc
+```
+
+The new alert rules:
+
+```yaml
+        - alert: PBSGarbageCollectionFailed
+          expr: pbs_gc_last_run_ok == 0 or time() - pbs_gc_last_run_end_timestamp_seconds > 28 * 3600
+          for: 1h
+          labels:
+            severity: warning
+```
+
+`PBSVerifyFailed` is critical and fires when the verify job failed or any snapshot is marked failed. `PBSVerifyStale` fires when no verify finished in 8 days, when `pbs_jobs.prom` is older than an hour, or when the metric is absent, so a dead cron job is also caught. The existing `PBSBackupHealthcheckStale` dropped from 52 hours to 28 to match the daily schedule.
+
+Going daily has a cost, recorded in ADR-053: a backup run takes about 76 minutes and pushes load1 to about 56 on this host. Retention stays `keep-daily=7,keep-weekly=4`, so the datastore now keeps seven daily points instead of seven every-other-day points.
+
+The checks for this PR were: `pvesh get /cluster/backup/nightly-backup` shows the daily schedule, `verify-job list` shows `weekly-verify`, one manual verify run ends OK and `pbs_snapshots{verify_state="none"}` drops to 0, no alert fires, and a 2026-11-26 backup exists for every guest. I did not write down the numbers from those runs, so I will not quote any here.
+
+I wrote more about how the rest of the backup chain fits together in [3-2-1 Backup in Practice](/blog/321-backup-velero-pbs-offsite/), and about a restore runbook that looked fine until I ran it in [The Disaster Recovery Runbook Nobody Had Actually Run](/blog/backup-restore-test-never-verified-network-conflict/).
+
+## What to Check in Your Own Setup
+
+- **List everything under your datastore path.** `ls -la` on the datastore directory should show `.chunks`, `.gc-status` and your backup type directories (`ct`, `vm`, `host`). Anything else, especially a nested ZFS dataset or a bind mount source, is a problem waiting to happen.
+- **Check inherited ZFS mountpoints.** `zfs get -r mountpoint <pool>` shows datasets that landed inside the datastore because their parent's mountpoint puts them there.
+- **Know which variables your container images set.** `XDG_CACHE_HOME` pointed at a volume decides where every library in the container writes its cache, with whatever permissions that library picks.
+- **Read the GC task log, then alert on it.** If the only PBS alert you have watches the backup job, a GC that fails every night looks exactly like a datastore that is filling up normally.
+- **Verify, on a schedule.** A snapshot that was never verified is a snapshot you hope restores.
+- **Check a Terraform plan for `forces replacement` before trusting a "small" mount change.** A different fix in a different layer is sometimes the better trade.
+
+<NewsletterCTA />

@@ -1,0 +1,172 @@
+---
+title: "Migrating CloudNativePG From barmanObjectStore to the Barman Cloud Plugin"
+seoTitle: "CNPG barmanObjectStore to Barman Cloud Plugin Migration"
+description: "Five CNPG clusters moved off the in-tree barmanObjectStore to the Barman Cloud plugin on the same bucket paths, and the backup-age alert that broke."
+date: "2027-01-02"
+tags: ["Kubernetes", "PostgreSQL", "CloudNativePG", "Monitoring", "Homelab"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+All five CloudNativePG clusters in my homelab archived WAL and took base backups with the operator's in-tree `spec.backup.barmanObjectStore`. That method is deprecated, and the admission webhook on my operator (1.30.1) warned that it goes away in 1.31.0. So on 2026-11-17 I moved every cluster to the Barman Cloud plugin, one cluster per PR, on the same bucket paths, and then lifted the Renovate hold on the operator. Two things bit me along the way: a sidecar that Kyverno rejected at admission, and a backup-age alert that read a freshly started sidecar's `0` as a backup from 1970.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Why It Had to Happen Now
+
+The clusters (authelia, firefly, n8n, scanopy, synapse) all live in the `database` namespace and back up to Garage at `s3://cnpg-backups/<name>`. The setup itself is the one from [CloudNativePG on k3s](/blog/cnpg-postgresql-operator-k3s/).
+
+The CloudNativePG docs say the in-tree Barman Cloud support "is deprecated starting from version 1.26". The removal version has moved over time. My 1.30.1 webhook warned about 1.31.0; the plugin's [migration guide](https://cloudnative-pg.io/plugin-barman-cloud/docs/migration/) currently says "will be removed in version 1.32.0". I planned against the stricter number. Either way, an operator bump past the removal would have turned off WAL archiving and base backups for every database at once, with nothing in Git changing.
+
+The day before, #1215 added a Renovate rule so that could not happen by accident:
+
+```json
+{
+  "description": "CloudNativePG operator 1.31 (chart 0.30) removes the in-tree barmanObjectStore that every Cluster here still uses for backups and WAL archiving. Hold the chart below 0.30 until the clusters move to the Barman Cloud plugin.",
+  "matchPackageNames": [
+    "cloudnative-pg"
+  ],
+  "allowedVersions": "<0.30.0"
+}
+```
+
+## Same Paths, Same Catalog
+
+ADR-081 records three options: the plugin on the same bucket paths, the plugin on fresh paths, or staying on 1.30. Fresh paths would have left a week of in-tree backups and WAL in a catalog no `ObjectStore` points at, so a restore from them would need a second, temporary `ObjectStore`. Staying on 1.30 only defers the work.
+
+I went with the same paths. The plugin's default `serverName` is the Cluster name, which is also what the in-tree method used, so the plugin writes into the existing `s3://cnpg-backups/scanopy/postgres-scanopy/` prefix and sees the old backups as its own. After the migration each `ObjectStore` reported a `firstRecoverabilityPoint` of 2026-11-10, a week before the switch.
+
+The plugin itself (`plugin-barman-cloud` chart 0.9.0, plugin 0.16.0) went in first, in #1221, as its own ArgoCD Application in `cnpg-system`. It needs operator 1.30 or newer and cert-manager for the mTLS between operator and plugin. `cnpg-system` is default-deny ingress, so that PR also allowed the operator to reach the plugin on TCP 9090. No Cluster changed in that PR.
+
+## The Per-Cluster Change
+
+Each cluster got three edits. First, an `ObjectStore` that is a 1:1 copy of the old `barmanObjectStore` block, with the retention policy moved over from the Cluster:
+
+```yaml
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: postgres-authelia
+  namespace: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  retentionPolicy: "7d"
+  instanceSidecarConfiguration:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 384Mi
+  configuration:
+    destinationPath: s3://cnpg-backups/authelia
+    endpointURL: http://garage.apps.svc.cluster.local:3900
+    s3Credentials:
+      accessKeyId:
+        name: cnpg-garage-backup
+        key: access-key-id
+      secretAccessKey:
+        name: cnpg-garage-backup
+        key: secret-access-key
+      region:
+        name: cnpg-backup-config
+        key: region
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+```
+
+Second, the Cluster drops `spec.backup` entirely and lists the plugin as WAL archiver:
+
+```yaml
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: postgres-authelia
+```
+
+Third, the ScheduledBackup switches method:
+
+```yaml
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+```
+
+Order was least important first: scanopy, firefly, n8n, synapse, authelia. Before each merge I took an in-tree on-demand Backup (for example `postgres-firefly-pre-plugin-20261117`), a fresh `pg_dump` of the database, and a server-side dry run of the Cluster as `argocd-controller`, the field manager that owns `spec.backup`, to make sure the CNPG webhook accepted it. After each merge: `ContinuousArchiving=True`, a forced `pg_switch_wal()` showing up as archived, an on-demand `method: plugin` Backup completing, and the plugin metric for that cluster in Prometheus.
+
+## What Broke on the First Cluster
+
+Scanopy went down for about six minutes, for two separate reasons (#1226).
+
+ArgoCD applied the Cluster before the new `ObjectStore` existed. The plugin's pre-reconcile hook returned `stopReconciliation: true` without a requeue ("barman object configuration not found"), so the rollout sat idle until I triggered a manual reconcile. The fix is the `sync-wave: "-1"` you see above, so every `ObjectStore` lands before the Cluster that references it.
+
+Then the operator deleted the instance pod to inject the sidecar, and Kyverno denied every re-create:
+
+```text
+require-resource-limits: check-container-limits ... must define resources.limits (cpu and memory)
+```
+
+The plugin sidecar is an init container with `restartPolicy: Always`, Kyverno's policy is `Enforce` in `database` and checks init containers too, and my first `ObjectStore` only had a memory limit. The message also names `containers[0]` (`postgres`), not the container that actually failed. I patched `limits.cpu: 500m` onto the live `ObjectStore` and committed the same value so Git matched. Every later cluster had the CPU limit and the sync wave from the start.
+
+The other cost is downtime per cluster. Adding the plugin restarts the single instance, and with CNPG's smart shutdown waiting up to 180 seconds for clients, that came to about 3.5 minutes per cluster. n8n did not reconnect on its own afterwards; its pod needed a restart.
+
+## The Alert That Changed With It
+
+My old backup-age alert was authelia-only and read `cnpg_collector_last_available_backup_timestamp`. That series stops for clusters on the plugin, so once authelia moved, the alert would have gone silent without ever firing. That is exactly the kind of gap that once let authelia's backups stop for six days unnoticed while the operator was down.
+
+The scanopy PR already added `CNPGBackupTooOld` on the plugin's own metric, covering every cluster. The authelia PR then deleted `CNPGAutheliaBackupTooOld`. Firefly also got the PodMonitor it never had (#1227), because without it neither this alert nor the WAL backlog alerts could see that cluster at all.
+
+After the authelia switch the new alert went `pending` on `postgres-authelia-1`. Right after the instance restarted, the sidecar's first scrape returned `last_available_backup_timestamp 0` because it had not read the catalog yet. `time() - 0` is a backup roughly 55 years old. The next scrape, after my verification backup, carried the real value and the alert cleared, but any restart where the sidecar takes longer than the 5-minute `for` would page critical.
+
+The fix in #1231 filters zero out of the critical rule and gives it its own warning:
+
+```yaml
+        - alert: CNPGBackupTooOld
+          expr: |
+            (time() - (barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="database"} > 0)) > 97200
+          for: 5m
+          labels:
+            severity: critical
+        # ...
+        - alert: CNPGBackupCatalogUnknown
+          expr: |
+            barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="database"} == 0
+          for: 27h
+          labels:
+            severity: warning
+```
+
+I did not want to simply drop the zero series. A sidecar that never manages to read the catalog on Garage also reports 0 forever, and that case still needs an alert. 97200 seconds is 27 hours: the ScheduledBackups run daily between 02:00 and 02:40, plus a buffer.
+
+## Testing the Restore Before Trusting It
+
+Before writing the restore docs I bootstrapped two scratch clusters from `ObjectStore/postgres-scanopy` with `bootstrap.recovery` and an `externalClusters` plugin source. One used `targetTime 2026-11-17 19:55:00+00`, a point before the switch, so the base backup and WAL it replayed had been written in-tree. The other went to the latest point, from a backup the plugin wrote. Both came up with the same counts as live (57 bindings, 47 hosts, 36 services, 26 discovery), and I deleted them afterwards. That is the evidence that same-path migration really keeps one recovery window across the switch.
+
+`DISASTER-RECOVERY.md` got a new section for plugin-based PITR. One rule from it worth repeating: a restored cluster must not archive into the path it is reading from. Give it a fresh `ObjectStore` path first.
+
+## Lifting the Hold
+
+With `kubectl get cluster -n database -o jsonpath='{.items[*].spec.backup}'` returning nothing, #1232 removed the Renovate rule. The operator chart stays PR-only through the 0.x Helm rule and the stateful group, which now also contains `plugin-barman-cloud`, because plugin and operator versions are coupled and every bump should be read against the plugin's compatibility notes. Lifting the hold upgrades nothing by itself. A later patch bump to operator 1.30.2 (#1282) went through the normal PR path with no in-tree users left.
+
+## How It Is Checked Now
+
+- `CNPGBackupTooOld` (critical, 27h) and `CNPGBackupCatalogUnknown` (warning, 27h at 0) cover all five clusters on the plugin metric.
+- The `PostgresWALArchivingBacklog*` alerts use `cnpg_collector_pg_wal_archive_status`, which comes from the instance manager and kept working through the switch.
+- Since #1284, the monthly restore test also restores `postgres-firefly` from its barman backups into a throwaway Cluster, checks for tables, migration rows and a WAL position past the newest base backup's end LSN, then deletes it. It is the same idea as my [Velero false-positive lesson](/blog/velero-backup-false-positive-no-data/): a green backup status is not a restore.
+
+## What to Check in Your Own Setup
+
+- **Grep for `barmanObjectStore` and `method: barmanObjectStore`.** Then read your operator's webhook warnings for the removal version it actually enforces, not only the docs.
+- **Hold the operator chart in Renovate or Dependabot** until no Cluster uses the in-tree method.
+- **Keep `destinationPath` and `serverName`** if you want old backups in the same recovery window.
+- **Put the `ObjectStore` in an earlier sync wave** than the Cluster under ArgoCD.
+- **Give the sidecar CPU and memory limits** in `instanceSidecarConfiguration` if a policy engine requires limits on init containers.
+- **Rewrite backup-age alerts** onto `barman_cloud_cloudnative_pg_io_last_available_backup_timestamp`, and treat `0` as its own case.
+- **Restore once before and once after the switch point** before you delete anything.
+
+<NewsletterCTA />

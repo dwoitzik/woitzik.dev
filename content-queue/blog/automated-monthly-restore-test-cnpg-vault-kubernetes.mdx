@@ -1,0 +1,184 @@
+---
+title: "Automated Postgres Restore Test on Kubernetes: CNPG, Vault and the k3s Datastore"
+seoTitle: "Automated Postgres Restore Test on Kubernetes with CNPG"
+description: "My monthly restore test only proved Vault, and that check was broken. Now it restores a CNPG cluster via bootstrap.recovery and checks the WAL position too."
+date: "2027-01-13"
+tags: ["Kubernetes", "Backup", "PostgreSQL", "Vault", "Homelab"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+My homelab has a CronJob called `monthly-restore-test`. On the 1st of every month at 06:00 it restores something from backup, checks it and pages me through ntfy if the check fails. For a long time "something" meant only Vault. The five CloudNativePG clusters, which hold most of the data I would actually miss, were never restored by anything automated. When I finally added a Postgres restore, triggering the job by hand showed that the Vault half had been broken too: it would have failed on every run since Vault moved to raft snapshots. This post covers both fixes and a third gap I closed the same day, the k3s datastore that had no copy off the Proxmox host.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## Why Postgres Was Left Out
+
+The original restore test restores the `vault` namespace from the newest Velero backup into a scratch namespace, `velero-restore-test`. The header comment of `restore-test.yml` explains why it stopped there:
+
+```yaml
+# Scoped to `vault` deliberately, not `database` (CNPG-managed Postgres):
+# investigated restoring `database` too and found a real blocker -- CNPG's
+# Postgres StatefulSets/Secrets carry controller ownerReferences to a
+# `Cluster` custom resource, and that Cluster's own backup config points at a
+# specific S3 destination path. A namespace-mapped restore that also revives
+# the Cluster CR risks the CNPG operator reconciling a second, independent
+# instance that archives WAL to the SAME destination path the live cluster
+# uses -- a real corruption risk, not something to improvise inside a
+# CronJob script.
+```
+
+That reasoning holds. A Velero namespace restore is the wrong tool for an operator-managed database. The comment named the right one as a follow-up: CNPG's own `.spec.bootstrap.recovery`. It stayed a follow-up until #1284.
+
+I have been burned by trusting backup status before. Velero once reported [Completed for weeks without any volume data](/blog/velero-backup-false-positive-no-data/). A database backup that nothing ever restores is the same kind of risk.
+
+## The Postgres Half: bootstrap.recovery Into a Throwaway Cluster
+
+Since ADR-081, all CNPG clusters back up through the Barman Cloud plugin to Garage at `s3://cnpg-backups/<name>`. The restore test now picks `postgres-firefly`. The PR gives the reason: it is the smallest cluster with a plain schema (11 MB, 81 tables), and unlike authelia it has no streaming standby attached.
+
+The scratch space lives in a new namespace, `cnpg-restore-test`, defined in `restore-test-postgres.yml`. It gets its own `ObjectStore` that points at the live bucket path:
+
+```yaml
+# Same bucket path as database/postgres-firefly; the plugin resolves an
+# externalCluster's ObjectStore in the Cluster's own namespace.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: postgres-firefly-source
+  namespace: cnpg-restore-test
+spec:
+  # ...
+  configuration:
+    destinationPath: s3://cnpg-backups/firefly
+    endpointURL: http://garage.apps.svc.cluster.local:3900
+    # ...
+```
+
+This is the part I checked hardest, because it is exactly the risk the old comment warned about. Two things keep it safe. The `ObjectStore` has no retention policy, so nothing prunes the live backups from this side. And the scratch Cluster has no `spec.plugins` entry, so it never archives WAL anywhere. It only reads:
+
+```yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: firefly-restore
+  namespace: cnpg-restore-test
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.2
+  storage:
+    size: 2Gi
+    storageClass: local-path
+  # ...
+  bootstrap:
+    recovery:
+      source: origin
+  externalClusters:
+    - name: origin
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: postgres-firefly-source
+          serverName: postgres-firefly
+```
+
+`serverName: postgres-firefly` is what points recovery at the live cluster's catalog. Without it the plugin would look for a server directory named after the scratch cluster.
+
+## What the Job Checks
+
+The script in the `restore-test-script` ConfigMap runs four steps after the Vault phase:
+
+1. Delete any scratch cluster left over from a failed run, and wait until its PVC is gone. A PVC still terminating under the same name would block the next restore.
+2. Read the newest completed `Backup` of `postgres-firefly` in the `database` namespace and take its `endLSN`. That is the floor the restore must reach.
+3. Apply the Cluster and wait up to 900 seconds for `Ready`.
+4. Query the restored database, then delete the Cluster.
+
+Step 2 is one `jq` filter:
+
+```bash
+FLOOR_LSN=$(timeout 30 kubectl get backups.postgresql.cnpg.io -n database -o json \
+  | jq -r --arg c "$PG_SRC" '[.items[] | select(.spec.cluster.name==$c and .status.phase=="completed")]
+      | sort_by(.status.stoppedAt) | last | .status.endLSN') \
+  || fail "postgres: listing CNPG backups of $PG_SRC failed"
+```
+
+Step 4 checks three things:
+
+```bash
+TABLES=$(psql_restored "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'") \
+  || TABLES=0
+MIGRATIONS=$(psql_restored "SELECT count(*) FROM migrations") || MIGRATIONS=0
+REACHED=$(psql_restored "SELECT pg_current_wal_lsn() >= '$FLOOR_LSN'::pg_lsn") || REACHED=f
+```
+
+The LSN check is the one that matters most to me. Tables and migration rows prove the base backup is readable. A WAL position at or past the end of the newest base backup proves that recovery replayed archived WAL on top of it. A restore that silently stopped at an old backup would still have tables, but it would fail this check.
+
+Any failure calls the existing `fail()` function, which posts to ntfy with high priority and exits 1. Success sends nothing. A job that never runs is covered separately by the `CadenceJobDidNotRun` alert.
+
+## Permissions and Network Policies
+
+The job's ServiceAccount, `restore-test-runner`, gets create, patch and delete on Clusters only in `cnpg-restore-test`, plus `pods/exec` there to run `psql`. In `database` it gets read access to `backups` and nothing else.
+
+The scratch namespace starts from default-deny ingress, with two additions: the CNPG operator may reach port 8000 (it polls each instance's status API), and a new policy in `apps` lets `cnpg-restore-test` reach Garage on port 3900. The operator's own egress policy was widened to the new namespace as well.
+
+That egress change came from the prototype. Before opening the PR I ran the same manifests by hand. Recovery finished in about a minute, but the cluster only became healthy once the operator could reach port 8000. The restored database had 81 tables, 61 migrations rows and 50 configuration rows, identical to live, and its WAL position was past the newest base backup's end LSN, `2/B2001CA8`. The scratch cluster was deleted afterwards.
+
+The job deadline went from 1800 to 2700 seconds. The comment in the CronJob says why: the Vault restore takes about 2 minutes, the Postgres recovery about 5, with waits of up to 16 minutes.
+
+## The Vault Half Was Broken
+
+After merging the Postgres half I triggered the job by hand. The Velero restore reported `Completed`, and then:
+
+```text
+FAIL: restored Vault did not report Initialized: true
+```
+
+The cause was a change I had made earlier. Since #1092, Vault is backed up through raft snapshots, and `vault-0`'s data volume is excluded from Velero. So the restored `vault-0` always started with an empty volume, and the test's `vault status` check for `Initialized: true` could never pass. The December 1 run would have failed the same way.
+
+The fix in #1286 checks what a Vault restore would actually use: the `vault-snapshots` PVC that comes back with the namespace. Inside the restored `vault-snapshot` pod, the script reads the archive's own `SHA256SUMS` and compares every member against it:
+
+```bash
+f=/snapshots/vault.snap
+tar -xzOf "$f" SHA256SUMS > /tmp/sums
+grep -q " state.bin$" /tmp/sums
+while read -r sum member; do
+  [ "$(tar -xzOf "$f" "$member" | sha256sum | cut -d" " -f1)" = "$sum" ] || { echo "MISMATCH $member"; exit 1; }
+done < /tmp/sums
+echo "SUMS_OK $(wc -c < "$f")"
+cat /snapshots/.last-run
+```
+
+It also fails if `.last-run` is more than 48 hours old. The Velero backup runs daily at 05:00 and the test at 06:00, so anything older means the snapshot hook stopped. Run by hand against the restore of the 2026-11-25 backup, the check printed `SUMS_OK 94143` with the snapshot taken at `2026-11-25T05:01:33Z`.
+
+This check has a limit, and the PR says so. It does not prove the snapshot decrypts. The snapshot is barrier-encrypted, so testing that needs the unseal keys, and giving the restore-test ServiceAccount read access to `vault-unseal-keys` is a bigger grant than this test should hold.
+
+## The k3s Datastore, Off-Host Every 6 Hours
+
+The same day closed a gap outside Kubernetes. The k3s datastore is kine on SQLite (ADR-015). Its only backup was PBS's copy of VM 211, on the same physical host and the same USB archive disk as everything else.
+
+A new Ansible role, `k3s_kine_backup`, runs on `vm-srv-k3s-11` every 6 hours (`OnCalendar=*-*-* 00/6:20:00`):
+
+```bash
+# VACUUM INTO reads in one transaction: a single point in time while k3s writes.
+# .backup restarts its page copy on every foreign write, and kine writes every few seconds.
+sqlite3 "$db" ".timeout 30000" "VACUUM INTO '$work/$name'"
+```
+
+The copy is staged in `/dev/shm`, checked with `PRAGMA integrity_check`, compressed with zstd and pushed to `rpi-srv-02`'s SSD over an SSH key restricted with `rrsync -wo` to one directory. Measured on the live server, the copy took 0.3 seconds: 65 MB, 12.6 MB compressed. The receiving side keeps copies for 14 days (always the newest 8) and exports their age and size to node_exporter. `K3sDatastoreBackupStale` fires when the newest copy is over 13 hours old, smaller than 1 MiB, or missing.
+
+The restore test was recorded in `DISASTER-RECOVERY.md` (#1294). I pulled the first copy, `state-20261125T185952Z.db.zst` (12.8 MB), into a scratch directory. `integrity_check` returned ok, the copy held 8266 kine rows, and its live objects (22 namespaces, 117 Secrets, 107 ConfigMaps, 72 Deployments, 61 ArgoCD Applications) matched `kubectl` against the running cluster. The stop, swap and start steps were not run against the live server, and the runbook says that too.
+
+## What I Have Not Recorded
+
+Both PRs list "trigger the job by hand and expect both PASS lines" as the check after merge. The output of that run is not in the repo, and because success is silent by design, neither are the scheduled runs since. What is documented is the prototype result above and the hand-run Vault check.
+
+## What to Check in Your Own Setup
+
+- **Does your restore test still test what it claims?** Mine checked a Vault volume that a later backup change had excluded. Re-run the test by hand after any change to how a service is backed up.
+- **Restore CNPG through `bootstrap.recovery`, not a namespace restore.** Give the scratch Cluster no `spec.plugins` entry, and its `ObjectStore` no retention policy, so it can only read.
+- **Check the WAL position, not just row counts.** Compare `pg_current_wal_lsn()` against the newest base backup's `endLSN`. That proves WAL replay worked.
+- **Clean up leftovers at the start of the run**, not only at the end. A failed run that leaves a PVC behind will break the next one.
+- **Check where your cluster datastore lives.** If its only backup is on the same host as the VM, one disk failure takes both.
+
+If you run CNPG on k3s and haven't set up backups yet, [my CNPG setup post](/blog/cnpg-postgresql-operator-k3s/) covers the operator side.
+
+<NewsletterCTA />

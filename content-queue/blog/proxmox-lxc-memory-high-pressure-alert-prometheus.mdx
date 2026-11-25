@@ -1,0 +1,182 @@
+---
+title: "Alerting on Proxmox LXC memory.high and Memory Pressure with Prometheus"
+seoTitle: "Proxmox LXC memory.high and Pressure Alerts in Prometheus"
+description: "node_exporter and pve-exporter can't see per-LXC memory.events or PSI. A systemd timer on the Proxmox host exports them, and three alert rules catch a stall."
+date: "2027-01-09"
+tags: ["Proxmox", "Homelab", "Monitoring"]
+---
+
+import NewsletterCTA from "@components/NewsletterCTA.astro";
+
+In [A tmpfs Download Folder Took Down My Proxmox LXC](/blog/tmpfs-lxc-memory-cgroup-sabnzbd/) I described a container that sat at its memory limit until about 8 million `memory.high` throttle events had piled up. Nothing was killed, nothing paged, and the only visible symptom was a Proxmox host load near 150. A reader asked the obvious follow-up question in the comments: do I alert on the `memory.high` rate now, so the next stall shows up as a rising counter before the threads park? At the time the honest answer was no. Until #1278 it could not, because none of my exporters read a container's own `memory.events` or `memory.pressure`. This post is about the small collector that fixes that and the three alert rules built on it.
+
+**[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
+
+## What I Was Already Scraping
+
+Two exporters already covered the Proxmox host `pve-mgmt-01`:
+
+- **`node-exporter-pve`**, a normal node_exporter. It has pressure stall information (PSI), but only host-wide: `node_pressure_memory_*`. It does not say which container is stalling.
+- **`proxmox-pve`** (pve-exporter). It reports usage figures from the Proxmox API. That tells you how much memory a container uses, not whether the kernel is throttling it.
+
+Neither reads `/sys/fs/cgroup/lxc/<id>/memory.events` or `memory.pressure`, and those two files are exactly where the tmpfs incident was visible. The `high` counter in `memory.events` was climbing into the millions, and the container's `memory.pressure` showed `full avg10=14.36`. Both numbers sat on the host the whole time. Nothing collected them.
+
+## How the Metrics Are Produced
+
+The new Ansible role `pve_lxc_memory_metrics` runs on `pve_hosts`. It installs one shell script, a oneshot service and a timer. The script writes a file into the textfile collector directory that node_exporter on the host already reads, so no new exporter, no new port and no new package.
+
+The role defaults:
+
+```yaml
+---
+pve_lxc_memory_metrics_textfile_dir: /var/lib/node_exporter/textfile_collector
+pve_lxc_memory_metrics_interval: 30s
+```
+
+The timer:
+
+```ini
+[Unit]
+Description=Export LXC memory cgroup counters every {{ pve_lxc_memory_metrics_interval }}
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec={{ pve_lxc_memory_metrics_interval }}
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
+```
+
+The script walks every numeric directory under `/sys/fs/cgroup/lxc/`, which is one cgroup per container ID, and looks up the hostname from `/etc/pve/lxc/<id>.conf` so the alerts can say which container it is:
+
+```bash
+for cg in /sys/fs/cgroup/lxc/*/; do
+  id=$(basename "$cg")
+  [[ "$id" =~ ^[0-9]+$ ]] || continue
+  [ -r "$cg/memory.events" ] || continue
+  name=$(sed -n 's/^hostname: *//p' "/etc/pve/lxc/$id.conf" 2>/dev/null | head -n1)
+  l="ctid=\"$id\",name=\"${name:-unknown}\""
+
+  while read -r key value; do
+    events+=("lxc_cgroup_memory_events_total{$l,event=\"$key\"} $value")
+  done < "$cg/memory.events"
+
+  # PSI totals are microseconds.
+  while read -r kind _ _ _ total; do
+    psi+=("lxc_cgroup_memory_pressure_seconds_total{$l,kind=\"$kind\"} $(awk -v t="${total#total=}" 'BEGIN { printf "%.6f", t / 1e6 }')")
+  done < "$cg/memory.pressure"
+
+  current+=("lxc_cgroup_memory_current_bytes{$l} $(cat "$cg/memory.current")")
+  swap+=("lxc_cgroup_memory_swap_current_bytes{$l} $(cat "$cg/memory.swap.current")")
+  high+=("lxc_cgroup_memory_high_bytes{$l} $(limit "$cg/memory.high")")
+  max+=("lxc_cgroup_memory_max_bytes{$l} $(limit "$cg/memory.max")")
+done
+```
+
+Three details in there matter.
+
+**`memory.events` maps straight to a counter.** Each line in the file is a key and a lifetime count, so every key becomes one series with an `event` label. The one I care about is `event="high"`.
+
+**PSI is exported as the cumulative total, not the averages.** Each line of `memory.pressure` ends in `total=<microseconds>`, the time tasks in the cgroup have spent stalled. The script skips `avg10`, `avg60` and `avg300`, takes `total`, divides by 1e6 and exposes it as a counter in seconds. Prometheus can then compute its own average over any window with `rate()`, which is more useful than a kernel average sampled every 30 seconds. The `kind` label is `some` or `full`.
+
+**Unlimited limits become `+Inf`.** `memory.high` and `memory.max` contain the literal string `max` when no limit is set. A small helper turns that into `+Inf` so the gauge stays numeric:
+
+```bash
+limit() {
+  local v
+  v=$(cat "$1")
+  [ "$v" = "max" ] && echo "+Inf" || echo "$v"
+}
+```
+
+The output goes to a temp file first, then `chmod 0644` and `mv` into place as `lxc_memory.prom`, so node_exporter never reads a half-written file. The last line of every run is a timestamp gauge, `lxc_cgroup_memory_metrics_last_run_timestamp_seconds`, which the staleness alert uses.
+
+The full metric set:
+
+- `lxc_cgroup_memory_events_total{ctid,name,event}`
+- `lxc_cgroup_memory_pressure_seconds_total{ctid,name,kind}`
+- `lxc_cgroup_memory_current_bytes`, `lxc_cgroup_memory_swap_current_bytes`, `lxc_cgroup_memory_high_bytes`, `lxc_cgroup_memory_max_bytes`
+- `lxc_cgroup_memory_metrics_last_run_timestamp_seconds`
+
+Everything is read-only on cgroupfs. Nothing in the containers changes.
+
+## The Alert Rules
+
+The rules went into a new group `pve.lxc_memory` in `kubernetes/system/monitoring/hardware-temp-alerts.yml`, the PrometheusRule that already holds the Proxmox host's hardware alerts:
+
+```yaml
+    - name: pve.lxc_memory
+      rules:
+        - alert: LXCMemoryThrottled
+          expr: rate(lxc_cgroup_memory_events_total{event="high"}[10m]) > 100
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "LXC {{ $labels.ctid }} ({{ $labels.name }}) throttled at memory.high: {{ $value | printf \"%.0f\" }} events/s"
+            # ...
+        - alert: LXCMemoryStall
+          expr: rate(lxc_cgroup_memory_pressure_seconds_total{kind="full"}[10m]) > 0.10
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "LXC {{ $labels.ctid }} ({{ $labels.name }}) fully stalled on memory {{ $value | humanizePercentage }} of the time"
+            # ...
+        - alert: LXCMemoryMetricsStale
+          expr: time() - lxc_cgroup_memory_metrics_last_run_timestamp_seconds > 600
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "LXC memory cgroup metrics have not been refreshed for {{ $value | humanizeDuration }}"
+            # ...
+```
+
+### LXCMemoryThrottled (Warning)
+
+More than 100 `memory.high` events per second, averaged over 10 minutes, held for 15 minutes. That is the early signal: the container keeps hitting its high boundary and the kernel is reclaiming inside its cgroup. The description tells me to read `/sys/fs/cgroup/lxc/<ctid>/memory.stat` on `pve-mgmt-01` and look for tmpfs or shmem, since that is what filled the container last time.
+
+### LXCMemoryStall (Critical)
+
+PSI `full` above 10% of wall time, again a 10 minute rate held for 15 minutes. `full` means every task in the container was waiting on memory at the same time. A rate of the seconds counter is directly a fraction: 0.10 is 100 ms of full stall per second. The tmpfs incident measured `full avg10=14.36`, which is 14.36%, so the threshold sits below what that stall produced. The description says it plainly: nothing OOMs in this state, processes hang in D state, and host load climbs.
+
+### LXCMemoryMetricsStale (Warning)
+
+If the timer stops, the other two alerts can never fire, and a silent collector looks exactly like a healthy container. So: the last run timestamp older than 600 seconds, for 10 minutes. The description points at `systemctl status lxc-memory-metrics.service`.
+
+Throttling is the warning, a sustained full stall is the critical one, because the full stall is the state that took the host down.
+
+## Why Not Alert on Host Load
+
+Host load did spike to around 150, and a load alert would have fired eventually. But load says nothing about which container is responsible or why. The cgroup counters carry `ctid` and `name`, and `event="high"` already names the mechanism. The alert annotation tells me which file to open next.
+
+## How It Is Checked
+
+The PR recorded the baseline before merge: on all 10 containers the `memory.high` counts were lifetime totals in the low thousands at most, and PSI `full` averages were 0.00. Neither alert should fire on that.
+
+The checks listed in #1278 for after the merge:
+
+- playbook in check mode, then apply on `pve_hosts`
+- `lxc-memory-metrics.timer` active
+- `lxc_cgroup_memory_events_total` present in Prometheus for every running container
+- each alert expression returns empty now, and returns series when the threshold is flipped
+
+That last one is the important check. An expression that returns empty is indistinguishable from a typo in a metric name, so the threshold has to be inverted once to prove the query matches real series. The results of these post-merge checks are not recorded in the repo, so I am not quoting any here.
+
+Rollback is a revert of the PR, then `systemctl disable --now lxc-memory-metrics.timer` and removing `/var/lib/node_exporter/textfile_collector/lxc_memory.prom` on the host.
+
+For the wider monitoring setup these rules plug into, see [kube-prometheus-stack and Loki on k3s with Grafana SSO](/blog/kube-prometheus-loki-grafana-k3s/).
+
+## What to Check in Your Own Setup
+
+- **Does anything read per-container cgroup files?** Host PSI and Proxmox API usage both miss a single container stuck in reclaim. Run `cat /sys/fs/cgroup/lxc/<id>/memory.events` on the host and see whether that `high` number exists anywhere in your metrics.
+- **Export PSI `total`, not the averages.** A counter lets `rate()` choose the window. `avg10` sampled every 30 seconds loses most of what happened in between.
+- **Use `full`, not `some`, for the paging alert.** `full` means the whole container made no progress. That is the stall, not a busy moment.
+- **Turn `max` into `+Inf`.** A textfile collector line with a non-numeric value breaks the whole file.
+- **Write the textfile atomically.** Temp file, then `mv`.
+- **Alert on the collector itself.** A last-run timestamp and a staleness rule cost three lines and stop a dead timer from looking like a quiet system.
+- **Flip each threshold once.** An empty result proves nothing until you have seen the same query return data.
+
+<NewsletterCTA />
