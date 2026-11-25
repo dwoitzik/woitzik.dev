@@ -2,7 +2,7 @@
 title: "k3s Backup with Velero and Garage S3 Instead of MinIO"
 description: "Daily k3s backups with Velero to Garage, a small self-hosted S3 store that replaced MinIO. Deployed via ArgoCD, with the verify and restore steps."
 date: "2026-06-20"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Homelab"]
 ---
 
@@ -34,9 +34,9 @@ Velero (daily backup at 03:00)
         ├── Cluster resources → Garage S3 bucket (backup/velero)
         │   (Deployments, Services, ConfigMaps, Secrets, CRDs…)
         │
-        └── Persistent volumes → Longhorn volume snapshots
+        └── Persistent volumes → node-agent file-system backup (Kopia)
                 │
-                └── Snapshots exported to Garage S3
+                └── uploaded to Garage S3
 ```
 
 Both the Kubernetes API objects and the actual volume data land in Garage. A full restore brings the cluster back as it was.
@@ -339,6 +339,9 @@ spec:
     storageLocation: default
     volumeSnapshotLocations:
       - default
+    # Without this, PVC data is not backed up: no snapshot provider
+    # covers these volumes, so file-system backup (Kopia) does the work.
+    defaultVolumesToFsBackup: true
 ```
 
 30 days of daily backups. With the TTL, Velero deletes backups older than 720 hours on its own. No manual cleanup.

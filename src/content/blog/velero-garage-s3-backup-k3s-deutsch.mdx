@@ -4,7 +4,7 @@ description: "Garage statt MinIO als Backup-Ziel für Velero: ein einzelnes klei
 lang: de
 translationOf: "velero-garage-k3s-backup"
 date: 2026-09-22
-updated: "2026-11-04"
+updated: "2026-11-25"
 draft: false
 pinned: false
 tags: ["Kubernetes", "Backup", "Velero", "S3", "Longhorn"]
@@ -220,6 +220,9 @@ spec:
     storageLocation: default
     volumeSnapshotLocations:
       - default
+    # Ohne diese Zeile werden keine PVC-Daten gesichert: Kein Snapshot-Provider
+    # deckt diese Volumes ab, also übernimmt das File-System-Backup (Kopia).
+    defaultVolumesToFsBackup: true
 ```
 
 Das ergibt 30 Tage tägliche Backups. Über die TTL löscht Velero Backups, die älter als 720 Stunden sind, selbst. Manuelles Aufräumen entfällt.

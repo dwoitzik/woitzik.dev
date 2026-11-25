@@ -3,7 +3,7 @@ title: "310 Restarts in 21 Days: CNPG's Silent PodMonitor Failure and the Leader
 seoTitle: "CNPG PodMonitor Restart Loop: 310 Restarts in 21 Days"
 description: "CloudNativePG's auto-generated PodMonitor lacked one label, so Prometheus never scraped it, and leader-election timeouts restarted the operator 310 times."
 date: "2026-07-17"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Homelab", "Debugging"]
 ---
 
@@ -36,7 +36,7 @@ monitoring:
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: postgres-authelia
+  name: postgres-authelia-metrics
   namespace: database
   labels:
     cnpg.io/cluster: postgres-authelia
@@ -52,7 +52,7 @@ spec:
     - port: metrics
 ```
 
-It carries both labels, so this is the one Prometheus selects, and the operator's own version stays disabled. Every other monitoring resource in this cluster follows the same rule: if Prometheus needs to see it, manage the label yourself instead of relying on the operator to guess what your selector requires.
+It carries both labels, so this is the one Prometheus selects, and the operator's own version stays disabled. The name must not match the Cluster's name: with `enablePodMonitor: false`, the CNPG reconciler deletes any PodMonitor named after the Cluster (`postgres-authelia`) on every reconcile, whoever created it, which left this Application in a sync loop until the object was renamed. Every other monitoring resource in this cluster follows the same rule: if Prometheus needs to see it, manage the label yourself instead of relying on the operator to guess what your selector requires.
 
 The new file also had to be added to the ArgoCD Application's `directory.include` pattern. The postgres Application only syncs explicitly listed YAML files, not everything in the directory, so without this the PodMonitor exists in git but is never applied:
 
@@ -81,11 +81,10 @@ The fix was the same approach I already applied to etcd's timeouts in Ansible: s
 spec:
   source:
     helm:
-      values:
-        operator:
-          additionalArgs:
-            - --leader-lease-duration=60
-            - --leader-renew-deadline=50
+      values: |
+        additionalArgs:
+          - --leader-lease-duration=60
+          - --leader-renew-deadline=50
 ```
 
 I confirmed both flags exist via the live v1.25.0 binary's `--help` output before applying. Same discipline as with every Terraform resource: check what the running version supports instead of trusting documentation that might be version-skewed.

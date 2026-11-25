@@ -2,7 +2,7 @@
 title: "My Media Stack Lives in Two Containers and a Python CronJob"
 description: "Jellyfin in a GPU-passthrough LXC, SABnzbd and the *arr apps on a second LXC, and a Python CronJob in k3s. Why the media stack left Kubernetes."
 date: "2026-09-13"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Homelab", "Proxmox", "Networking", "Self-Hosted"]
 ---
 
@@ -49,7 +49,7 @@ The acquisition LXC has two different outbound flows, and my first pass treated 
 Wrapping the whole LXC in gluetun/Mullvad "solved" both at once, but it was the wrong tool for either. A VPN on the download path costs throughput for no privacy benefit beyond what Eweka's own TLS already provides, and a shared VPN exit IP risks Eweka flagging the account for apparent account sharing. I tore gluetun out two days after standing it up and replaced it with a model that matches the two flows:
 
 - **SABnzbd → Eweka, direct, over SSL.** No VPN. The ISP sees "connected to news.eweka.nl," never content. NNTPS alone does that job.
-- **NZBHydra2 → indexers, through a Tor SOCKS5 proxy**, `tor` container at `172.28.1.10:9050`, configured with **no direct-connection fallback**. Search queries are small and latency-tolerant, a good fit for Tor's limited bandwidth, and for metadata-only queries Tor beats a commercial VPN: no single operator to trust. If Tor is down, indexer queries fail outright instead of silently leaking the home IP.
+- **NZBHydra2 → indexers, through a Tor SOCKS5 proxy**, `tor` container at `172.28.1.10:9150`, configured with **no direct-connection fallback**. Search queries are small and latency-tolerant, a good fit for Tor's limited bandwidth, and for metadata-only queries Tor beats a commercial VPN: no single operator to trust. If Tor is down, indexer queries fail outright instead of silently leaking the home IP.
 
 I verified this configuration on the box rather than trusting the design on paper: `sabnzbd.ini` shows `socks5_proxy_url = ""` (empty, so SABnzbd was never routed through Tor) with `ssl = 1`, `ssl_verify = 2` confirming the direct-to-Eweka SSL path is real; `nzbhydra.yml` shows `proxyType: SOCKS` pointed at the Tor container with no fallback option enabled. One live exception I noticed and haven't chased down yet: one specific indexer bypasses Tor and connects directly (`proxyIgnoreDomains`). It's either a site that blocks Tor exit nodes or a leftover exception from before I understood this stack properly. That one is still on my list.
 

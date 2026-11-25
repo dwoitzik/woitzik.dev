@@ -2,7 +2,7 @@
 title: "k3s vs Nomad vs Docker Swarm: Which Orchestrator to Pick"
 description: "Pick k3s for Kubernetes workloads. Docker Swarm has been in decline since the Docker Engine v29 API break, and Nomad is source-available under BUSL."
 date: "2026-10-14"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Docker", "DevOps", "Homelab"]
 ---
 
@@ -65,7 +65,7 @@ That pinned list matters more than it looks. When something breaks at 02:00 you 
 
 The cost of k3s is that you inherit Kubernetes' upgrade treadmill. Upgrading across three minor versions is not a hobby, and every Helm chart in your stack is a chance for the chart to be behind the API version you just moved to. One concrete example from the 1.34 line: the bundled Traefik chart moved to v40.x, which renamed the ingress-nginx migration provider from `kubernetesIngressNginx` to `kubernetesIngressNGINX`. That is a breaking change arriving inside a k3s patch release.
 
-I have written about the parts that bite in practice. The [Velero and Garage S3 backup chain](/blog/velero-garage-k3s-backup/) and [Unbound with AdGuard and keepalived](/blog/unbound-adguard-keepalived-homelab/) are both k3s deployments that took real iteration to get right.
+I have written about the parts that bite in practice. The [Velero and Garage S3 backup chain](/blog/velero-garage-k3s-backup/) is a k3s deployment that took real iteration to get right, and so did [Unbound with AdGuard and keepalived](/blog/unbound-adguard-keepalived-homelab/), which runs on two Raspberry Pis outside the cluster so DNS survives a cluster outage.
 
 ## Docker Swarm: Simpler, and Now on Borrowed Time
 

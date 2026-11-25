@@ -26,7 +26,7 @@ kube-prometheus-stack            Promtail (k8s DaemonSet)
   └── node-exporter (k8s)
                                  Promtail (Ansible, bare-metal)
 SNMP Exporter                      ├── /var/log/syslog
-  └── MikroTik RB5009 → Prometheus └── /var/log/auth.log
+  └── MikroTik RB5009 → Prometheus ├── /var/log/auth.log
                                    └── Docker container logs
 node_exporter (Ansible)
   └── RPi + LXC nodes → Prometheus

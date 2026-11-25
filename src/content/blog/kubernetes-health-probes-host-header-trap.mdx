@@ -3,7 +3,7 @@ title: "Kubernetes Health Probes: The Host Header Trap That Restarts Healthy Pod
 seoTitle: "Kubernetes Health Probes: The Host Header Trap"
 description: "Adding probes to 20+ workloads showed kubelet sends the Pod IP as Host header, and apps with host validation reject it. Probe patterns that work."
 date: "2026-07-15"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Homelab", "Debugging"]
 ---
 
@@ -66,16 +66,16 @@ readinessProbe:
 # Garage - TCP probe, no HTTP healthz in the image
 readinessProbe:
   tcpSocket:
-    port: 2335
+    port: 3900   # S3 API port
   initialDelaySeconds: 5
   periodSeconds: 10
 
 # Vaultwarden - TCP probe, same reasoning
 readinessProbe:
   tcpSocket:
-    port: 8080
-  initialDelaySeconds: 10
-  periodSeconds: 15
+    port: 80
+  initialDelaySeconds: 5
+  periodSeconds: 10
 ```
 
 All three were live-tested by temporarily pausing ArgoCD's selfHeal, applying the probes, confirming `READY 1/1` with zero restarts, then restoring selfHeal.

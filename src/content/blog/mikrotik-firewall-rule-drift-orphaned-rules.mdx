@@ -35,7 +35,7 @@ At some point I had tightened a monitoring rule from "Prometheus can reach all i
 resource "routeros_ip_firewall_filter" "fwd_04a_srv_monitoring" {
   action       = "accept"
   chain        = "forward"
-  src_address  = "10.0.20.0/24"   # monitoring VLAN
+  src_address  = "10.0.20.0/24"   # server VLAN (Prometheus)
   dst_address  = "10.0.10.0/24"   # management VLAN
   dst_port     = "9100"
   protocol     = "tcp"

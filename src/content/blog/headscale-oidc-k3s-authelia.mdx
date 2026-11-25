@@ -2,7 +2,7 @@
 title: "Self-Hosted Tailscale Control Plane: Headscale on k3s with Authelia OIDC"
 description: "Deploy Headscale on a bare-metal k3s cluster with Longhorn persistence, Traefik ingress, and Authelia OIDC authentication, fully GitOps-managed via ArgoCD."
 date: "2026-06-13"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Homelab", "Security", "Networking"]
 ---
 
@@ -201,8 +201,7 @@ spec:
       services:
         - name: headscale
           port: 8080
-  tls:
-    secretName: wildcard-yourdomain-tls
+  tls: {}  # Traefik serves the default wildcard certificate from its TLSStore
 ```
 
 Headscale does not need an Authelia middleware on the IngressRoute, because it handles authentication itself through the OIDC flow. A forward-auth middleware would also break the Tailscale clients, which talk to this endpoint directly. Headscale ships no web UI; if you add a third-party one, put that behind Authelia.

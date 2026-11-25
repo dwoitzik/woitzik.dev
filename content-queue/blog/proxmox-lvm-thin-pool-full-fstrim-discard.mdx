@@ -60,7 +60,7 @@ It had never reclaimed a block. `/var/log/fstrim-all.log` had the same three lin
 /usr/local/bin/fstrim-all.sh: line 12: qm: command not found
 ```
 
-cron runs jobs with a minimal `PATH` that doesn't include `/usr/sbin`, and that's where `fstrim`, `pct` and `qm` live on Proxmox VE. Every run exited at the first line that called one of them.
+cron runs jobs with a minimal `PATH` that doesn't include `/usr/sbin`, and that's where `fstrim`, `pct` and `qm` live on Proxmox VE. Every line that called one of them failed, on every run, and the script kept going without doing anything.
 
 The failure was silent by construction. The crontab entry appended all output to the log file, the crontab entry itself looked correct, and nothing ever read that log. The protection existed, was scheduled, and did nothing.
 

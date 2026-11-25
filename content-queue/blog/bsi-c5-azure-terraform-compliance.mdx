@@ -76,8 +76,8 @@ C5 also requires transport encryption (CRY-02), and that applies to internal Paa
 
 ```hcl
 resource "azurerm_storage_account" "c5_storage" {
-  name                     = "stc5${var.environment}"
-  min_tls_version          = "TLS1_2"
+  name                          = "stc5${var.environment}"
+  min_tls_version               = "TLS1_2"
   public_network_access_enabled = false
 }
 ```

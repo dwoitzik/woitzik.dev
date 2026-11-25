@@ -97,7 +97,7 @@ jobs:
 
 ## How the Alert Decides
 
-`-detailed-exitcode` makes `terraform plan` exit 0 for no changes, 2 for pending changes and 1 for errors. GitHub Actions runs `bash` with `-e -o pipefail`, so the step turns that off with `set +e`, reads Terraform's own exit code from `PIPESTATUS[0]` (a plain `$?` after the pipe would be `tee`'s), and fails only on 1. `terraform_wrapper: false` keeps the setup action's wrapper script out of the way of exit codes and output.
+`-detailed-exitcode` makes `terraform plan` exit 0 for no changes, 2 for pending changes and 1 for errors. GitHub Actions runs a step's default shell as `bash -e` (and adds `-o pipefail` when `shell: bash` is set explicitly), so the step turns `-e` off with `set +e`, reads Terraform's own exit code from `PIPESTATUS[0]` (a plain `$?` after the pipe would be `tee`'s), and fails only on 1. `terraform_wrapper: false` keeps the setup action's wrapper script out of the way of exit codes and output.
 
 The Slack alert fires on exit code 2, so every plan with changes posts a message, including change-only plans. A plan with "No changes" is silent. A plan with "7 to destroy" lands in Slack with the summary, and the team sees it right away.
 

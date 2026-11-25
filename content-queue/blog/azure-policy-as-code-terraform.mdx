@@ -38,7 +38,7 @@ resource "azurerm_policy_definition" "deny_public_storage" {
           equals = "Microsoft.Storage/storageAccounts"
         },
         {
-          field    = "Microsoft.Storage/storageAccounts/publicNetworkAccess"
+          field     = "Microsoft.Storage/storageAccounts/publicNetworkAccess"
           notEquals = "Disabled"
         }
       ]

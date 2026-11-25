@@ -2,7 +2,7 @@
 title: "The Overcommit Guard: How a Python Script Prevents Host Freezes"
 description: "VM dedicated memory is a reservation, LXC dedicated a soft ceiling. Summing them overstated pressure by 40GB. A two-tier CI guard now prevents ZFS freezes."
 date: "2026-09-03"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Proxmox", "Homelab", "Debugging", "CI/CD"]
 ---
 
@@ -79,7 +79,7 @@ if lxc_dedicated_total > PHYSICAL_RAM_GB * 1024:
           f"Check actual usage: pct exec <id> -- cat /sys/fs/cgroup/memory.current")
 ```
 
-The soft check exists for visibility. If someone adds a new LXC with 32 GB `dedicated` and the sum crosses 100 GB, the warning fires. It doesn't block the merge, because actual usage is usually a fraction of the configured limit.
+The soft check exists for visibility. If someone adds a new LXC with 32 GB `dedicated`, the sum climbs from 57 GB to 89 GB, past physical RAM, and the warning fires. It doesn't block the merge, because actual usage is usually a fraction of the configured limit.
 
 ## Why `floating` Is Ignored
 

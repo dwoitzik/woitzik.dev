@@ -2,7 +2,7 @@
 title: "Migrating Atlantis to an LXC Accidentally Made It Fully Public"
 description: "Moving Atlantis from Kubernetes to an LXC repointed the Cloudflare Tunnel past Traefik and Authelia. For about 18 hours the UI was open to anyone."
 date: "2026-07-14"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Security", "Kubernetes", "Homelab"]
 ---
 
@@ -55,36 +55,53 @@ curl -s -o /dev/null -w "%{http_code}" https://atlantis.woitzik.dev/
 
 ## The Fix: Restore the Traefik/Authelia Pattern
 
-The right model already existed: the external-host routing pattern used for Proxmox (`pve-final`) and PBS (`pbs-final`), which also run outside Kubernetes but still need to be gated. An `IngressRoute` with the Authelia middleware, backed by an `ExternalName` Service or direct-IP Endpoints pointing at the LXC:
+The right model already existed: the external-host routing pattern used for Proxmox (`pve-final`) and PBS (`pbs-final`), which also run outside Kubernetes but still need to be gated. An `IngressRoute` with the Authelia middleware, backed by a selector-less Service with a manual Endpoints object pointing at the LXC:
 
 ```yaml
-# kubernetes/ingress/atlantis-ingress.yml
+# kubernetes/system/apps-ingressroute.yml (excerpt)
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-atlantis
+  namespace: apps
+spec:
+  ports:
+    - port: 4141
+      targetPort: 4141
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: external-atlantis
+  namespace: apps
+subsets:
+  - addresses:
+      - ip: 10.0.20.250
+    ports:
+      - port: 4141
+---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: atlantis
+  name: atlantis-final
   namespace: apps
 spec:
-  entryPoints:
-    - websecure
+  entryPoints: [websecure]
   routes:
-    # GitHub webhook - HMAC auth, no Authelia needed
-    - match: Host(`atlantis.woitzik.dev`) && PathPrefix(`/events`)
-      kind: Rule
-      services:
-        - name: atlantis-external
-          port: 4141
-    # Everything else - Authelia gate required
-    - match: Host(`atlantis.woitzik.dev`)
-      kind: Rule
-      middlewares:
-        - name: authelia
-          namespace: system
-      services:
-        - name: atlantis-external
-          port: 4141
-  tls:
-    secretName: woitzik-dev-tls
+  # GitHub webhook - HMAC auth, no Authelia needed
+  - match: Host(`atlantis.woitzik.dev`) && PathPrefix(`/events`)
+    kind: Rule
+    priority: 10
+    services: [{name: external-atlantis, port: 4141}]
+  # Everything else - Authelia gate required
+  - match: Host(`atlantis.woitzik.dev`)
+    kind: Rule
+    priority: 1
+    middlewares:
+      - name: authelia
+      - name: websockets
+    services: [{name: external-atlantis, port: 4141}]
+  tls: {secretName: wildcard-woitzik-dev-tls}
 ```
 
 The Cloudflare Tunnel was repointed from the LXC's direct IP back to Traefik's HTTPS entrypoint, so the IngressRoute actually applies. After deployment, the same `curl` test returned a 302 redirect to Authelia.

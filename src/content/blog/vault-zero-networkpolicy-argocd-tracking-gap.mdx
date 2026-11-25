@@ -3,7 +3,7 @@ title: "Zero NetworkPolicies on Vault: How I Found the Biggest Gap in My Cluster
 seoTitle: "Zero NetworkPolicies on Vault and the ArgoCD Bug That Hid It"
 description: "Vault is the trust root for every ExternalSecret, and its namespace had zero NetworkPolicies. The fix also exposed ArgoCD drift that ignores merged changes."
 date: "2026-07-19"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Security", "GitOps", "Vault"]
 ---
 
@@ -83,10 +83,10 @@ I tested the policy live, with selfHeal temporarily disabled, before committing 
 
 ```bash
 # 1. Delete a live ExternalSecret's backing Secret
-kubectl delete secret renovate-token -n external-secrets
+kubectl delete secret renovate-token -n apps
 
 # 2. Verify ESO recreates it through the new policy
-kubectl get secret renovate-token -n external-secrets
+kubectl get secret renovate-token -n apps
 # → recreated within 5s - proves ESO→Vault traffic works
 
 # 3. Verify a pod OUTSIDE the allowed namespaces is blocked

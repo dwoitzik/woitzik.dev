@@ -2,7 +2,7 @@
 title: "paperless-gpt Hallucinated OCR: Wrong VISION_LLM_MODEL"
 description: "paperless-gpt invented German OCR text because VISION_LLM_MODEL pointed at qwen2.5-coder:7b, a text-only model. The fix, and why Ollama crashed 451 times."
 date: "2026-08-27"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["AI", "Kubernetes", "Homelab", "Debugging"]
 ---
 
@@ -26,7 +26,7 @@ The `paperless-gpt` deployment had two model settings:
 # kubernetes/apps/paperless/paperless-gpt.yml
 env:
   - name: LLM_MODEL
-    value: "qwen2.5:7b-instruct"        # text-only model for tagging/title generation
+    value: "qwen2.5-coder:7b"           # text-only model for tagging/title generation
   - name: VISION_LLM_MODEL
     value: "qwen2.5-coder:7b"           # ← BUG: this is also text-only
 ```
@@ -64,7 +64,7 @@ The titles were made up, but they looked real enough that I didn't notice until 
 # kubernetes/apps/paperless/paperless-gpt.yml
 env:
   - name: LLM_MODEL
-    value: "qwen2.5:7b-instruct"
+    value: "qwen2.5:7b-instruct"         # changed a week later, separate from this fix
   - name: VISION_LLM_MODEL
     value: "minicpm-v"                   # actual vision-capable model
 ```

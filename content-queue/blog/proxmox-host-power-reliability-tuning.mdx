@@ -19,18 +19,18 @@ My whole homelab runs on one <AffiliateLink href="/go/4bv3yF1">Ryzen mini PC</Af
 In active mode (`amd_pstate=active`), AMD's P-State driver replaces `acpi-cpufreq` and hands frequency selection to the CPU firmware. It only offers the `performance` and `powersave` governors; `schedutil`, the usual default people reach for, isn't available. The Energy Performance Preference (EPP) hint does the fine-grained power/performance balancing on top of the governor, so `powersave` with `EPP=balance_power` is the right choice here, not a downgrade:
 
 ```bash
-echo powersave > /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
-echo balance_power > /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference
+echo powersave | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor > /dev/null
+echo balance_power | tee /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference > /dev/null
 ```
 
 ## The `vzdump` Global Throttle
 
-Backup I/O on a single shared NVMe competes directly with every live workload during the backup window unless something tells it not to. `vzdump`'s config supports a bandwidth cap (`bwlimit`, in KiB/s, so `100000` is roughly 100 MB/s) and an I/O priority (`ionice`, where `8` selects the idle class). Together they make backups yield to everything else on the disk instead of racing it at full speed:
+Backup I/O on a single shared NVMe competes directly with every live workload during the backup window unless something tells it not to. `vzdump`'s config supports a bandwidth cap (`bwlimit`, in KiB/s, so `51200` is 50 MiB/s) and an I/O priority (`ionice`, where `7` is the lowest best-effort priority). Together they make backups yield to everything else on the disk instead of racing it at full speed:
 
 ```
 # /etc/vzdump.conf
-bwlimit: 100000
-ionice: 8
+bwlimit: 51200
+ionice: 7
 ```
 
 One caveat from the Proxmox docs: `ionice` only takes effect with the BFQ I/O scheduler, and for snapshot-mode VM backups it only affects the compressor. NVMe devices default to the `none` scheduler, so on this disk the bandwidth cap does the real work unless BFQ is enabled.

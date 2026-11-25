@@ -2,6 +2,7 @@
 title: "Gitea Actions on k3s: Self-Hosted CI Without GitHub"
 description: "Gitea Actions runs GitHub Actions-style YAML on your own hardware. Gitea and act_runner on k3s keep CI pipelines and runner resources under your control."
 date: "2026-11-12"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Gitea", "CI/CD", "Homelab"]
 ---
 
@@ -167,6 +168,6 @@ Two runners capped at 2 GiB each is 4 GiB at most, negligible on a 64GB machine.
 
 ## The Trade-Off
 
-Gitea Actions is not as mature as GitHub Actions. Matrix builds and actions from the GitHub marketplace work, but some workflow syntax is ignored or only partly supported: `jobs.<job_id>.environment`, problem matchers, error annotations, complex `runs-on` expressions, and GitHub-only `permissions` scopes such as `id-token`. For a homelab infrastructure repo that runs Terraform, Ansible, and container builds, those gaps don't matter. Terraform changes still go through [Atlantis](/blog/mikrotik-terraform-gitops-firewall-management/) for the actual apply, so Gitea Actions only needs to handle lint and plan. The YAML syntax is the same, the runner runs on your hardware, and there's no minute limit.
+Gitea Actions is not as mature as GitHub Actions. Matrix builds and actions from the GitHub marketplace work, but some workflow syntax is ignored or only partly supported: `jobs.<job_id>.environment`, problem matchers, error annotations, complex `runs-on` expressions, and GitHub-only `permissions` scopes such as `id-token`. For a homelab infrastructure repo that runs Terraform, Ansible, and container builds, those gaps don't matter. Terraform changes still go through the [PR-comment apply workflow](/blog/mikrotik-terraform-gitops-firewall-management/) (Atlantis originally, GitHub Actions on a self-hosted runner since August 2026) for the actual apply, so Gitea Actions only needs to handle lint and plan. The YAML syntax is the same, the runner runs on your hardware, and there's no minute limit.
 
 <NewsletterCTA />

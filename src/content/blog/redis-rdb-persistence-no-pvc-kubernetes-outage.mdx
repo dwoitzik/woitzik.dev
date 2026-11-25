@@ -2,7 +2,7 @@
 title: "Redis Killed Nextcloud and Nobody Noticed for Hours"
 description: "Redis without a PVC still has RDB persistence on. On a read-only rootfs it doesn't crash, it silently refuses writes. How that took down Nextcloud for hours."
 date: "2026-07-01"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Redis", "Homelab"]
 ---
 
@@ -18,7 +18,7 @@ It was wrong. The capabilities issue was real, but it wasn't what took Nextcloud
 
 ## The Setup That Created the Problem
 
-Nextcloud's session data and file lock cache both run through a Redis instance deployed as a sidecar-style container in the same manifest. That Redis container had no `PersistentVolumeClaim`. It was intentionally ephemeral and purely in-memory; sessions only had to survive as long as the pod.
+Nextcloud's session data and file lock cache both run through a Redis instance deployed as its own small Deployment (`redis-nextcloud`) in the same manifest. That Redis container had no `PersistentVolumeClaim`. It was intentionally ephemeral and purely in-memory; sessions only had to survive as long as the pod.
 
 The problem: Redis doesn't know it's running without a PVC. Its default configuration ships with persistence enabled:
 
@@ -49,14 +49,14 @@ The actual diagnostic path that found it:
 ```bash
 # Redis container never restarted (restart count 0), so there is no
 # previous instance: read the current container's log, not --previous
-kubectl logs nextcloud-<pod> -n apps -c redis-nextcloud
+kubectl logs deploy/redis-nextcloud -n apps -c redis
 
 # Key lines:
 # "Failed opening the temp RDB file ... for saving: Read-only file system"
 # "Background saving error"
 
 # Confirm Redis is refusing writes:
-kubectl exec -it nextcloud-<pod> -n apps -c redis-nextcloud -- redis-cli SET test_key test_val
+kubectl exec -it deploy/redis-nextcloud -n apps -c redis -- redis-cli SET test_key test_val
 # → (error) MISCONF Redis is configured to save RDB snapshots...
 ```
 
@@ -67,13 +67,13 @@ Once the Redis error surfaced, the fix was obvious.
 The fix reused the pattern already in place for the cluster's other ephemeral Redis instances (immich-redis, valkey): invoke `redis-server` directly with explicit flags instead of relying on the image's default config.
 
 ```yaml
-# Before: redis-nextcloud relied on image defaults (persistence on)
+# Before: the redis-nextcloud Deployment relied on image defaults (persistence on)
 containers:
-  - name: redis-nextcloud
+  - name: redis
     image: redis:8
 
 # After: explicit command disabling both RDB and AOF
-  - name: redis-nextcloud
+  - name: redis
     image: redis:8
     command:
       - redis-server

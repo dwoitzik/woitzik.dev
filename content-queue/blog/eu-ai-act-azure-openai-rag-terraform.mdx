@@ -92,13 +92,13 @@ For a standard ML system, Article 10 is about training data curation. For RAG, t
 resource "azurerm_role_assignment" "ingestion_writer_only" {
   scope                = azurerm_search_service.search.id
   role_definition_name = "Search Index Data Contributor"
-  principal_id          = azurerm_user_assigned_identity.ingestion_pipeline.principal_id
+  principal_id         = azurerm_user_assigned_identity.ingestion_pipeline.principal_id
 }
 
 resource "azurerm_role_assignment" "app_reader_only" {
   scope                = azurerm_search_service.search.id
   role_definition_name = "Search Index Data Reader"
-  principal_id          = azurerm_linux_web_app.rag_frontend.identity[0].principal_id
+  principal_id         = azurerm_linux_web_app.rag_frontend.identity[0].principal_id
 }
 ```
 
@@ -110,10 +110,10 @@ Article 15 explicitly calls out resilience against attempts to manipulate a syst
 
 ```hcl
 resource "azurerm_cognitive_account" "openai" {
-  name                           = "oai-${var.environment}"
-  kind                           = "OpenAI"
-  public_network_access_enabled  = false
-  local_auth_enabled             = false
+  name                          = "oai-${var.environment}"
+  kind                          = "OpenAI"
+  public_network_access_enabled = false
+  local_auth_enabled            = false
 
   network_acls {
     default_action = "Deny"

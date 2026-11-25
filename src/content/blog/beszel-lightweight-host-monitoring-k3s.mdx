@@ -2,7 +2,7 @@
 title: "Beszel: Lightweight Host Monitoring That Doesn't Deserve Its Own Server"
 description: "Beszel replaced a heavyweight stack for host metrics with one container. Kyverno caught the first deploy, and internal dashboards skip public DNS."
 date: "2026-07-16"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Homelab", "Monitoring"]
 ---
 
@@ -42,6 +42,9 @@ spec:
     matchLabels:
       app: beszel
   template:
+    metadata:
+      labels:
+        app: beszel
     spec:
       dnsConfig:
         options:

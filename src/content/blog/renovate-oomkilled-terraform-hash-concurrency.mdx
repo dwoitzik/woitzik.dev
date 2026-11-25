@@ -2,7 +2,7 @@
 title: "Renovate OOMKilled Three Times: Why the Fix Wasn't More Memory"
 description: "2 GiB, 3 GiB, 4 GiB: Renovate kept getting OOMKilled. The real fix was capping Terraform provider hash concurrency. How I isolated the spike."
 date: "2026-07-14"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Homelab", "Debugging"]
 ---
 
@@ -40,7 +40,7 @@ So this was never unbounded growth. The kernel's oom-kill records put the 2 GiB 
 
 The spike wasn't random. Renovate's Terraform manager was downloading and SHA256-hashing all 14 platform builds of a major `hashicorp/aws` provider bump (5.x → 6.53.0) to keep `.terraform.lock.hcl` valid.
 
-At Renovate's default `concurrentRequestLimit` of 16, up to 16 of those provider zips, each a large binary, can sit in memory at once while being hashed. Any major provider upgrade with many platform builds will trigger the same spike.
+At Renovate's default `concurrentRequestLimit` of 16, all 14 of those provider zips, each a large binary, can sit in memory at once while being hashed. Any major provider upgrade with many platform builds will trigger the same spike.
 
 So the fix was to flatten the spike at the source, in a `hostRules` entry for `releases.hashicorp.com`:
 

@@ -115,9 +115,9 @@ mc mb minio/gitea-artifacts
 Each consumer gets its own access key:
 
 ```bash
-# Create CNPG user with read/write on cnpg-wal only
+# Create CNPG user with the built-in readwrite policy (all buckets, see below)
 mc admin user add minio cnpg-user cnpg-password
-mc admin policy attach minio readwrite cnpg-wal --user cnpg-user
+mc admin policy attach minio readwrite --user cnpg-user
 ```
 
 MinIO's built-in `readwrite` policy covers every bucket, though. Restricting a user to `cnpg-wal` alone takes a custom policy scoped to `arn:aws:s3:::cnpg-wal` and `arn:aws:s3:::cnpg-wal/*`, created with `mc admin policy create` and attached with `mc admin policy attach minio <policy> --user cnpg-user`.

@@ -2,6 +2,7 @@
 title: "AdGuard Home + Unbound: DNS Filtering Without Upstream Leaks"
 description: "AdGuard Home sends every DNS query to one public resolver by default. Unbound as a local recursive resolver keeps your full query history off any single provider."
 date: "2026-11-15"
+updated: "2026-11-25"
 tags: ["Networking", "DNS", "AdGuard", "Homelab"]
 ---
 
@@ -71,7 +72,7 @@ server:
     # Cache
     msg-cache-size: 128m
     rrset-cache-size: 256m
-    cache-min-ttl: 300
+    cache-min-ttl: 60
     cache-max-ttl: 86400
     cache-max-negative-ttl: 300
     prefetch: yes
@@ -82,7 +83,7 @@ server:
 
 There is no `forward-zone` for `.`, so Unbound recurses from the root hints instead of handing queries to anyone. `interface: 0.0.0.0` is inside the container; what is reachable from the network is host port 5335. The `172.16.0.0/12` line exists because AdGuard reaches Unbound through Docker's port publishing, so inside the container its queries come from the Docker bridge gateway, not from 127.0.0.1.
 
-The caches (128 MB of messages, 256 MB of RRsets) are sized for a home network and fit in a 4B's RAM; a [Raspberry Pi 5\*](/go/4wETNfv) with 8GB has more headroom if you are buying new. `cache-min-ttl: 300` keeps records for at least five minutes even when the zone publishes a shorter TTL, which raises the hit rate at the cost of occasionally serving a record that has already changed. `prefetch` refreshes popular records before they expire, and `serve-expired` answers from stale cache while the refresh runs.
+The caches (128 MB of messages, 256 MB of RRsets) are sized for a home network and fit in a 4B's RAM; a [Raspberry Pi 5\*](/go/4wETNfv) with 8GB has more headroom if you are buying new. `cache-min-ttl: 60` keeps records for at least a minute even when the zone publishes a shorter TTL, which raises the hit rate at the cost of occasionally serving a record that has already changed. It was 300 until November 2026; I lowered it so short failover TTLs are not pinned for five minutes. `prefetch` refreshes popular records before they expire, and `serve-expired` answers from stale cache while the refresh runs.
 
 ## Pointing AdGuard at Unbound
 
@@ -121,17 +122,18 @@ That returns `NXDOMAIN` from Unbound itself, with no recursion. If your query lo
 
 Unbound validates DNSSEC only when it has a root trust anchor, configured with `auto-trust-anchor-file`. With validation on, a tampered response for a signed zone fails validation and Unbound returns `SERVFAIL` instead of the forged answer.
 
-My template does not have that line, and the role mounts it over the image's default config, which does. So my resolvers do not validate today. The test:
+My template did not have that line until November 2026, and the role mounts it over the image's default config, which does. So my resolvers did not validate. The test, as it came back before the fix:
 
 ```bash
 dig @10.0.20.2 -p 5335 dnssec-failed.org A | grep status
 ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 10619
 ```
 
-`dnssec-failed.org` has deliberately broken signatures. A validating resolver returns `SERVFAIL`; `NOERROR` means no validation. AdGuard's `enable_dnssec` setting does not change that, because it only requests DNSSEC records and passes on the upstream's `ad` flag. The `klutchell/unbound` image already ships a root key, so the fix is one line in the server block:
+`dnssec-failed.org` has deliberately broken signatures. A validating resolver returns `SERVFAIL`; `NOERROR` means no validation. AdGuard's `enable_dnssec` setting does not change that, because it only requests DNSSEC records and passes on the upstream's `ad` flag. The `klutchell/unbound` image already ships a root key, so the fix is one line in the server block. My template has it since 2026-11-05, plus a `domain-insecure` line for the FRITZ!Box zone: `.box` is a signed TLD, so the unsigned `fritz.box` answers would otherwise turn bogus:
 
 ```
     auto-trust-anchor-file: "/var/unbound/root.key"
+    domain-insecure: "fritz.box"
 ```
 
 Run the `dig` test after any resolver change. A config that looks like it validates is not the same as one that does.

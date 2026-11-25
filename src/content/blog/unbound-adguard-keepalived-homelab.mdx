@@ -2,7 +2,7 @@
 title: "HA DNS for Homelab: Unbound + AdGuard Home + Keepalived on Raspberry Pi"
 description: "A two-node recursive DNS stack on Raspberry Pi with ad filtering, automatic config sync, and transparent failover, fully managed with Ansible."
 date: "2026-06-27"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Homelab", "Networking", "DNS"]
 ---
 
@@ -206,7 +206,7 @@ stub-zone:
 
 There is no `forward-zone` for `.` at all. Without one, Unbound recurses from the root hints, which is the whole point. A `forward-zone` with `name: "."` and no `forward-addr` (what the first version of this post showed) is not a valid way to say "no forwarder". The only stub zone sends `fritz.box` names to the ISP router.
 
-The access list has four entries. `10.0.0.0/8` covers the homelab VLANs. `172.16.0.0/12` is there because of Docker: AdGuard queries `127.0.0.1:5335` on the host, Docker's userland proxy forwards that into the container, and inside the container the query arrives from the bridge gateway address (172.17.0.1 on a default install), not from 127.0.0.1. Without that line Unbound would answer AdGuard with `REFUSED`. `192.168.0.0/16` covers the Fritz!Box LAN (192.168.178.0/24), whose clients also query these Pis. Unbound refuses everything else. A `/8` is 16 million addresses, far wider than the five /24 VLANs that exist. That is acceptable here because Unbound is not reachable from outside the network, but it is a convenience, not a security boundary. If you would rather narrow it to the VLANs that actually exist, the [IPv4 subnet calculator](https://woitzik.dev/tools/subnet-calculator/) shows what each prefix covers and how many addresses it hands out.
+The access list has four entries. `10.0.0.0/8` covers the homelab VLANs. `172.16.0.0/12` is there because of Docker: AdGuard queries `127.0.0.1:5335` on the host, Docker's userland proxy forwards that into the container, and inside the container the query arrives from the gateway address of the Compose project's bridge network (an address like 172.18.0.1), not from 127.0.0.1. Without that line Unbound would answer AdGuard with `REFUSED`. `192.168.0.0/16` covers the Fritz!Box LAN (192.168.178.0/24), whose clients also query these Pis. Unbound refuses everything else. A `/8` is 16 million addresses, far wider than the five /24 VLANs that exist. That is acceptable here because Unbound is not reachable from outside the network, but it is a convenience, not a security boundary. If you would rather narrow it to the VLANs that actually exist, the [IPv4 subnet calculator](https://woitzik.dev/tools/subnet-calculator/) shows what each prefix covers and how many addresses it hands out.
 
 ### DNSSEC Is Not Validated Yet
 

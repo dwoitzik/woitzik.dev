@@ -95,11 +95,11 @@ Use VNet flow logs, not NSG flow logs. Azure has blocked the creation of new NSG
 resource "azurerm_network_watcher_flow_log" "spoke_flow_log" {
   network_watcher_name = azurerm_network_watcher.main.name
   resource_group_name  = azurerm_resource_group.rg.name
-  name                  = "fl-spoke-${var.environment}"
+  name                 = "fl-spoke-${var.environment}"
 
-  target_resource_id        = azurerm_virtual_network.spoke.id
-  storage_account_id        = azurerm_storage_account.flow_logs.id
-  enabled                   = true
+  target_resource_id = azurerm_virtual_network.spoke.id
+  storage_account_id = azurerm_storage_account.flow_logs.id
+  enabled            = true
 
   retention_policy {
     enabled = true

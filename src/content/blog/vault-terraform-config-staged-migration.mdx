@@ -2,7 +2,7 @@
 title: "Vault Configuration Under Terraform: Staged Migration Without Downtime"
 description: "Vault OSS on Kubernetes holds secrets for 25+ services. Moving its policies, auth methods and roles to Terraform in 6 reversible stages, with zero downtime."
 date: "2026-10-22"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Vault", "Terraform", "Security", "Homelab"]
 ---
 
@@ -90,7 +90,7 @@ resource "vault_kubernetes_auth_backend_config" "config" {
 
 **Risk**: Medium. A misconfigured auth method breaks every ESO sync. **Do not apply a diff here blindly.** If `terraform plan` shows changes beyond the imports, stop and investigate.
 
-**Verification**: Trigger one ESO sync (`kubectl annotate externalsecret -n <ns> <name> force-sync=$(date)`). Check 3-5 apps that depend on Vault secrets: no restarts, no errors.
+**Verification**: Trigger one ESO sync (`kubectl annotate externalsecret -n <ns> <name> force-sync=$(date +%s) --overwrite`). Check 3-5 apps that depend on Vault secrets: no restarts, no errors.
 
 ### Stage 4: Kubernetes Auth Roles
 

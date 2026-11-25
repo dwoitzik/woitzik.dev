@@ -3,7 +3,7 @@ title: "Zero-Trust RAG: Defeating the Shared Private Link Deadlock in Azure Terr
 seoTitle: "Azure RAG Shared Private Link Deadlock in Terraform"
 description: "Approve Azure AI Search Shared Private Links programmatically with AzAPI, and why your AI architecture fails an audit without identity chaining."
 date: "2026-05-16"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Azure", "Terraform", "AI"]
 ---
 
@@ -111,6 +111,13 @@ resource "azapi_update_resource" "approve_shared_link" {
       }
     }
   }
+
+  lifecycle {
+    precondition {
+      condition     = length(local.spl_connection_ids) == 1
+      error_message = "Expected exactly one private endpoint connection carrying the request message."
+    }
+  }
 }
 ```
 
@@ -118,7 +125,7 @@ Two details make this hold up beyond the first apply.
 
 The filter matches on the request message, not on `status == "Pending"`. After the first apply the connection is Approved, so a Pending filter would return an empty list on every later plan. For the same reason, the approval keeps the request message as its `description`, so the filter still finds the connection next time.
 
-`one()` returns the single matching ID and fails loudly if there is none. An earlier version of this snippet wrapped the lookup in `try(..., "")` to fall back to an empty string. That doesn't work: azapi rejects an empty `resource_id` as an invalid resource ID, so the run fails anyway, just with a less useful message. If no connection matches, you want the apply to stop, not an approval step that silently does nothing. Destroy needs no special handling: Terraform destroys the approval resource before the Shared Private Link it depends on, and destroying an `azapi_update_resource` only removes it from state.
+`one()` returns the single matching ID and errors if there are several, but on an empty list it returns `null` instead of failing, so the `precondition` is what stops the apply loudly when nothing matches. An earlier version of this snippet wrapped the lookup in `try(..., "")` to fall back to an empty string. That doesn't work: azapi rejects an empty `resource_id` as an invalid resource ID, so the run fails anyway, just with a less useful message. If no connection matches, you want the apply to stop, not an approval step that silently does nothing. Destroy needs no special handling: Terraform destroys the approval resource before the Shared Private Link it depends on, and destroying an `azapi_update_resource` only removes it from state.
 
 After `terraform apply`, the link moves from Pending to Approved in under 30 seconds, without anyone opening the Portal.
 

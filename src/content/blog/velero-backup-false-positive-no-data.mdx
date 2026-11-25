@@ -2,7 +2,7 @@
 title: "Velero Said Backups Succeeded. The Data Was Never There."
 description: "Velero reported 'Completed' for weeks with no PVC data for Postgres, Vaultwarden or Paperless. The defaultVolumesToFsBackup fix and how to verify a backup."
 date: "2026-08-09"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Backup", "Homelab", "Debugging"]
 ---
 
@@ -42,14 +42,16 @@ metadata:
   name: daily-backup
   namespace: velero
 spec:
-  schedule: "0 5 * * *"
+  schedule: "0 3 * * *"
   template:
-    includedNamespaces: ["apps", "vault", "database", "argocd"]
-    excludedResources: ["events", "events.events.k8s.io"]
-    ttl: 720h
+    ttl: 720h0m0s
+    includedNamespaces: ["*"]
+    excludedNamespaces: ["kube-system", "kube-public", "kube-node-lease"]
+    storageLocation: default
+    volumeSnapshotLocations: ["default"]
 ```
 
-No `defaultVolumesToFsBackup`. No per-backup volume hooks. No snapshot provider configured. Every backup since the schedule was created had captured only Kubernetes manifests.
+No `defaultVolumesToFsBackup`. No per-backup volume hooks. A `default` volume snapshot location is listed, but no snapshot provider exists for NFS or local-path. Every backup since the schedule was created had captured only Kubernetes manifests.
 
 The backup size was misleading. Manifests for 25+ applications, with their Services, ConfigMaps, Secrets, and ExternalSecrets, add up to a few MB, which looked plausible enough that I never questioned it.
 
@@ -59,11 +61,11 @@ The backup size was misleading. Manifests for 25+ applications, with their Servi
 # kubernetes/system/velero/schedule.yml
 spec:
   template:
+    # ...
     defaultVolumesToFsBackup: true
-    includedNamespaces: ["apps", "vault", "database", "argocd"]
 ```
 
-One line. `defaultVolumesToFsBackup: true` tells Velero to use filesystem backup for every pod volume in every included namespace. The node-agent on each node reads the volume data from the pod's volume directory on the host and Kopia uploads it to the Garage S3 bucket. That requires the node-agent DaemonSet to be deployed (`deployNodeAgent: true` in the Helm chart).
+One line. `defaultVolumesToFsBackup: true` tells Velero to use filesystem backup for every pod volume in every namespace the backup includes. The node-agent on each node reads the volume data from the pod's volume directory on the host and Kopia uploads it to the Garage S3 bucket. That requires the node-agent DaemonSet to be deployed (`deployNodeAgent: true` in the Helm chart).
 
 After adding the flag, the next backup jumped from ~2 MB to ~4 GB: the actual data.
 
@@ -72,7 +74,7 @@ After adding the flag, the next backup jumped from ~2 MB to ~4 GB: the actual da
 `velero backup describe` is the way to verify that PVC data was captured. Without `--details` it prints a count per phase; with `--details` it lists every pod and volume instead:
 
 ```bash
-velero backup describe daily-backup-20260620050012 | grep -A3 "Pod Volume Backups"
+velero backup describe daily-backup-20260620030012 | grep -A3 "Pod Volume Backups"
 #   Pod Volume Backups - kopia (specify --details for more information):
 #     Completed:  12
 ```

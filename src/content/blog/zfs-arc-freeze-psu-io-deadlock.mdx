@@ -2,7 +2,7 @@
 title: "The ZFS ARC Freeze: How a Marginal PSU Killed My Entire Homelab"
 description: "My Proxmox host froze under load three times in one week. A marginal PSU caused CPU throttling, which exposed a ZFS ARC deadlock. The chain, symptom to fix."
 date: "2026-07-30"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Homelab", "Proxmox", "ZFS", "Debugging"]
 ---
 
@@ -51,18 +51,14 @@ The host doesn't panic. It just stops responding to anything that touches disk.
 The k3s VMs and the ZFS pool were sharing the same NVMe, and host-side page caching of VM disk I/O added to the contention. I moved the k3s VM disks to `cache=none` + `aio=native`:
 
 ```hcl
-# terraform/stacks/proxmox/vm.tf
-disks {
-  scsi {
-    scsi0 {
-      disk {
-        size    = "50G"
-        cache   = "none"
-        aio     = "native"
-        storage = "local-lvm"
-      }
-    }
-  }
+# terraform/stacks/proxmox/vm.tf (bpg/proxmox provider)
+disk {
+  datastore_id = local.storage
+  interface    = "scsi0"
+  size         = 120
+  file_format  = "raw"
+  cache        = "none"
+  aio          = "native"
 }
 ```
 
@@ -82,14 +78,14 @@ On a 64GB host, 4GB is enough for read caching and leaves the rest to the VMs, s
 
 ### Fix 3: txg Timeout Tuning
 
-`zfs_txg_timeout` defaults to 5 seconds. On hardware with known I/O fragility, I shortened it:
+`zfs_txg_timeout` defaults to 5 seconds. Mine had been raised to 15 seconds earlier. On hardware with known I/O fragility, I set it back to 5:
 
 ```bash
 # /etc/modprobe.d/zfs.conf
-options zfs zfs_txg_timeout=2
+options zfs zfs_txg_timeout=5
 ```
 
-The name is misleading: ZFS never aborts or retries a txg. `zfs_txg_timeout` is the maximum interval between txg syncs. Shortening it to 2 seconds means each txg carries less dirty data, so each sync finishes faster and a latency spike stalls less work behind it. It's a mitigation that shrinks the window for the deadlock, not a fix for it.
+The name is misleading: ZFS never aborts or retries a txg. `zfs_txg_timeout` is the maximum interval between txg syncs. Shortening it from 15 to 5 seconds means each txg carries less dirty data, so each sync finishes faster and a latency spike stalls less work behind it. It's a mitigation that shrinks the window for the deadlock, not a fix for it.
 
 ### Fix 4: Staggered Boot Order
 

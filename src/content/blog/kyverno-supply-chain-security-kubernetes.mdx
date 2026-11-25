@@ -2,7 +2,7 @@
 title: "Kyverno: Supply Chain Security as Admission Control on Kubernetes"
 description: "Kubernetes accepts any image, privilege level and resource config by default. Kyverno enforces policy at admission time. A supply chain baseline, Audit first."
 date: "2026-06-18"
-updated: "2026-11-12"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Security", "Homelab"]
 ---
 
@@ -93,9 +93,12 @@ spec:
             deny:
               conditions:
                 any:
-                  - key: "{{ element.resources.limits | length(@) }}"
+                  - key: "{{ element.resources.limits.cpu || '' }}"
                     operator: Equals
-                    value: 0
+                    value: ""
+                  - key: "{{ element.resources.limits.memory || '' }}"
+                    operator: Equals
+                    value: ""
 ```
 
 This one runs in `Audit` mode: violations are logged to `PolicyReport` but not blocked. That's intentional. Before enforcing, you need to know what would break.
@@ -164,7 +167,7 @@ spec:
               kinds: [Pod]
               namespaces: [apps, monitoring, database]
       validate:
-        message: "Image '{{ element.image }}' must use a specific tag, not :latest or untagged."
+        message: "Container '{{ request.object.spec.containers[0].name }}' must use a specific image tag, not :latest or untagged."
         foreach:
           - list: "request.object.spec.containers"
             deny:

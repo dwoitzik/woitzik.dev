@@ -3,7 +3,7 @@ title: "The DNS Drift That Wasn't DHCP: How Proxmox Cloud-Init Silently Injects 
 seoTitle: "Proxmox Cloud-Init Silently Injects DNS Search Domains"
 description: "Every DNS lookup in my k3s cluster appended 'home.lan'. I blamed DHCP, but the Terraform fix showed zero diff. Proxmox cloud-init was injecting it."
 date: "2026-10-15"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "DNS", "Proxmox", "Debugging"]
 ---
 
@@ -38,7 +38,7 @@ resource "routeros_ip_dhcp_server_network" "vlan_networks" {
   for_each   = local.homelab_vlans
   address    = "10.0.${each.value}.0/24"
   gateway    = "10.0.${each.value}.1"
-  dns_server = "10.0.20.5"
+  dns_server = ["10.0.20.5"]
 }
 ```
 
@@ -49,7 +49,7 @@ resource "routeros_ip_dhcp_server_network" "vlan_networks" {
   for_each   = local.homelab_vlans
   address    = "10.0.${each.value}.0/24"
   gateway    = "10.0.${each.value}.1"
-  dns_server = "10.0.20.5"
+  dns_server = ["10.0.20.5"]
   domain     = ""  # explicitly empty - should fix drift
 }
 ```

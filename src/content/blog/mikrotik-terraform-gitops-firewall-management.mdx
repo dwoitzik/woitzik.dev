@@ -2,7 +2,7 @@
 title: "GitOps for Firewall Rules: MikroTik + Terraform + Atlantis"
 description: "Every firewall rule, VLAN, DHCP lease and NAT rule on my MikroTik RB5009 lives in Terraform and ships via Atlantis PRs. The full flow from PR to RouterOS."
 date: "2026-08-30"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Terraform", "MikroTik", "GitOps", "Networking"]
 ---
 
@@ -68,18 +68,6 @@ locals {
   }
 
   proxmox_port = "ether5"
-
-  # Port mapping for all VLAN-tagged trunks
-  port_mapping = {
-    "ether1" = 1   # WAN (FritzBox)
-    "ether2" = 20  # k3s-11
-    "ether3" = 20  # k3s-12
-    "ether4" = 20  # k3s-13
-    "ether5" = 20  # Proxmox host
-    "ether6" = 20  # RPi #1
-    "ether7" = 20  # RPi #2
-    "sfp-sfpplus1" = 30  # DMZ switch
-  }
 }
 ```
 
@@ -87,10 +75,9 @@ Adding a new VLAN means one entry in `homelab_vlans`. Terraform auto-generates:
 
 - Bridge VLAN entries
 - DHCP server per VLAN
-- Firewall rules per VLAN
 - VLAN interface on the bridge
 
-Moving a device between VLANs means changing one number in `port_mapping`. The firewall rules, DHCP leases, and bridge entries update automatically.
+Firewall rules are not generated from this map; they are written out one by one, as shown below. Moving a Raspberry Pi between VLANs means changing one number in `rpi_port_mapping`. Its bridge port PVID and the untagged membership in the bridge VLAN entries update automatically.
 
 ## Deterministic Firewall Ordering
 
@@ -121,7 +108,7 @@ resource "routeros_ip_firewall_filter" "fwd_00b_anti_spoof" {
 resource "routeros_ip_firewall_filter" "fwd_01_established" {
   action       = "accept"
   chain        = "forward"
-  connection_state = ["established", "related"]
+  connection_state = "established,related"
   place_before = routeros_ip_firewall_filter.fwd_99_drop_all.id
   comment      = "01: Allow Established/Related"
 }
@@ -131,7 +118,7 @@ Each `place_before` reference does two things: it tells the provider where to in
 
 Without `place_before`, each new rule is appended to the end of the chain in whatever order Terraform happens to create it, and resources without dependencies are created in parallel. A narrow rule meant to be evaluated first could end up below a broader one that matches the same traffic.
 
-`firewall_deterministic.tf` holds 22 rules with explicit ordering. `firewall_extra.tf` adds 19 more for VPN access tiers, monitoring and application-specific port-forwards, all with `place_before` references.
+`firewall_deterministic.tf` holds 28 rules with explicit ordering. `firewall_extra.tf` adds 17 more for VPN access tiers, monitoring and application-specific port-forwards, all with `place_before` references.
 
 ## The Atlantis Flow
 

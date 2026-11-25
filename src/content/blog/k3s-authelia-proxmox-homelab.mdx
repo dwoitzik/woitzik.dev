@@ -2,7 +2,7 @@
 title: "Enterprise Homelab: k3s, Authelia & Longhorn on Proxmox with Terraform"
 description: "Building a Kubernetes homelab with k3s, Authelia SSO, Longhorn and ArgoCD on Proxmox, plus the five mistakes that cost me hours along the way."
 date: "2026-05-16"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Homelab", "Security"]
 ---
 
@@ -63,8 +63,14 @@ resource "proxmox_virtual_environment_vm" "vm_srv_k3s_11_master" {
     full  = true
   }
 
-  cpu    { cores = 4; type = "host" }
-  memory { dedicated = 8192 }
+  cpu {
+    cores = 4
+    type  = "host"
+  }
+
+  memory {
+    dedicated = 8192
+  }
 
   disk {
     datastore_id = local.storage
@@ -80,7 +86,10 @@ resource "proxmox_virtual_environment_vm" "vm_srv_k3s_11_master" {
 
   initialization {
     ip_config {
-      ipv4 { address = "10.0.20.11/24"; gateway = "10.0.20.1" }
+      ipv4 {
+        address = "10.0.20.11/24"
+        gateway = "10.0.20.1"
+      }
     }
     dns { servers = ["10.0.20.5"] }
     user_account {

@@ -2,7 +2,7 @@
 title: "Three Fixes Were Merged. None of Them Had Taken Effect."
 description: "A drift audit found merged Traefik, Velero and monitoring fixes that never took effect while ArgoCD showed Synced. How the gap opens and how to check it."
 date: "2026-10-11"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "GitOps", "Homelab"]
 ---
 
@@ -87,13 +87,13 @@ The `extraArgs` key was placed at the top level of the Helm values instead of ne
 # What was merged (broken)
 velero:
   extraArgs:
-    - "--default-repo-maintenance-frequency=168h"
+    - "--default-repo-maintenance-frequency=24h"
 
 # What Helm actually needs
 velero:
   configuration:
     extraArgs:
-      - "--default-repo-maintain-frequency=168h"
+      - "--default-repo-maintain-frequency=24h"
 ```
 
 Helm doesn't reject values the chart never reads (unless the chart ships a `values.schema.json` that forbids them). No error, no warning: the chart's templates only look for `configuration.extraArgs`, so the extra args were never passed to the binary and Velero started with its defaults.
@@ -116,7 +116,7 @@ The correct fix, both issues resolved:
 velero:
   configuration:
     extraArgs:
-      - "--default-repo-maintain-frequency=168h"
+      - "--default-repo-maintain-frequency=24h"
 ```
 
 ## The Three-Part Pattern
@@ -125,7 +125,7 @@ All three failures share the same shape:
 
 | | Traefik allowCrossNamespace | Velero maintenance frequency | Monitoring bootstrap files |
 |---|---|---|---|
-| Git state | Correct | Correct | Correct |
+| Git state | Correct | Wrong key and flag name | Correct |
 | Live state | Unsynced | Synced but inert | Never tracked |
 | ArgoCD showed | `Synced/Healthy` | `Synced/Healthy` | No Application (invisible) |
 | Found by | Manual sync + endpoint check | Checking running container args | Directory vs. glob comparison |

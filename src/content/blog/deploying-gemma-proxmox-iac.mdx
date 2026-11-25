@@ -2,7 +2,7 @@
 title: "Gemma 4 26B on a Proxmox Mini PC: What Worked and What Didn't"
 description: "Gemma 4 26B with Ollama in a Proxmox LXC built by Terraform and Ansible. The iGPU workaround never held and a CPU-only run froze the host."
 date: "2026-05-02"
-updated: "2026-11-12"
+updated: "2026-11-25"
 tags: ["Homelab", "AI", "Terraform"]
 ---
 
@@ -165,7 +165,7 @@ Because `OLLAMA_BASE_URL` points at the AI container's IP, Open WebUI finds the 
 
 ## Where It Stands Now
 
-I barely used the local model, and its 32 GB memory reservation was the biggest driver of memory overcommit on the host. So the container is now cut down to 2 cores and 4 GB with a matching CPU limit, and it is stopped by default (`started = false` in Terraform). That only fits a small model. A 26B or 27B model no longer fits, and that is a deliberate trade-off: the rest of the homelab matters more than a chat window I rarely open.
+I barely used the local model, and its 32 GB memory reservation was the biggest driver of memory overcommit on the host. So the container was cut down to 2 cores and 4 GB and stopped by default. It runs again now (`started = true` in Terraform), because paperless-gpt and Open WebUI use it, sized at 4 cores with a matching CPU limit of 4 and 8 GB for qwen2.5:7b, which swapped at 4 GB. That only fits a small model. A 26B or 27B model no longer fits, and that is a deliberate trade-off: the rest of the homelab matters more than a chat window I rarely open.
 
 What I would tell someone with the same hardware:
 

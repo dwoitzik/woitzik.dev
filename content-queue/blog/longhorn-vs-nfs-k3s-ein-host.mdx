@@ -73,7 +73,7 @@ kind: Application
 spec:
   source:
     helm:
-      values:
+      values: |
         nfs:
           server: 10.0.20.100
           path: /nfs-data/k8s-general

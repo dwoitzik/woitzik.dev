@@ -2,7 +2,7 @@
 title: "Why a Cloud Backup Sync Was Failing Daily for Six Weeks"
 description: "A daily offsite backup to Google Drive failed for six weeks. Not credentials, not network: Drive throttles the small-chunk format Proxmox Backup Server uses."
 date: "2026-07-23"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Backup", "Homelab", "Ansible"]
 ---
 
@@ -18,14 +18,15 @@ A systematic `ansible-playbook --check --diff` sweep across every host group tur
 
 Two issues on the PBS management host, both real:
 
-**1. A stale Vault credential that would have clobbered a working live token.** The `pbs_rclone_gdrive_token` stored in Vault was from April; the live `rclone.conf` on the host had a June token. rclone had refreshed the OAuth token itself, and Vault had never been updated to match. Running the Ansible role for real (not just `--check`) would have overwritten the working, self-refreshed credential with the stale April one and broken authentication.
+**1. A stale Vault credential that would have clobbered a working live token.** The `pbs_rclone_gdrive_token` stored in Ansible Vault was from April; the live `rclone.conf` on the host had a June token. rclone had refreshed the OAuth token itself, and Vault had never been updated to match. Running the Ansible role for real (not just `--check`) would have overwritten the working, self-refreshed credential with the stale April one and broken authentication.
 
 ```bash
-# Confirmed: live rclone.conf token newer than Vault's stored value
-diff <(rclone config show pbs-gdrive | grep token) \
-     <(vault kv get -field=pbs_rclone_gdrive_token secret/pbs)
-# Fixed: update Vault to match the live, working token
-vault kv patch secret/pbs pbs_rclone_gdrive_token="$(rclone config show pbs-gdrive | grep token)"
+# On the PBS host: the live token (the role templates it as "token = <JSON>")
+rclone config show gdrive | sed -n 's/^token = //p'
+# From ansible/: the vaulted value a real run would write back
+ansible mgmt_nodes -m debug -a var=pbs_rclone_gdrive_token
+# Fixed: re-encrypt the live token into group_vars/all/vault.yml
+ansible-vault encrypt_string --name pbs_rclone_gdrive_token '<live token JSON>'
 ```
 
 **2. The offsite sync cron job wasn't on the host.** Its own log file, `pbs-to-gdrive.log`, showed it running (and mostly failing) from May 4 through June 14, then nothing. No entries at all after that date. Something had stopped the schedule.

@@ -3,7 +3,7 @@ title: "IPv6 NAT66 Behind a FritzBox: The RouterOS 7 Bug That Broke WiFi Clients
 seoTitle: "IPv6 NAT66 Behind a FritzBox: RouterOS 7 Wi-Fi Bug"
 description: "IPv6 on MikroTik behind a FritzBox with CGN: ULA prefixes, NAT66 masquerade, and the RouterOS 7 RA default that broke FritzBox WiFi clients. Setup and fix."
 date: "2026-06-18"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["MikroTik", "Networking", "Homelab"]
 ---
 
@@ -40,7 +40,7 @@ Internally, I use ULA (`fd00::/8`, RFC 4193), the IPv6 counterpart to RFC 1918 p
 
 ## Step 1: ULA Addresses per VLAN
 
-Each VLAN gets a /64 from `fd00::/8`. For readability I use the VLAN number as the second byte (`fd64` for VLAN 100, since 0x64 is 100). RFC 4193 recommends a random 40-bit Global ID instead; for a single site that never merges with another ULA network, readable prefixes are a trade-off I accept. If you want to check the address range or last address of a prefix before you commit it to a VLAN, the [IPv4 and IPv6 subnet calculator](https://woitzik.dev/tools/subnet-calculator/) shows the network, last address and usable count for any of these:
+Each VLAN gets a /64 from `fd00::/8`. For readability the second byte carries the VLAN number, written as hex digits that read like the decimal ID (`fd10` for VLAN 10, although 0x10 is 16). VLAN 100 doesn't fit in two digits, so it gets `fd64` (0x64 is 100). RFC 4193 recommends a random 40-bit Global ID instead; for a single site that never merges with another ULA network, readable prefixes are a trade-off I accept. If you want to check the address range or last address of a prefix before you commit it to a VLAN, the [IPv4 and IPv6 subnet calculator](https://woitzik.dev/tools/subnet-calculator/) shows the network, last address and usable count for any of these:
 
 ```hcl
 # terraform/stacks/network/ipv6_network.tf

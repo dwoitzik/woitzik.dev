@@ -39,8 +39,9 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "homelab" {
     ingress = [
       {
         hostname = "photos.woitzik.dev"
-        service  = "http://immich-server.apps.svc.cluster.local:2283"
+        service  = "https://traefik.kube-system.svc.cluster.local:443"
         origin_request = {
+          origin_server_name       = "photos.woitzik.dev"
           no_tls_verify            = false
           connect_timeout          = 10
           tcp_keep_alive           = 30
@@ -51,18 +52,20 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "homelab" {
       },
       {
         hostname = "analytics.woitzik.dev"
-        service  = "http://10.0.20.205:80"
+        service  = "https://traefik.kube-system.svc.cluster.local:443"
         origin_request = {
-          no_tls_verify    = false
-          http_host_header = "analytics.woitzik.dev"
+          origin_server_name = "analytics.woitzik.dev"
+          no_tls_verify      = false
+          http_host_header   = "analytics.woitzik.dev"
         }
       },
       {
         hostname = "media.woitzik.dev"
-        service  = "http://10.0.20.254:8096"
+        service  = "https://traefik.kube-system.svc.cluster.local:443"
         origin_request = {
-          no_tls_verify    = false
-          http_host_header = "media.woitzik.dev"
+          origin_server_name = "media.woitzik.dev"
+          no_tls_verify      = false
+          http_host_header   = "media.woitzik.dev"
         }
       },
       { service = "http_status:404" }

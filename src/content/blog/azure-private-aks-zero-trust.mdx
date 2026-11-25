@@ -3,7 +3,7 @@ title: "Private AKS on Azure: No Public API Server, No Public Node IPs, No Defau
 seoTitle: "Private AKS on Azure with Terraform: No Public Endpoints"
 description: "Private AKS with private_cluster_enabled, node egress forced through Azure Firewall via a Route Table, and private-endpoint-only ACR and Key Vault."
 date: "2026-09-07"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Azure", "Terraform", "Kubernetes", "Zero-Trust"]
 ---
 
@@ -56,7 +56,7 @@ resource "azurerm_kubernetes_cluster" "this" {
 }
 ```
 
-`private_cluster_public_fqdn_enabled = false` is the setting people miss. With `private_cluster_enabled = true` alone, AKS still publishes a public DNS record for the API server that resolves to its private IP. Nobody outside can connect to it, but it advertises the cluster and leaks internal addressing for no benefit. With the public FQDN disabled, the only name left is the private one, resolvable only through the Private DNS Zone.
+`private_cluster_public_fqdn_enabled = false` is the setting people miss. A private cluster created with `az aks create --enable-private-cluster` and no `--disable-public-fqdn` still gets a public DNS record for the API server that resolves to its private IP. The azurerm provider already defaults this argument to `false`; I set it explicitly so the intent survives a copy into other tooling. Nobody outside can connect to it, but it advertises the cluster and leaks internal addressing for no benefit. With the public FQDN disabled, the only name left is the private one, resolvable only through the Private DNS Zone.
 
 The cluster needs its own Private DNS Zone for the API server (`privatelink.<region>.azmk8s.io`), linked to the VNet. It uses the same DINE-policy-safe `lifecycle.ignore_changes` pattern as the [Hub & Spoke module's](/blog/azure-terraform-hub-spoke-zero-trust/) centralized zones, because Azure Policy tagging fights this resource too.
 
@@ -92,6 +92,7 @@ Nodes still need to pull images and often read secrets. The naive fix, `admin_en
 
 ```hcl
 resource "azurerm_container_registry" "this" {
+  count                          = var.deploy_acr ? 1 : 0
   sku                            = "Premium" # required for Private Link
   admin_enabled                  = false
   public_network_access_enabled  = false

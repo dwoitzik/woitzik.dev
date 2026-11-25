@@ -27,7 +27,7 @@ Das Deployment von `paperless-gpt` hatte zwei Modell-Einstellungen:
 # kubernetes/apps/paperless/paperless-gpt.yml
 env:
   - name: LLM_MODEL
-    value: "qwen2.5:7b-instruct"        # text-only model for tagging/title generation
+    value: "qwen2.5-coder:7b"           # text-only model for tagging/title generation
   - name: VISION_LLM_MODEL
     value: "qwen2.5-coder:7b"           # ← BUG: this is also text-only
 ```
@@ -65,7 +65,7 @@ Die Titel waren ausgedacht, sahen aber echt genug aus, dass es mir erst auffiel,
 # kubernetes/apps/paperless/paperless-gpt.yml
 env:
   - name: LLM_MODEL
-    value: "qwen2.5:7b-instruct"
+    value: "qwen2.5-coder:7b"
   - name: VISION_LLM_MODEL
     value: "minicpm-v"                   # actual vision-capable model
 ```

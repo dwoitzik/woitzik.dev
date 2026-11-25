@@ -2,7 +2,7 @@
 title: "CPU Scheduling for etcd: Why Proxmox cpu.units Matters"
 description: "Ollama, Minecraft and etcd compete for CPU on one Proxmox host. cpu.units gives the k3s VMs higher weight; without it, leader-election timeouts cascade."
 date: "2026-09-20"
-updated: "2026-11-12"
+updated: "2026-11-25"
 tags: ["Proxmox", "Kubernetes", "Performance", "Homelab"]
 ---
 
@@ -64,8 +64,8 @@ resource "proxmox_virtual_environment_vm" "vm_srv_k3s_11_master" {
 # Ollama LXC - units unset, so the cgroup v2 default of 100 applies
 resource "proxmox_virtual_environment_container" "ct_srv_ai_01" {
   cpu {
-    cores = 2
-    limit = 2
+    cores = 4
+    limit = 4
   }
 }
 ```
@@ -101,9 +101,9 @@ CPU priority and memory priority are separate in Proxmox. `cpu.units` affects CP
 
 On this host, both matter:
 - etcd needs low-latency CPU for fdatasync (solved by `cpu.units`)
-- k3s control plane needs guaranteed RAM for the API server and scheduler (solved by `memory.dedicated = 12284`, the same VM-vs-LXC memory model covered in [the overcommit guard writeup](/blog/overcommit-guard-python-host-freeze/))
+- k3s control plane needs guaranteed RAM for the API server and scheduler (solved by `memory.dedicated = 14336` with `memory.floating` set to the same value, the same VM-vs-LXC memory model covered in [the overcommit guard writeup](/blog/overcommit-guard-python-host-freeze/))
 
-The RAM allocation is a hard reservation: 12 GB is always available for the k3s-11 VM. The CPU priority is a soft weighting that only matters when cores are shared. Both are necessary: without RAM priority, the k3s VM could be ballooned down to 4 GB under pressure; without CPU priority, etcd could lose the fdatasync race to Ollama.
+The RAM allocation is effectively a hard reservation: `dedicated` is the VM's maximum and `floating` its balloon minimum, so with both at 14336 ballooning is off and the k3s-11 VM keeps its full 14 GB. The CPU priority is a soft weighting that only matters when cores are shared. Both are necessary: with a lower `floating`, host-wide ballooning squeezed this VM down to about 8.4 GB under pressure; without CPU priority, etcd could lose the fdatasync race to Ollama.
 
 ## What I'd Change
 

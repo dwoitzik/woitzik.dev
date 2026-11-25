@@ -2,7 +2,7 @@
 title: "3-2-1 Backup in Practice: Velero + PBS + Cloudflare R2 Offsite"
 description: "3-2-1 backup in practice: Velero's defaultVolumesToFsBackup gap, a Google Drive offsite throttled to 1.6 KiB/s, and an R2 budget guard that deleted it."
 date: "2026-09-17"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Backup", "Homelab", "Disaster Recovery"]
 ---
 
@@ -96,7 +96,7 @@ spec:
       - argocd
 ```
 
-R2 has no egress fees, and Velero writes to it over the S3 API directly, with no consumer-sync throttling in the path. It also fixes the circular part of layer 1: Garage runs inside the cluster Velero is protecting, so an in-cluster-only target is lost with the cluster. The offsite set covers four namespaces, and the big volumes (media, Prometheus, Loki, Garage data) are excluded per pod with the same annotation. A full set is about 6.3 GB of raw volume data, which Kopia deduplicates and compresses to roughly 4 GiB in the bucket.
+R2 has no egress fees, and Velero writes to it over the S3 API directly, with no consumer-sync throttling in the path. It also fixes the circular part of layer 1: Garage runs inside the cluster Velero is protecting, so an in-cluster-only target is lost with the cluster. The offsite set covers four namespaces, and the big volumes (media, Prometheus, Loki, Garage data) are excluded per pod with the same annotation. A full set is about 6.3 GB of raw volume data, which Kopia deduplicates to roughly 4 GiB in the bucket (Velero's Kopia uploader does not compress).
 
 R2 has no native spending cap, and I do not want to pay past the 10 GiB free tier. A CronJob, `r2-usage-guard`, checks stored bytes once a day and pauses `daily-offsite` above 9 GiB. It deliberately never resumes on its own, and it sends a "still paused" ntfy reminder with the age of the last offsite backup.
 
