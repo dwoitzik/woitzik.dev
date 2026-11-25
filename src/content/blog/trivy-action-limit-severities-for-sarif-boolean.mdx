@@ -2,6 +2,7 @@
 title: "Trivy Action: Why severity CRITICAL,HIGH Still Uploaded 459 Findings"
 description: "In trivy-action, limit-severities-for-sarif is a boolean. Any value but true unsets the severity filter, so my SARIF upload kept all 459 advisory findings."
 date: "2026-11-21"
+updated: "2026-11-25"
 tags: ["Security", "CI/CD", "Kubernetes", "Debugging"]
 ---
 
@@ -104,6 +105,8 @@ fi
 
 For SARIF output, the action deletes `TRIVY_SEVERITY` before calling Trivy unless `limit-severities-for-sarif` is the literal string `true`. So `severity` alone does not filter a SARIF report at all. The input that controls it is a boolean despite its plural name, and its description in `action.yaml` is just "limit severities for SARIF format", with no default. Passing `CRITICAL,HIGH` is not a narrower severity list. It is a value that is not `true`, and it takes the branch that removes the filter.
 
+The comparison is also case-sensitive, and the `,,` does not do what it looks like. Inside `${VAR:-default}` it is part of the default string, not bash's lowercase operator, so nothing is lowercased. `True` and `TRUE` are not `true` either and drop the filter just like `CRITICAL,HIGH` does. A reader pointed this out after publication, and I confirmed it in bash.
+
 That also explains the log line I dismissed. `Building SARIF report with all severities` is exactly what it says. It was the action telling me it had dropped the filter, and I read it as noise.
 
 ## Attempt 3 (#823): The One-Word Fix
@@ -131,7 +134,7 @@ I could not look at the Security tab state through the API. Both tokens I had re
 
 ## What to Check in Your Own Workflow
 
-- **If you use `format: sarif` with trivy-action, set `limit-severities-for-sarif: true`.** Without it, `severity` does nothing for the SARIF output. Any other value, including a severity list, behaves like false.
+- **If you use `format: sarif` with trivy-action, set `limit-severities-for-sarif: true`, lowercase.** Without it, `severity` does nothing for the SARIF output. Any other value, including a severity list or `True`, behaves like false.
 - **Grep your job log for `Building SARIF report with all severities`.** If it's there, your SARIF is unfiltered no matter what `severity` says.
 - **Reproduce through the tool you actually run.** Calling the scanner directly with your own env vars tests your assumptions about the wrapper, not the wrapper.
 - **Check the artifact, not the upload status.** A small script that counts `runs[].results[]` in the SARIF and fails the build is about 45 lines. It caught this on its first run.
