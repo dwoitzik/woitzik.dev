@@ -3,7 +3,7 @@ title: "Breaking the Loop: Solving Circular Dependencies in Azure Firewall Routi
 seoTitle: "Azure Firewall Cycle Error in Terraform: How to Fix It"
 description: "Azure Firewall forced tunneling in Terraform without cycle errors, and why a plain 0.0.0.0/0 route instantly breaks your Windows VMs."
 date: "2026-05-07"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Azure", "Terraform", "Networking"]
 ---
 
@@ -106,7 +106,7 @@ resource "azurerm_route_table" "spoke_udr" {
 }
 ```
 
-The two KMS addresses come from Microsoft's [KMS activation with forced tunneling](https://learn.microsoft.com/en-us/troubleshoot/azure/virtual-machines/windows/custom-routes-enable-kms-activation) article, which recommends exactly these `/32` routes with next hop Internet. Many older guides still list `23.102.135.246`. Microsoft retired that address in March 2023, and `kms.core.windows.net` now resolves to `20.118.99.224`, so remove the old route if you have it. Sovereign clouds use different addresses.
+The two KMS addresses come from Microsoft's [KMS activation with forced tunneling](https://learn.microsoft.com/en-us/troubleshoot/azure/virtual-machines/windows/custom-routes-enable-kms-activation) article, which recommends exactly these `/32` routes with next hop Internet. Many older guides still list `23.102.135.246`. Since October 3, 2022, `azkms.core.windows.net` points to the two new addresses, and since March 1, 2023, `kms.core.windows.net` resolves to `20.118.99.224` as well. Microsoft states that `23.102.135.246` is no longer used and that you can remove an existing route for it. The module still carries it as `bypass-azure-kms-legacy`. That extra `/32` does no harm, but no current image needs it, so you can drop it from your own route table. Sovereign clouds use different addresses.
 
 ## Step 2: Dynamic Subnet Binding at Scale
 

@@ -2,13 +2,15 @@
 title: "Renovate in Kubernetes: OOM, HashiCorp Downloads, and the 6GB Container"
 description: "Renovate's CronJob failed silently, then OOM'd at every limit up to 4Gi. The cause: hashing 14 platform builds of a Terraform provider, 16 downloads at a time."
 date: "2026-10-01"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "GitOps", "Homelab", "Debugging"]
 ---
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
+
+**Update (November 2026):** Two details of the configuration below changed on 2026-11-15. The personal access token behind `RENOVATE_TOKEN` was revoked, and Renovate now authenticates as a repository-scoped GitHub App: an init container mints a one-hour installation token from the app's private key, so no long-lived token exists. Every CronJob in the cluster, Renovate included, now keeps a single failed Job (`failedJobsHistoryLimit: 1`) and expires finished Jobs after a day (`ttlSecondsAfterFinished`), so a stale failure no longer keeps a `KubeJobFailed` alert firing for weeks. The memory sizing and the Terraform hash concurrency fix are unchanged.
 
 Renovate is the dependency update bot that keeps my k3s cluster current, and it's the "auto-update" half of [the operating model](/blog/operating-model-auto-update-human/) that decides what gets merged automatically vs. what waits for a human. It runs as a Kubernetes CronJob every 2 hours, checks for new container images, Helm chart versions, and Terraform provider releases, and opens PRs on GitHub.
 
@@ -114,10 +116,10 @@ Two PrometheusRule alerts now cover the cases that leave a trace in kube-state-m
 
 `RenovateCronJobStale` fires when the CronJob hasn't been scheduled in six hours (three missed runs): suspended, stuck controller, or something cluster-wide blocking scheduling. `RenovateJobFailing` catches every OOMKill and crash. Neither catches Failure 1: a run that exits 0 without doing anything still passes both rules. That case needs a check on the outcome itself, and I haven't built it yet.
 
-## The Current Configuration
+## The Configuration at the Time
 
 ```yaml
-# kubernetes/apps/renovate/renovate.yml (trimmed)
+# kubernetes/apps/renovate/renovate.yml (trimmed, as of October 2026)
 apiVersion: batch/v1
 kind: CronJob
 metadata:

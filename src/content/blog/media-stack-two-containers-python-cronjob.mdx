@@ -26,15 +26,28 @@ Jellyfin needs GPU access for hardware video transcoding. The [BMAX Mini PC\*](/
 
 Kubernetes has no built-in answer for either. Device plugins such as NVIDIA's `k8s-device-plugin` only advertise GPUs the node's kernel can already see, so for an AMD iGPU on bare-metal Proxmox the practical route is a dedicated LXC with `/dev/dri/renderD128` mapped directly.
 
-Jellyfin runs in `ct-srv-jellyfin-01` with:
+Jellyfin runs in `ct-srv-jellyfin-01`, an unprivileged LXC with the render node passed through:
 
 ```hcl
-# terraform/stacks/proxmox/lxc.tf
-lxc_conf {
-  desc = "Jellyfin - GPU passthrough"
-  # GPU device mapped via pct set
+# terraform/stacks/proxmox/lxc.tf (abridged)
+resource "proxmox_virtual_environment_container" "ct_srv_jellyfin_01" {
+  vm_id        = 203
+  tags         = ["jellyfin", "media", "gpu"]
+  unprivileged = true
+
+  # /dev/dri/renderD128 passthrough (VAAPI hardware transcode), added
+  # manually (pct set 203 -dev0 ...) once the container existed.
+  device_passthrough {
+    path       = "/dev/dri/renderD128"
+    uid        = 0
+    gid        = 992
+    mode       = "0660"
+    deny_write = false
+  }
 }
 ```
+
+The device was first added with `pct set` as root on the host; the `device_passthrough` block declares the same thing so Terraform shows no drift.
 
 k3s's own nodes here (`vm-srv-k3s-11/12/13`) are Proxmox **VMs**, not LXCs. A VM doesn't share the host kernel, so there's no "just bind-mount the device node" path the way there is for an LXC. Getting a k3s pod real GPU access on this hardware would mean classic VFIO passthrough of the iGPU to one specific VM: unbinding `amdgpu` from the Proxmox host and handing the whole device to `vfio-pci` instead. I looked at this seriously before ruling it out, because "GPU-in-Kubernetes" device plugins exist and I wanted to know if they'd apply.
 
@@ -51,7 +64,7 @@ Wrapping the whole LXC in gluetun/Mullvad "solved" both at once, but it was the 
 - **SABnzbd → Eweka, direct, over SSL.** No VPN. The ISP sees "connected to news.eweka.nl," never content. NNTPS alone does that job.
 - **NZBHydra2 → indexers, through a Tor SOCKS5 proxy**, `tor` container at `172.28.1.10:9150`, configured with **no direct-connection fallback**. Search queries are small and latency-tolerant, a good fit for Tor's limited bandwidth, and for metadata-only queries Tor beats a commercial VPN: no single operator to trust. If Tor is down, indexer queries fail outright instead of silently leaking the home IP.
 
-I verified this configuration on the box rather than trusting the design on paper: `sabnzbd.ini` shows `socks5_proxy_url = ""` (empty, so SABnzbd was never routed through Tor) with `ssl = 1`, `ssl_verify = 2` confirming the direct-to-Eweka SSL path is real; `nzbhydra.yml` shows `proxyType: SOCKS` pointed at the Tor container with no fallback option enabled. One live exception I noticed and haven't chased down yet: one specific indexer bypasses Tor and connects directly (`proxyIgnoreDomains`). It's either a site that blocks Tor exit nodes or a leftover exception from before I understood this stack properly. That one is still on my list.
+I verified this configuration on the box rather than trusting the design on paper: `sabnzbd.ini` shows `socks5_proxy_url = ""` (empty, so SABnzbd was never routed through Tor) with `ssl = 1`, `ssl_verify = 2` confirming the direct-to-Eweka SSL path is real; `nzbhydra.yml` shows `proxyType: SOCKS` pointed at the Tor container with no fallback option enabled. One deliberate exception: `proxyIgnoreDomains: [nzbfinder.ws]` lets NZBFinder bypass Tor and connect directly, because Cloudflare blocks Tor exit nodes for that domain. For that one indexer, the query does expose the home IP.
 
 Tor's bandwidth can't handle bulk transfers, and routing downloads through it would abuse a network that exists for people who need anonymity for their safety. Only small metadata lookups go through Tor, never the download path.
 

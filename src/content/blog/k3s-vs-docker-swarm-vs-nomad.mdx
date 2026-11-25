@@ -8,7 +8,7 @@ tags: ["Kubernetes", "Docker", "DevOps", "Homelab"]
 
 import NewsletterCTA from "@components/NewsletterCTA.astro";
 
-Choosing between k3s, Docker Swarm, and Nomad stopped being a features question some time ago. It is now a question of **project trajectory**, and the three projects are heading in different directions. k3s tracks upstream Kubernetes within weeks and ships three supported release lines at once. Docker Swarm still works, but its vendor has redirected development toward Kubernetes, and Docker Engine v29 broke parts of it badly. Nomad is the technically lightest option and the only one of the three that is not open source.
+Choosing between k3s, Docker Swarm, and Nomad stopped being a features question some time ago. It is now a question of **project trajectory**, and the three projects are heading in different directions. k3s tracks upstream Kubernetes within weeks and keeps several minor lines patched at once. Docker Swarm still works, but its vendor has redirected development toward Kubernetes, and Docker Engine v29 broke parts of it badly. Nomad is the technically lightest option and the only one of the three that is not open source.
 
 ## TL;DR: The Picks
 
@@ -28,9 +28,9 @@ Before features, three documented facts constrain the decision.
 
 Docker Engine v29.0.0 raised the **minimum supported daemon API version to 1.44**, dropping compatibility with clients built against Docker Engine older than v25. Tooling compiled against an older API gets a hard `client version ... is too old` rejection. You can lower the floor again with `DOCKER_MIN_API_VERSION` or `min-api-version` in `daemon.json`, and v29.3.0 relaxed the default to API 1.40, but anyone who upgraded through v29.0 to v29.2 without knowing that hit the wall first.
 
-The damage is not evenly distributed, and this is the part that matters if you run Swarm: **legacy (V1) Docker volume plugins are rejected by the v29 daemon.** Because Swarm requires cluster-scoped persistent storage, Swarm operators hit this disproportionately. The failure mode is nasty: Docker keeps the volume metadata but cannot reach the plugin needed to mount the volume, so **your data appears to be gone while it is still intact on the storage target**.
+The damage is not evenly distributed, and this is the part that matters if you run Swarm. Portainer's [technical advisory](https://www.portainer.io/blog/technical-advisory-docker-swarm) reports that **legacy (V1) Docker volume plugins built for older API versions are rejected by the v29 daemon.** Docker's own release notes do not call this out. Because Swarm requires cluster-scoped persistent storage, Swarm operators hit this disproportionately. The failure mode is nasty: Docker keeps the volume metadata but cannot reach the plugin needed to mount the volume, so **your data appears to be gone while it is still intact on the storage target**.
 
-There is a second trap in the same release line. On v29.0.0 through v29.2.0, encrypted overlay networks **stop passing traffic to containers on v28 and older Engines**, with no error. That is exactly the state a staged rollout puts you in: some nodes on v29, the rest still on v28. Docker fixed it in v29.2.1. If you use encrypted overlay networks, skip v29.0.0 to v29.2.0 entirely and upgrade straight to v29.2.1 or later.
+There is a second trap in the same release line. On v29.0.0 through v29.2.0, encrypted overlay networks **stop passing traffic to containers on v28 and older Engines**, with no error. That is exactly the state a staged rollout puts you in: some nodes on v29, the rest still on v28. Docker fixed it in v29.2.1 by restoring the old calculation, which cuts the other way: per the release notes, v29.2.1 and later no longer pass encrypted overlay traffic to containers on v29.0.0 through v29.2.0, v28.2.2, v25.0.14 or v25.0.13. If you use encrypted overlay networks, skip v29.0.0 to v29.2.0 entirely, upgrade straight to v29.2.1 or later, and do not leave nodes on those older patch releases in the same cluster.
 
 ### 2. Docker Has Redirected Swarm Development Toward Kubernetes
 
@@ -53,13 +53,13 @@ The support situation is stable but newly complicated. Since April 2026, after t
 | 1.11.x | 2026-10-31 | 2026-10-31 | 2026-10-31 |
 | 2.0.x | 2028-04-30 | 2029-04-30 | 2032-04-30 |
 
-1.8.x is already out of support as of this writing, and 1.11.x ends 2026-10-31, within weeks. **Nomad v1.10.x is the last LTS line.** From the 2.0.0 release onward, Nomad also drops semantic versioning for IBM's Version-Modification-Fix model, so tooling that parses Nomad version strings needs updating.
+1.8.x went out of support on 2026-04-30, and 1.11.x followed on 2026-10-31. **Nomad v1.10.x is the last LTS line.** From the 2.0.0 release onward, Nomad also drops semantic versioning for IBM's Version-Modification-Fix model, so tooling that parses Nomad version strings needs updating.
 
 One operational warning before you plan a mixed estate: a Nomad Enterprise cluster **cannot be downgraded**, and servers running open-source Nomad will *panic* if joined to an Enterprise cluster, because the Raft entries for Enterprise features are not parseable by the open-source build. Test that boundary before you need it.
 
 ## k3s: The Default for a Reason
 
-k3s is a conformant Kubernetes distribution packaged as a single binary. As of October 2026 it maintains **three release lines concurrently**: v1.36.4+k3s1 is current, with v1.35.8 and v1.34.11 still receiving backports. Each build pins its whole dependency set. For v1.34.11+k3s1 that is Kubernetes v1.34.11, Kine v0.16.4, SQLite 3.53.4, etcd v3.6.14-k3s1, containerd v2.2.7-k3s1, runc v1.4.2, Flannel v0.28.4, metrics-server v0.9.0, Traefik v3.7.13, CoreDNS v1.14.7, helm-controller v0.16.27 and local-path-provisioner v0.0.37.
+k3s is a conformant Kubernetes distribution packaged as a single binary. It patches **several minor lines concurrently**: the 2026-11-03 release round shipped v1.37.2+k3s1 as the current release alongside v1.36.6, v1.35.10 and v1.34.13. Each build pins its whole dependency set. For v1.37.2+k3s1 that is Kubernetes v1.37.2, Kine v0.17.1, SQLite 3.53.4, etcd v3.7.1-k3s3, containerd v2.3.7-k3s1, runc v1.4.2, Flannel v0.28.10, metrics-server v0.9.0, Traefik v3.7.15, CoreDNS v1.14.7, helm-controller v0.17.9 and local-path-provisioner v0.0.37.
 
 That pinned list matters more than it looks. When something breaks at 02:00 you can read which exact version of which component is running instead of discovering it. My own homelab runs k3s across several nodes, and that pinned-component view is what makes problems like [ArgoCD cache staleness on a shared resource](/blog/argocd-cache-staleness-shared-resource-warning/) or [picking the wrong storage backend for cluster state](/blog/nfs-vs-local-path-sqlite-trap/) diagnosable at all.
 
@@ -89,7 +89,7 @@ Against that: BUSL rather than an OSI license, a support matrix reshuffled by th
 | Non-container workloads | No | No | Yes: binaries, VMs, batch |
 | Control plane footprint | Single binary per node | Built into the Docker Engine, no extra daemon | Single binary |
 | License | Apache-2.0 | Apache-2.0 | BUSL, becomes MPL-2.0 after 4 years |
-| 2026 release cadence | Three concurrent K8s lines | Slowed, vendor-prioritized elsewhere | Spring/fall features, monthly as needed |
+| 2026 release cadence | Several concurrent K8s lines | Slowed, vendor-prioritized elsewhere | Spring/fall features, monthly as needed |
 | Ecosystem direction | Consolidating around it | Maintenance | Stable, narrower |
 | Upgrading is | Hard (K8s treadmill) | Easy | Moderate (mind the VMF versioning break) |
 
@@ -123,7 +123,7 @@ Technically, yes, but you should not. Both want to own the container runtime and
 
 ### What Is the Safest Way to Upgrade a Swarm Cluster to Docker v29?
 
-Go straight to v29.2.1 or later and skip v29.0.0 through v29.2.0, where encrypted overlay traffic to containers on older Engines silently stops during a staged rollout. Before you start, inventory your volume plugins: any V1 plugin will be rejected by the v29 daemon, and the resulting "missing" data is usually still on the storage target. Export your data first.
+Go straight to v29.2.1 or later and skip v29.0.0 through v29.2.0, where encrypted overlay traffic to containers on older Engines silently stops during a staged rollout. Before you start, inventory your volume plugins: Portainer reports that V1 plugins are rejected by the v29 daemon, and the resulting "missing" data is usually still on the storage target. Export your data first.
 
 ### Does Nomad Support Kubernetes Workloads?
 

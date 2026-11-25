@@ -2,6 +2,7 @@
 title: "cert-manager Cloudflare DNS-01: Cleanup Fails with Error 7003"
 description: "cert-manager Cloudflare DNS-01 cleanup failed with error 7003 on DELETE /zones//dns_records. Why the zone ID was empty and how v1.19.6 fixed my wildcard."
 date: "2026-11-23"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Cloudflare", "Security", "Debugging"]
 ---
 
@@ -92,11 +93,11 @@ Error: 7003: Could not route to /client/v4/zones/dns_records/xxx, perhaps your o
 
 The TXT record gets created, the challenge can even validate, and then the delete fails. Users in the issue reported it on v1.15.x, v1.16.3 and v1.17.0.
 
-The fix is [cert-manager#7549](https://github.com/cert-manager/cert-manager/pull/7549), "chore(issuer/cloudflare): ensure we set ZoneID". It sets the zone ID on the record from the zone lookup instead of relying on the API response. It shipped in v1.17.1 and v1.16.4, with the release note "Fix issuing of certificates via DNS01 challenges on Cloudflare after a breaking change to the Cloudflare API". The workaround people used in the meantime was deleting the leftover `_acme-challenge` TXT records by hand. That has to be repeated on every renewal, so I upgraded instead.
+The fix is [cert-manager#7549](https://github.com/cert-manager/cert-manager/pull/7549), "chore(issuer/cloudflare): ensure we set ZoneID". It sets the zone ID on the record from the zone lookup instead of relying on the API response. It was merged to master and backported to v1.17.1 (#7565) and v1.16.4 (#7566), with the release note "Fix issuing of certificates via DNS01 challenges on Cloudflare after a breaking change to the Cloudflare API". The workaround people used in the meantime was deleting the leftover `_acme-challenge` TXT records by hand. That has to be repeated on every renewal, so I upgraded instead.
 
 ## The Fix: Upgrade to v1.19.6 (#1020)
 
-My cluster runs Kubernetes 1.31. v1.19.6 was the newest cert-manager release that supports it: 1.20 needs 1.32 or newer, and 1.21 needs 1.33. The ArgoCD Application changed in three places:
+My cluster runs Kubernetes 1.31. According to the [cert-manager supported releases page](https://cert-manager.io/docs/releases/), 1.19 is the last line that supports it (1.31 to 1.35): 1.20 needs 1.32 or newer, and 1.21 needs 1.33. v1.19.6 is the newest 1.19 patch, and 1.19 itself reached end of life on July 8, 2026, so this upgrade buys time rather than a supported state. The real follow-up is a Kubernetes upgrade. The ArgoCD Application changed in three places:
 
 ```yaml
   source:

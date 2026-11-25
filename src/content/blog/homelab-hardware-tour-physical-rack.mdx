@@ -2,7 +2,7 @@
 title: "Inside My Homelab: The Hardware Behind Every Article on This Blog"
 description: "A tour of the 10-inch rack, compute and networking gear behind my k3s cluster, Proxmox host and this blog: what I run, why I picked it, and what I'd change."
 date: "2026-07-15"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Homelab", "Hardware", "Networking"]
 ---
 
@@ -60,7 +60,7 @@ The networking layer is where most of the engineering happens. It's the physical
 
 **Cabling:** To connect the router, patch panel, and servers inside the tight space of the 10-inch rack, I use short [deleyCON 0.5m CAT7 Patch Cables\*](/go/4plOgZ5). 50cm cables keep the rack clean without cable management bars.
 
-I picked the RB5009 specifically over MikroTik's cheaper hEX or hAP models because of the switch chip. Full hardware offloading for VLAN-tagged traffic matters once you're running a Proxmox trunk port carrying multiple VLANs. Software-switched VLANs on cheaper models introduce latency you *will* notice under sustained load.
+I picked the RB5009 over MikroTik's cheaper hEX or hAP models for CPU headroom. VLAN switching itself is not the difference: MikroTik's [switch chip documentation](https://help.mikrotik.com/docs/spaces/ROS/pages/15302988/Switch+Chip+Features) lists hardware-offloaded bridge VLAN filtering for the hEX's MT7621 switch chip since RouterOS 7.1. What the switch chip does not handle is traffic that crosses a VLAN boundary. Inter-VLAN routing and every firewall rule run on the router's CPU, and with a default-deny firewall between five VLANs, that is a lot of traffic. The RB5009's quad-core 1.4 GHz ARM64 CPU has far more room for it than the hEX's dual-core 880 MHz MT7621A.
 
 Here's the actual Terraform code that configures the VLAN matrix, the same code that generates every firewall rule, bridge entry, and IP address in the network:
 
@@ -113,7 +113,7 @@ A homelab is never finished, and maintaining it takes the right tools. Here's th
 
 Three things, in reverse order of importance:
 
-**1. Buy the RB5009 first, not second.** I started with a cheaper MikroTik hEX and quickly outgrew it: the software-switched VLANs couldn't keep up with Proxmox trunk traffic. Once you run multiple tagged VLANs across a trunk, the RB5009's hardware offloading for VLAN-tagged traffic is a requirement, not a nice-to-have.
+**1. Buy the RB5009 first, not second.** I started with a cheaper MikroTik hEX and outgrew it. Once several VLANs talk to each other through the firewall, routing and filtering load the CPU, not the switch chip, and the hEX's small dual-core CPU is the limit. The RB5009's CPU headroom is a requirement for that, not a nice-to-have.
 
 **2. Start with the Pi 5, not the Pi 4.** The Pi 4B works fine for DNS and Keepalived, but the Pi 5 is a big step up for containerized workloads. If you're buying new today, skip the 4 entirely.
 
@@ -123,6 +123,6 @@ Three things, in reverse order of importance:
 
 If you want to see the Terraform and Ansible code that turns this physical hardware into the k3s cluster, Proxmox VMs, and network segmentation covered across this blog, the full [homelab-infrastructure repo](https://github.com/dwoitzik/homelab-infrastructure) is public on GitHub. The Ansible layer that orchestrates the whole stack is broken down in my [enterprise-grade homelab architecture post](/blog/enterprise-homelab-architecture-ansible/).
 
-None of this is homelab-only: Terraform + Ansible + Atlantis is the same control loop enterprises run on Azure, and the Hub & Spoke topology, NSG micro-segmentation, and forced tunneling all grow out of the mental model you build managing a MikroTik and a few Proxmox nodes.
+None of this is homelab-only: Terraform + Ansible + PR-driven plan and apply (Atlantis until August 2026, GitHub Actions comment workflows since) is the same control loop enterprises run on Azure, and the Hub & Spoke topology, NSG micro-segmentation, and forced tunneling all grow out of the mental model you build managing a MikroTik and a few Proxmox nodes.
 
 <NewsletterCTA />

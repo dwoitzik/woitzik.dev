@@ -2,7 +2,7 @@
 title: "SQLite over NFS: Why WAL Corrupted My Garage S3 Metadata"
 description: "Garage S3's SQLite metadata hit SQLITE_CORRUPT on an NFS volume because WAL mode does not work over network filesystems. The fix: local-path for every .db file."
 date: "2026-09-10"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Storage", "Homelab", "Debugging"]
 ---
 
@@ -10,9 +10,11 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-[Garage S3](/blog/velero-garage-k3s-backup/), my self-hosted S3-compatible object store, uses SQLite for its metadata database. One morning, Terraform state operations started failing with `SQLITE_CORRUPT`. The bucket metadata was gone. The `terraform-state` bucket, the Atlantis lock table and the Velero backup index all lived in that one SQLite file.
+[Garage S3](/blog/velero-garage-k3s-backup/), my self-hosted S3-compatible object store, ran with SQLite as its metadata database. In June 2026, while I was chasing memory pressure in Loki, I found Garage logging `database disk image is malformed` (SQLite's `SQLITE_CORRUPT`) and later `locking protocol` errors. Reads still worked, which is why nobody noticed sooner, but Velero backup writes and Loki chunk flushes were failing, and the `terraform-state` bucket lived in the same metadata store.
 
-The root cause: Garage's metadata volume was an NFS-backed PersistentVolume, and SQLite's WAL (write-ahead logging) mode does not work over a network filesystem. The SQLite docs say so explicitly. The corruption showed up while a Velero backup and a Terraform state write were hitting Garage at the same time. The fix was moving every embedded database to `local-path`.
+The root cause: Garage's metadata volume was an NFS-backed PersistentVolume, and SQLite's WAL (write-ahead logging) mode does not work over a network filesystem. The SQLite docs say so explicitly. The fix at the time was moving every embedded database to `local-path`.
+
+**Update (November 2026):** The Garage part of that fix did not last. On 2026-08-21, before this post went up, Garage's metadata moved off `local-path` as well: the engine changed from SQLite to LMDB (Garage's own default since v0.9.0, converted with `garage convert-db`) and the metadata directory moved to a dedicated 8 GB disk attached to one k3s node, mounted as a `hostPath`. Since 2026-11-15 that same disk is mounted through a static local PersistentVolume instead of `hostPath`. NFS was ruled out again for LMDB for the same reason as below. The SQLite-on-NFS lesson and the `local-path` rule for Mealie and Home Assistant still stand.
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -51,7 +53,7 @@ volumeBindingMode: WaitForFirstConsumer
 
 The NFS server address and export are not StorageClass parameters. nfs-subdir-external-provisioner takes them as Helm values (`nfs.server: 10.0.20.100`, `nfs.path: /nfs-data/k8s-general`), mounts that export into its own pod, and creates one subdirectory per PVC. The chart derives the provisioner name from the release (`cluster.local/<release>-nfs-subdir-external-provisioner`); the plain manifests from the project's `deploy/` directory use `k8s-sigs.io/nfs-subdir-external-provisioner` instead. Whatever `kubectl get storageclass` shows is the one that counts.
 
-NFS (`nfs-client`) is the default. It's backed by a dedicated LXC running an NFS server on ZFS, so the storage survives pod rescheduling: a pod on k3s-12 can mount the same PVC as a pod on k3s-13 because the NFS server is independent of any cluster node.
+NFS (`nfs-client`) is the default. It's backed by a dedicated LXC (`ct-srv-nfs-01`) that exports a directory from the Proxmox host, so the storage survives pod rescheduling: a pod on k3s-12 can mount the same PVC as a pod on k3s-13 because the NFS server is independent of any cluster node.
 
 Local-path (`local-path`) pins the PV to whichever node created it through node affinity. The pod can only be scheduled on that node; if the node is down, the pod stays `Pending` until it comes back. That's a real limitation, and for some workloads it's the right trade-off.
 
@@ -69,22 +71,22 @@ SQLite's own [How To Corrupt An SQLite Database File](https://www.sqlite.org/how
 
 ## The Garage Incident
 
-Garage runs with two storage mounts:
+In June 2026 Garage ran with two storage mounts:
 
 ```yaml
-# kubernetes/apps/garage/garage.yml
+# kubernetes/apps/garage/garage.yml (June 2026)
 volumes:
   - name: data
     persistentVolumeClaim:
       claimName: garage-data      # NFS - bucket objects
   - name: meta
     persistentVolumeClaim:
-      claimName: garage-meta      # local-path - SQLite metadata
+      claimName: garage-meta      # SQLite metadata, nfs-client at the time
 ```
 
-The `data` volume (bucket objects) is on NFS. That's fine: Garage writes objects as plain files and doesn't rely on file locks for them. The `meta` volume (the SQLite database) was *also* on NFS initially. That worked until a Velero backup and a Terraform state write happened at the same time.
+The `data` volume (bucket objects) is on NFS. That's fine: Garage writes objects as plain files and doesn't rely on file locks for them. The `meta` volume (the SQLite database) was *also* on NFS: on 2026-06-17 every PVC in the cluster moved from Longhorn to `nfs-client`, `garage-meta` included.
 
-Velero calls Garage's S3 API to enumerate backup objects. Terraform calls it to read and write the state file. Both requests end up in SQLite through Garage's metadata layer. Under that concurrent load on an NFS-backed WAL database, pages 169 to 184 of `db.sqlite` were corrupted.
+Six days later the metadata database was corrupted. Every S3 request (Velero writing backups, Loki flushing chunks, Terraform reading and writing state) goes through that database, and SQLite's WAL locking and shared-memory index were sitting on a network filesystem. I can't point to the single write that broke it; the errors themselves (`malformed`, then `locking protocol`) match the documented SQLite-over-NFS failure mode.
 
 ## The Recovery
 
@@ -96,42 +98,38 @@ sqlite3 db.sqlite ".recover" > recovered.sql
 
 # Recreate the database from the dump
 sqlite3 db_clean.sqlite < recovered.sql
+
+# Check the result
+sqlite3 db_clean.sqlite "PRAGMA integrity_check;"
 ```
 
-The `.recover` command scanned every page of the corrupted file and extracted whatever data it could read. For pages 169 to 184 (the corrupted range), it found partial data: enough to reconstruct the bucket and key metadata, but not enough to guarantee referential integrity.
+Before touching anything I copied the raw metadata directory off the cluster. `.recover` scans every page of the corrupted file and extracts whatever it can read; the rebuilt database passed `PRAGMA integrity_check`, and the bucket and object counts matched the state before the corruption.
 
-After recovery, the missing objects (the `terraform-state` bucket and the Atlantis lock key) had to be re-inserted manually with Python:
+That was not the end of it. On restart, Garage panicked in its Merkle tree updater (a known sharp edge after this kind of repair, upstream issue #1200). The Merkle, insert-queue and GC-todo tables are derived indexes that Garage rebuilds, not primary data, so I cleared them and let Garage's own background work settle the rest. Afterwards all three buckets (`loki-data`, `velero`, `terraform-state`) were present with the same sizes as before, and a live S3 `GetObject` against `terraform-state` returned the expected object.
 
-```python
-import sqlite3
-import msgpack
+It was the second SQLite corruption in a week. On 2026-06-16, while the volume was still on Longhorn, an OOM kill left `db.sqlite` with corrupted pages after an unclean shutdown. `.recover` saved most of it then too, but the `terraform-state` bucket and the access key Atlantis used had to be written back into SQLite by hand with a Python script, msgpack-encoding the entries the way Garage stores them.
 
-conn = sqlite3.connect("db_clean.sqlite")
-# Garage uses msgpack-encoded metadata with 'G2key'/'G2bkt' prefixes
-# Re-insert the terraform-state bucket
-conn.execute("INSERT INTO buckets (name, ...) VALUES (...)")
-conn.commit()
-```
-
-The data was back, but nothing had changed about the conditions that corrupted it. It would happen again.
+The data was back, but nothing had changed about the conditions that corrupted it on NFS. It would happen again.
 
 ## The Fix
 
-Move every embedded database to `local-path`:
+Move every embedded database to `local-path`. For Garage that was a one-line change on the PVC (2026-06-23):
 
 ```yaml
-# Garage - meta volume moved to local-path
-volumes:
-  - name: meta
-    persistentVolumeClaim:
-      claimName: garage-meta      # NOW: local-path (was: nfs-client)
+# kubernetes/apps/garage/garage.yml - garage-meta PVC
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path   # was: nfs-client
 ```
+
+As the update note at the top says, Garage's metadata has since moved again, to LMDB on a dedicated disk.
 
 The apps that need `local-path`:
 
 | App | Database | Why local-path |
 |---|---|---|
-| Garage S3 | SQLite (metadata) | File locks + WAL shared memory |
+| Garage S3 (June to August 2026) | SQLite (metadata) | File locks + WAL shared memory |
 | Mealie | SQLite (recipes) | SQLite file locks |
 | Home Assistant | SQLite (recorder) | SQLite file locks |
 | Authelia | PostgreSQL (CNPG) | CNPG manages its own PV |
@@ -140,7 +138,7 @@ PostgreSQL (via CNPG) doesn't have the SQLite problem in the same form. One serv
 
 ## The Trade-off
 
-`local-path` means the PVC is pinned to one node. If the pod reschedules, it loses access to the data. For Garage, this is acceptable: Garage runs as a single instance, and without its metadata it can't serve anything anyway. If that node goes down, the objects on NFS survive, but S3 is unavailable until Garage is back.
+`local-path` means the PVC is pinned to one node. If the pod reschedules, it loses access to the data. For Garage, I accepted this at the time: Garage runs as a single instance, and without its metadata it can't serve anything anyway. If that node goes down, the objects on NFS survive, but S3 is unavailable until Garage is back.
 
 For databases that need HA (Postgres, Redis), neither `local-path` nor NFS is the answer. Use an operator (CNPG for Postgres) that handles replication and failover above the storage layer.
 

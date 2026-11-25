@@ -14,7 +14,7 @@ DNS is the most critical service in any network. If it goes down, nothing works:
 
 This is the DNS architecture running on two Raspberry Pi 4B edge nodes ([starter set\*](/go/4wNS0oI)) in my homelab: Unbound as a recursive resolver, AdGuard Home for filtering, and Keepalived for automatic failover. The whole stack is managed with Ansible. If you're building this today, go straight for the [Raspberry Pi 5\*](/go/4wETNfv), which has a much faster CPU than the 4B.
 
-> **Update (November 2026):** The code blocks below now match the Ansible roles in the repo. The earlier version had a container healthcheck that queried port 5335 inside the container (Unbound listens on 53 there, so it could never pass), an empty `forward-zone` block, and a DNSSEC trust-anchor line that the real config does not have. That last one matters: without a trust anchor, Unbound does not validate DNSSEC. Checked live on 2026-11-04, `dnssec-failed.org` resolves with `NOERROR` and no answer carries the `ad` flag. See [the DNSSEC section](#dnssec-is-not-validated-yet) below.
+> **Update (November 2026):** The code blocks below now match the Ansible roles in the repo. The earlier version had a container healthcheck that queried port 5335 inside the container (Unbound listens on 53 there, so it could never pass), an empty `forward-zone` block, and a DNSSEC trust-anchor line that the real config did not have at the time. That last one mattered: without a trust anchor, Unbound does not validate DNSSEC. Checked live on 2026-11-04, `dnssec-failed.org` resolved with `NOERROR` and no answer carried the `ad` flag. On 2026-11-05 the role got the trust-anchor line plus a `domain-insecure` entry for `fritz.box`, and `cache-min-ttl` went from 300 to 60. See [the DNSSEC section](#dnssec-validation) below.
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -99,7 +99,7 @@ Unbound runs in Docker on each Pi. The Ansible role deploys the Compose stack an
             - /opt/unbound/conf/root.hints:/etc/unbound/root.hints
 
         autoheal:
-          image: willfarrell/autoheal:latest@sha256:7221058d5f68f4aef6eccd88417c6ae18436ad81b8f9d98a204901033b662740
+          image: willfarrell/autoheal:latest@sha256:a7ecfb0f179d50c2b5c008726fedf8c939eace5bd5faa95b48f20976f869e17a
           container_name: autoheal
           restart: always
           mem_limit: 64m
@@ -172,7 +172,7 @@ server:
     msg-cache-size: 128m
     rrset-cache-size: 256m
     key-cache-size: 32m
-    cache-min-ttl: 300
+    cache-min-ttl: 60
     cache-max-ttl: 86400
     cache-max-negative-ttl: 300
 
@@ -198,6 +198,11 @@ server:
 
     # Root hints
     root-hints: "/etc/unbound/root.hints"
+    # This file replaces the image's config, which is where the trust anchor was
+    # set; without it every answer is treated as insecure and nothing validates.
+    auto-trust-anchor-file: "/var/unbound/root.key"
+    # .box is a signed TLD, so the unsigned FRITZ!Box zone would turn bogus.
+    domain-insecure: "fritz.box"
 
 stub-zone:
     name: "fritz.box"
@@ -208,24 +213,20 @@ There is no `forward-zone` for `.` at all. Without one, Unbound recurses from th
 
 The access list has four entries. `10.0.0.0/8` covers the homelab VLANs. `172.16.0.0/12` is there because of Docker: AdGuard queries `127.0.0.1:5335` on the host, Docker's userland proxy forwards that into the container, and inside the container the query arrives from the gateway address of the Compose project's bridge network (an address like 172.18.0.1), not from 127.0.0.1. Without that line Unbound would answer AdGuard with `REFUSED`. `192.168.0.0/16` covers the Fritz!Box LAN (192.168.178.0/24), whose clients also query these Pis. Unbound refuses everything else. A `/8` is 16 million addresses, far wider than the five /24 VLANs that exist. That is acceptable here because Unbound is not reachable from outside the network, but it is a convenience, not a security boundary. If you would rather narrow it to the VLANs that actually exist, the [IPv4 subnet calculator](https://woitzik.dev/tools/subnet-calculator/) shows what each prefix covers and how many addresses it hands out.
 
-### DNSSEC Is Not Validated Yet
+### DNSSEC Validation
 
-Unbound only validates DNSSEC when it has a trust anchor for the root, set with `auto-trust-anchor-file`. The `klutchell/unbound` image ships a config with that line and a `root.key` generated at build time under `/var/unbound/`, but my role mounts its own `unbound.conf` over the image's file, and that template has no trust-anchor line. `harden-dnssec-stripped` does nothing without an anchor. AdGuard's `enable_dnssec: true` does not fill the gap either: it sets the DO bit and passes through the `ad` flag from its upstream; it does not validate on its own.
+Unbound only validates DNSSEC when it has a trust anchor for the root, set with `auto-trust-anchor-file`. The `klutchell/unbound` image ships a config with that line and a `root.key` generated at build time under `/var/unbound/`, but my role mounts its own `unbound.conf` over the image's file, and until 2026-11-05 that template had no trust-anchor line. `harden-dnssec-stripped` does nothing without an anchor. AdGuard's `enable_dnssec: true` does not fill the gap either: it sets the DO bit and passes through the `ad` flag from its upstream; it does not validate on its own.
 
-The live test (2026-11-04) shows it:
+The live test from 2026-11-04, before the fix, showed it:
 
 ```bash
 dig @10.0.20.2 -p 5335 dnssec-failed.org A | grep status
 ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 10619
 ```
 
-A validating resolver returns `SERVFAIL` for that name. The fix is one line in the template, pointing at the key the image already contains:
+A validating resolver returns `SERVFAIL` for that name. The fix, now in the template above, is two lines: `auto-trust-anchor-file` pointing at the key the image already contains, and `domain-insecure: "fritz.box"`. The second one is needed because `.box` is a signed TLD, so once validation is on, the unsigned answers the stub zone gets from the Fritz!Box would otherwise be treated as bogus.
 
-```
-    auto-trust-anchor-file: "/var/unbound/root.key"
-```
-
-RFC 5011 trust-anchor tracking rewrites that file, so it has to be writable by the `unbound` user; the image already ships it owned by `unbound:unbound`. After the change, the same `dig` should return `SERVFAIL`, and `dig +dnssec cloudflare.com` should show `ad` in the flags.
+RFC 5011 trust-anchor tracking rewrites the key file, so it has to be writable by the `unbound` user; the image already ships it owned by `unbound:unbound`. To confirm validation on your own resolver, run the same `dig`: it should return `SERVFAIL`, and `dig +dnssec cloudflare.com` should show `ad` in the flags.
 
 ## Step 2: AdGuard Home Ansible Role
 
@@ -239,7 +240,7 @@ AdGuard runs in `network_mode: host` so it can bind to port 53 directly on the P
     content: |
       services:
         adguardhome:
-          image: adguard/adguardhome:v0.107.79@sha256:aba9e3bf0613be3ba3755e1fc311b126e2c24bec25e18b6483894a88283074f0
+          image: adguard/adguardhome:v0.107.80@sha256:e2e1b48c832f7705be915873f95de0d5114de573736441d7f2923a8a6293027c
           container_name: adguardhome
           restart: always
           network_mode: host
@@ -288,7 +289,7 @@ AdGuard doesn't natively replicate configuration between instances. The role use
         content: |
           services:
             adguardhome-sync:
-              image: ghcr.io/bakito/adguardhome-sync:latest@sha256:4fec72b9c580c6711036ea42db645232d86384fde687365b0d0452d38d507280
+              image: ghcr.io/bakito/adguardhome-sync:latest@sha256:157e509baeef66cd400dae96c955a1e97312670e0285a92ebe2c3465b3e22e67
               container_name: adguardhome-sync
               restart: unless-stopped
               mem_limit: 128m
@@ -416,7 +417,7 @@ Restart Keepalived on the primary and it reclaims the VIP automatically.
 - If the primary Pi goes down, the backup takes over the VIP in about 4 seconds
 - Filter lists and config sync to the replica every 15 minutes
 - The sysctl task raises the kernel's socket buffer limit to 4 MB, so Unbound's `so-rcvbuf: 4m` and `so-sndbuf: 4m` actually take effect
-- DNSSEC validation is still missing until the trust-anchor line goes in (see above)
+- DNSSEC validation is configured with the image's root trust anchor, with `fritz.box` marked insecure (see above)
 
 The whole stack is idempotent Ansible: running the playbook again changes nothing if everything is already in the desired state.
 

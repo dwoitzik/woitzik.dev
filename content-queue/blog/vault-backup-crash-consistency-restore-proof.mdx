@@ -54,7 +54,7 @@ metadata:
 
 This stops the daily schedule from producing a Vault backup that looks successful in `velero backup describe` but can't be restored. False coverage is worse than none, because a visible gap at least prompts you to build something.
 
-**What this doesn't do:** give Vault a working backup. Vault's raft data is fine on the live cluster; the unseal-key-recoverable transplant approach [used to recover a lost root token after a full rebuild](/blog/vault-raft-recovery-disposable-k3s-lost-root-token/) shows the live data is sound. What's missing is an *ongoing, verified* backup path for it. The right tool is Vault's own `vault operator raft snapshot save`: a consistent, application-level snapshot taken through Vault's API instead of a raw file copy underneath it, written somewhere Velero or Garage can pick up on a schedule. That part isn't built yet. The exclusion stops a broken backup from lying about its health; it doesn't replace the backup Vault still needs.
+**What this doesn't do:** give Vault a working backup. Vault's raft data is fine on the live cluster; the unseal-key-recoverable transplant approach [used to recover Vault after a full rebuild](/blog/vault-raft-recovery-disposable-k3s-rebuild/) shows the live data is sound. What's missing is an *ongoing, verified* backup path for it. The right tool is Vault's own `vault operator raft snapshot save`: a consistent, application-level snapshot taken through Vault's API instead of a raw file copy underneath it, written somewhere Velero or Garage can pick up on a schedule. That part isn't built yet. The exclusion stops a broken backup from lying about its health; it doesn't replace the backup Vault still needs.
 
 ## What This Proves About the Rest of the Cluster
 

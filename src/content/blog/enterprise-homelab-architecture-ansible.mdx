@@ -2,7 +2,7 @@
 title: "Architecting an Enterprise-Grade Homelab: My Ansible Master Playbook"
 description: "How my Ansible master playbook splits a homelab into tiers: HA DNS on Raspberry Pis, app and management nodes, an isolated DMZ, and dedicated AI hosts."
 date: "2026-05-06"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Homelab", "Ansible"]
 ---
 
@@ -15,8 +15,16 @@ longer how this runs. Atlantis's public webhook has since been removed entirely 
 with a self-hosted GitHub Actions runner that polls outbound instead of accepting inbound PR
 webhooks, and the public tunnel allowlist has narrowed to exactly two hostnames, neither of them
 Atlantis. See the [Cloudflare Tunnel post](/blog/cloudflare-tunnel-zero-inbound-ports/) for the
-full timeline. The role-based Ansible structure and the rest of the tiering below (HA DNS core,
-DMZ isolation, CrowdSec) are still accurate.
+full timeline.
+
+**Update (November 2026):** The playbook below is `site.yml` as it stood in early May 2026.
+Several tiers have changed since. On 2026-05-16 the Raspberry Pi play swapped
+`nginx_proxy_manager` for `haproxy`. On 2026-05-21 the whole "Application Services" play for
+`app_nodes` was removed from `site.yml` after those services moved to k3s. On 2026-08-17
+`watchtower` was dropped from the base play: updates now come only through reviewed Renovate PRs,
+and a cleanup task removes any leftover watchtower stack. The HA DNS core (keepalived, AdGuard,
+Unbound), the DMZ proxy with `crowdsec_bouncer`, the management and game server plays and the
+`ai_nodes` play with `ollama` are still there, with more plays added around them.
 
 Many homelabs start as a single Docker host or a messy Proxmox node where services are spun up by hand. Once the stack grows to reverse proxies, DNS blocklists, network storage, and AI models, manual management stops scaling. Mine runs on physical hardware: a [BMAX Mini PC\*](/go/4bv3yF1) (64GB RAM, Ryzen 7) for compute and [Raspberry Pi 4Bs\*](/go/4wNS0oI) for edge DNS.
 

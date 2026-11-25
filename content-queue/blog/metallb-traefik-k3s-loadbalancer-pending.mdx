@@ -151,7 +151,7 @@ spec:
               enabled: true
         ingressRoute:
           dashboard:
-            enabled: false
+            enabled: true
         tlsStore:
           default:
             defaultCertificate:
@@ -171,7 +171,7 @@ Drei bewusste Entscheidungen stecken darin:
 
 **`tlsStore.default.defaultCertificate`** macht das [Wildcard-Zertifikat](/blog/cert-manager-wildcard-k3s-cloudflare/) (englischer Artikel) zum Standard für jedes Ingress, das kein eigenes angibt. Jeder Dienst hinter Traefik bekommt automatisch HTTPS.
 
-**`dashboard.enabled: false`** hält das Traefik-Dashboard, das Routing-Konfiguration und Details zu Middlewares zeigt, aus dem Netz heraus. Bei Bedarf erreichst du es per `kubectl port-forward`.
+**`ingressRoute.dashboard.enabled: true`** ist der Chart-Default, hier bewusst ausgeschrieben. Die Einstellung schaltet nicht das Dashboard selbst an oder aus (das Chart startet Traefik immer mit `--api.dashboard=true`). Sie bestimmt nur, ob das Chart eine IngressRoute dafür anlegt, und diese Route hört nur auf dem internen Entrypoint `traefik` (Port 9000), den der LoadBalancer-Service nicht freigibt. Das Dashboard, das Routing-Konfiguration und Details zu Middlewares zeigt, bleibt so aus dem Netz heraus, und per `kubectl port-forward -n kube-system deploy/traefik 9000:9000` erreichst du es unter `http://localhost:9000/dashboard/`. Mit `false` versteckst du nichts zusätzlich: Das Dashboard hat dann gar keine Route mehr, und auch der Port-Forward funktioniert nicht mehr. Willst du es unter einem Hostnamen erreichen, leg eine eigene IngressRoute auf `websecure` zu `api@internal` hinter einer Auth-Middleware an. So macht es mein Repo mit Authelia.
 
 Eine Einstellung, die dieser Service nicht zeigt, wird später wichtig, wenn du Traefik-Middlewares ergänzt: Ohne `externalTrafficPolicy: Local` sieht Traefik eine Node-Adresse statt der Client-IP, und [Rate Limiting mit Traefik auf k3s](/blog/traefik-rate-limit-middleware-k3s/) (englischer Artikel) steckt dann jeden Besucher in denselben Bucket.
 

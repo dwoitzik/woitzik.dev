@@ -26,20 +26,19 @@ Weeks later, Redis for Authelia's session storage needed a PVC on the `nfs-clien
 This time it did block something. The provisioner tried to mount an export path that did not exist on the NFS server and failed outright. Not "data missing," but "there is nowhere to write at all."
 
 ```bash
-# What the export config declared:
+# What the export config declared (rendered by the nfs_server Ansible role):
 cat /etc/exports
-# /nfs-data/redis  10.0.20.0/24(rw,sync,no_subtree_check)
-# ...seventeen more identical-looking lines
+# /nfs-data/k8s-general 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash) 10.42.0.0/16(...) 10.43.0.0/16(...)
+# ...one line per share: garage-meta, jellyfin, nextcloud, gitea and so on
 
-# What actually existed on disk:
-ls /nfs-data/
-# (nothing - the parent directory itself had never been created)
+# What actually existed on disk: none of those directories
+ls -d /nfs-data/k8s-general
 ```
 
-The fix was additive and mechanical once identified: create every declared export directory that was missing, then re-export.
+The `ls` failed: the directory the provisioner wanted to mount was simply not there. The fix was additive and mechanical once identified: create every declared export directory that was missing, then re-export.
 
 ```bash
-mkdir -p /nfs-data/redis
+mkdir -p /nfs-data/k8s-general   # and the same for every other missing share
 exportfs -ra
 ```
 

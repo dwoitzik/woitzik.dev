@@ -2,7 +2,7 @@
 title: "CloudNativePG on k3s: PostgreSQL That Survives Node Failures"
 description: "StatefulSets on local PersistentVolumes don't survive node failures. CloudNativePG handles PostgreSQL replication, failover and backups without Longhorn."
 date: "2026-11-01"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "PostgreSQL", "CloudNativePG", "Homelab"]
 ---
 
@@ -129,12 +129,12 @@ Once it is healthy, point the application at the new cluster's `-rw` service.
 
 When the primary node fails:
 
-1. CNPG detects the primary is unreachable (timeout: 30 seconds)
-2. CNPG promotes the replica to primary
+1. The primary pod stops being Ready. On a dead node that only happens once Kubernetes marks the node `NotReady`, which with default settings takes 40 to 50 seconds depending on the Kubernetes version
+2. CNPG's `failoverDelay` defaults to 0, so the operator starts the failover as soon as it sees that and promotes the replica to primary
 3. CNPG moves the `-rw` service to the new primary, which accepts writes
 4. When the failed node comes back, the old primary's pod restarts on its local PVC and rejoins as a replica
 
-The failover takes 30-60 seconds. During that window PostgreSQL connections drop, and Nextcloud's application-level retries cover the gap.
+So the failover is not instant, and most of the wait is Kubernetes noticing the node is gone, not CNPG. During that window PostgreSQL connections drop, and the application has to reconnect to the `-rw` service once the new primary is up.
 
 Instance pods are numbered from 1 (`nextcloud-db-1`, `nextcloud-db-2`), not from 0 like a StatefulSet. The kubectl plugin shows which one is primary after the switch:
 

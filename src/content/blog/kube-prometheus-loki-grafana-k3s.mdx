@@ -2,7 +2,7 @@
 title: "kube-prometheus-stack and Loki on k3s with Grafana SSO"
 description: "kube-prometheus-stack and Loki on bare-metal k3s via ArgoCD: logs on Garage S3, Promtail on non-k8s nodes, MikroTik SNMP and Grafana login via Authelia OIDC."
 date: "2026-07-04"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Homelab", "Monitoring"]
 ---
 
@@ -383,30 +383,35 @@ scrape_configs:
           source: output
 ```
 
+One caveat on the `container: attrs.name` line, which is in the repo exactly like this: Docker's `json-file` driver only writes an `attrs` object when the daemon or container sets the `labels`, `env` (or their regex variants) or `tag` log options, and none of them adds the container name under `name`. This repo's `daemon.json` only sets `max-size` and `max-file`, so `attrs.name` never matches and the `container` label stays unset; only `stream` ends up as a label. To get container names, use Promtail's `docker_sd_configs`, which reads them from the Docker API, and relabel `__meta_docker_container_name` into a label.
+
 ## Step 6: SNMP Monitoring for MikroTik
 
 The MikroTik router speaks SNMP but doesn't expose Prometheus metrics natively. The SNMP exporter bridges the gap: it polls the router via SNMP and translates the results to Prometheus format.
 
-In the Prometheus config (inside kube-prometheus-stack's `additionalScrapeConfigs`):
+In the kube-prometheus-stack values, the job goes under `prometheus.prometheusSpec.additionalScrapeConfigs`. That key takes the list of jobs directly, with no `scrape_configs:` wrapper:
 
 ```yaml
-scrape_configs:
-  - job_name: 'mikrotik_snmp'
-    static_configs:
-      - targets:
-          - '10.0.10.1'     # MikroTik management IP
-    metrics_path: /snmp
-    params:
-      module: [if_mib]
-      auth: [public_v2]
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: snmp-exporter:9116
+prometheus:
+  prometheusSpec:
+    additionalScrapeConfigs:
+      - job_name: 'snmp-mikrotik'
+        metrics_path: /snmp
+        params:
+          module: [if_mib]
+        static_configs:
+          - targets:
+              - '10.0.10.1'     # MikroTik management IP
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - target_label: __address__
+            replacement: 'prometheus-snmp-exporter.monitoring.svc.cluster.local:9116'
+          - source_labels: [__param_target]
+            target_label: instance
 ```
+
+Without an `auth` parameter the SNMP exporter uses its default `public_v2` (SNMP v2c, community `public`).
 
 This gives you per-interface traffic counters, error counters, and operational status for every port on the router, all visible in Grafana.
 

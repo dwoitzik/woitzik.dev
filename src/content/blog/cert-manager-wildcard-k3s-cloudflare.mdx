@@ -2,7 +2,7 @@
 title: "Wildcard TLS on k3s with cert-manager and Cloudflare DNS01"
 description: "HTTP-01 fails behind a default-deny firewall. cert-manager with Cloudflare DNS01 gives every Traefik route a wildcard certificate without opening port 80."
 date: "2026-05-22"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Homelab", "Security"]
 ---
 
@@ -215,14 +215,7 @@ The most common failure: the Cloudflare API token doesn't have DNS edit permissi
 
 DNS-01 challenges take longer than HTTP-01. TXT record propagation alone can take 30 to 60 seconds, Let's Encrypt verification adds another lookup, and the whole challenge typically completes in 2 to 5 minutes. If you're used to HTTP-01 finishing in 30 seconds, this feels slow, but it's normal.
 
-The cert-manager logs show the flow:
-
-```
-Waiting for DNS01 challenge propagation...
-Successfully created record "_acme-challenge.yourdomain.com"
-Verifying the DNS01 challenge...
-Challenge verified - DNS01 record found
-```
+You can follow the flow on the Challenge resource. `kubectl describe challenge -n kube-system` shows a `Presented` event once the TXT record is created ("Presented challenge using DNS-01 challenge mechanism"), and while cert-manager's own propagation check is still failing, the status reason reads "Waiting for DNS-01 challenge propagation: ..." followed by the lookup error. When Let's Encrypt accepts the record, a `DomainVerified` event appears and the Challenge is cleaned up.
 
 cert-manager renews the 90-day certificate 30 days before expiry, so the DNS-01 round trip happens about every 60 days. You won't notice it unless you watch the logs.
 

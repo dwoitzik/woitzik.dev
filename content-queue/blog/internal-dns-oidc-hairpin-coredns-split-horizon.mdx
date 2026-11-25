@@ -1,6 +1,6 @@
 ---
 title: "Split-Horizon DNS in k3s: Three OIDC and DNS Gotchas in One Week"
-description: "Headscale crash-looped because its OIDC check hairpinned through my public VIP. A CoreDNS override fixed it and exposed two related SSRF and Authelia trade-offs."
+description: "Headscale crash-looped because its OIDC check hairpinned through Traefik's LoadBalancer VIP. A CoreDNS override fixed it and exposed two related SSRF and Authelia trade-offs."
 date: "2027-03-11"
 tags: ["Kubernetes", "DNS", "Security", "Homelab"]
 ---
@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-[Headscale](/blog/headscale-oidc-k3s-authelia/) crash-looped with a startup fetch failure. On boot it makes a one-time OIDC discovery request to Authelia's issuer URL, `auth.woitzik.dev`. Inside the cluster, that hostname resolves to its public A record: Traefik's external LoadBalancer VIP, the same address my [split-DNS setup](/blog/cloudflare-tunnel-zero-inbound-ports/) hands to external clients. The request hairpins out to the VIP and back in, and that path turned out to be intermittently unreliable. Repeated probes from an in-cluster pod showed the first request succeeding and the next several failing instantly with connection refused. That was enough to fire both an availability alert and a probe-failure alert for Headscale.
+[Headscale](/blog/headscale-oidc-k3s-authelia/) crash-looped with a startup fetch failure. On boot it makes a one-time OIDC discovery request to Authelia's issuer URL, `auth.woitzik.dev`. Inside the cluster, CoreDNS forwards that lookup to the nodes' upstream resolver, AdGuard Home, and AdGuard's `*.woitzik.dev` rewrite answers with `10.0.20.200`: Traefik's MetalLB LoadBalancer VIP, the same address my [split-DNS setup](/blog/cloudflare-tunnel-zero-inbound-ports/) hands to every LAN client. (Publicly, `auth.woitzik.dev` doesn't resolve at all; it is LAN and tailnet only.) The request hairpins out to the VIP and back in, and that path turned out to be intermittently unreliable. Repeated probes from an in-cluster pod showed the first request succeeding and the next several failing instantly with connection refused. That was enough to fire both an availability alert and a probe-failure alert for Headscale.
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -19,7 +19,7 @@ Traefik's ClusterIP never touches the VIP or the hairpin path. It is plain in-cl
 
 Once the routing was clear, the fix was simple. Any hostname called service-to-service from inside the cluster gets a CoreDNS override pointing it at Traefik's ClusterIP. k3s provides the `coredns-custom` ConfigMap as its extension point: keys ending in `.override` are imported into CoreDNS's main server block, so no image fork or Corefile rewrite is needed.
 
-I kept the scope narrow and additive on purpose. Only hostnames with a confirmed in-cluster caller get an entry, which at the time meant just `auth.woitzik.dev` for Headscale's OIDC check. External clients still resolve the same names publicly and still hit the real external VIP. The override only changes what pods *inside* the cluster resolve.
+I kept the scope narrow and additive on purpose. Only hostnames with a confirmed in-cluster caller get an entry, which at the time meant just `auth.woitzik.dev` for Headscale's OIDC check. LAN clients still get the VIP from AdGuard and still go through it. The override only changes what pods *inside* the cluster resolve.
 
 I considered two alternatives and rejected both. Pointing Headscale's OIDC issuer straight at Authelia's ClusterIP would mean plain HTTP internally, because Authelia doesn't terminate TLS (Traefik does), and OIDC discovery requires HTTPS with a certificate matching the issuer URL. Downgrading that for reliability would have been a security regression dressed up as a fix. A second Traefik replica would reduce single-point-of-failure risk in general, which is worth doing separately, but it doesn't fix the hairpin path. The flakiness reproduced against a single healthy replica in testing, so a second one wouldn't have prevented this incident.
 

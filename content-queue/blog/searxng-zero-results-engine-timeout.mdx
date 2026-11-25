@@ -36,7 +36,7 @@ ERROR:searx: call to ResultContainer.add_unresponsive_engine after ResultContain
 ERROR:searx: call to ResultContainer.add_timing after ResultContainer.close
 ```
 
-The same queries sent straight to the pod:
+Then a comparable set straight to the pod, bypassing Traefik. It is not an exact replay: `rthth` matches, but the direct test used `wiso steuerung` where the access log has `wiso steuer`, and added two control queries (the output is German, `Treffer` means results):
 
 ```text
 wiso steuerung    -> 20 Treffer  524 / 251 / 1020 ms

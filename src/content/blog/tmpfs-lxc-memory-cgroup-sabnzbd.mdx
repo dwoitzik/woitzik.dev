@@ -26,7 +26,7 @@ So on 2026-10-19, ADR-066 put the incomplete directory on a host tmpfs at `/mnt/
 
 ## What the Incident Looked Like
 
-One 8.9 GB Blu-ray rip went into the tmpfs. Its pages filled well past the container's 4 GB limit, and the host stalled:
+One 8.9 GB Blu-ray rip went into the tmpfs, more than twice the container's 4 GB memory limit. Every page written there was charged to that limit. Resident memory cannot go above a cgroup's limit, so the container hit its ceiling and stayed there, with the kernel reclaiming inside the cgroup and pushing tmpfs pages out to the container's swap (2 GB at the time). The host stalled:
 
 - about 8 million `memory.high` throttle events for the container
 - roughly 130 threads in uninterruptible sleep, all in `folio_wait_bit_common` called from `filemap_fault` on those tmpfs pages

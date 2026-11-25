@@ -4,7 +4,7 @@ description: "capabilities.drop: [ALL] und runAsNonRoot: true bestanden die Vali
 lang: de
 translationOf: "kubernetes-securitycontext-hardening-broke-9-containers"
 date: 2026-09-22
-updated: "2026-11-04"
+updated: "2026-11-25"
 draft: false
 pinned: false
 tags: ["Kubernetes", "Security", "Homelab"]
@@ -33,13 +33,15 @@ Das brach gitea, authelia, headscale, mealie und beide Postgres-Instanzen (paper
 
 ## Falsche Annahme 2: `runAsNonRoot: true` kann man auf jedem Container setzen
 
-Falsch, nur in die andere Richtung. `runAsNonRoot` ändert nichts daran, wie der Container läuft. Es ist eine Prüfung, die das Kubelet vor dem Containerstart macht, und sie schlägt fehl, wenn das Image standardmäßig als root startet und der Pod-Spec das nicht überschreibt. `vault-unseal` (hashicorp/vault), die Redis-Instanzen von Nextcloud und Paperless sowie `cloudflare-ddns` (curlimages/curl) laufen standardmäßig als root. Diese Container hingen nicht in einer Crash-Schleife, sie starteten **nie**:
+Falsch, nur in die andere Richtung. `runAsNonRoot` ändert nichts daran, wie der Container läuft. Es ist eine Prüfung, die das Kubelet vor dem Containerstart macht, und sie schlägt fehl, wenn das Image standardmäßig als root startet und der Pod-Spec das nicht überschreibt. `vault-unseal` (hashicorp/vault) und die Redis-Instanzen von Nextcloud und Paperless laufen standardmäßig als root. Diese Container hingen nicht in einer Crash-Schleife, sie starteten **nie**, und das Kubelet sagte auch warum:
 
 ```
-Error: container has runAsNonRoot and image will run as root
+container has runAsNonRoot and image will run as root
 ```
 
-Das endet als `CreateContainerConfigError` mit klarer Meldung, deshalb war diese Kategorie leicht zu diagnostizieren. Die Container in `CrashLoopBackOff` aus Annahme 1 waren die schwierigere Hälfte.
+`cloudflare-ddns` (curlimages/curl) scheiterte an derselben Prüfung, aber aus einem anderen Grund. Das Image läuft gar nicht als root, es setzt `USER curl_user`. Nur ist `curl_user` ein Name und keine numerische UID, und aus einem Namen kann das Kubelet nicht ableiten, dass der User nicht root ist. Ohne `runAsUser` im Pod-Spec lehnt es den Container ab: `container has runAsNonRoot and image has non-numeric user (curl_user), cannot verify user is non-root`. Mein eigener Fix-Kommentar im Repo schob auch das auf root, das Image sagt etwas anderes. Ein `runAsUser` mit der UID des Images hätte die Prüfung bestanden.
+
+Alle diese Fälle enden als `CreateContainerConfigError` mit klarer Meldung, deshalb war diese Kategorie leicht zu diagnostizieren. Die Container in `CrashLoopBackOff` aus Annahme 1 waren die schwierigere Hälfte.
 
 ## Warum „Synced/Healthy“ in ArgoCD gelogen hat
 
@@ -57,22 +59,21 @@ Verlässlich ist nur der Pod selbst: Status, `creationTimestamp` und Restart-Zä
 Schaut man auf den richtigen Pod, ist `kubectl logs` eindeutig:
 
 ```
-chown: /config: Operation not permitted
 su-exec: setgroups(0): Operation not permitted
 setpriv: setresuid failed: Operation not permitted
 ```
 
-Drei Fehlerformate, eine Ursache: Der Entrypoint wollte Besitzrechte setzen oder Rechte abgeben und durfte es nicht, weil die nötige Capability schon fehlte. Taucht eines dieser Muster nach einer `securityContext`-Änderung auf, ist die Lösung, die Capability zurückzugeben, nicht die Anwendung zu debuggen.
+Diese beiden stehen so in den Fix-Kommentaren zu Authelia und den Redis-Instanzen. Die übrigen Images scheiterten genauso an `chown` oder am setgroups-Aufruf von `setpriv`. Drei fehlschlagende Aufrufe, eine Ursache: Der Entrypoint wollte Besitzrechte setzen oder Rechte abgeben und durfte es nicht, weil die nötige Capability schon fehlte. Taucht eines dieser Muster nach einer `securityContext`-Änderung auf, ist die Lösung, die Capability zurückzugeben, nicht die Anwendung zu debuggen.
 
 ## Die Falle bei der Wiederherstellung: selfHeal macht manuelle Fixes rückgängig
 
-Mitten im Ausfall liegt es nahe, den Live-Cluster direkt per `kubectl patch` zu reparieren, statt auf einen PR zu warten. Das hält genau so lange, bis ArgoCD beim nächsten Reconcile die Abweichung bemerkt. Mit `selfHeal: true` ist es ArgoCDs Aufgabe, den Cluster an Git anzugleichen. Ein manueller Patch, der vom committeten Manifest abweicht, ist per Definition Drift und wird stillschweigend auf den kaputten Stand zurückgesetzt.
+Mitten im Ausfall liegt es nahe, den Live-Cluster direkt per `kubectl apply` mit dem korrigierten, noch nicht gemergten Manifest zu reparieren, statt auf einen PR zu warten. Das hält genau so lange, bis ArgoCD beim nächsten Reconcile die Abweichung bemerkt. Mit `selfHeal: true` ist es ArgoCDs Aufgabe, den Cluster an Git anzugleichen. Eine manuelle Änderung, die vom committeten Manifest abweicht, ist per Definition Drift und wird stillschweigend auf den kaputten Stand zurückgesetzt.
 
-Mit selfHeal hält ein Fix nur, wenn er in Git steht. Der manuelle Patch brachte höchstens ein paar Minuten und das falsche Gefühl, es sei behoben. Der schnellste echte Weg aus dem Ausfall ist ein beschleunigter PR, kein Live-Patch.
+Mit selfHeal hält ein Fix nur, wenn er in Git steht. Der manuelle Fix brachte höchstens ein paar Minuten und das falsche Gefühl, es sei behoben. Der schnellste echte Weg aus dem Ausfall ist ein beschleunigter PR, kein Live-Patch.
 
 ## Der Fix, gezielt statt pauschal
 
-Fünf Folge-PRs, jeder für einen live bestätigten Fehlerfall, statt alles pauschal zurückzudrehen. Jede zurückgedrehte Datei bekam einen Inline-Kommentar mit dem konkreten, verifizierten Fehlerbild. Wer die pauschale Härtung später noch einmal versucht, findet den Beleg direkt im Manifest.
+Vier Folge-PRs statt alles pauschal zurückzudrehen: #95 für gitea, #96 für den Großteil, #97 für eine Redis-spezifische Ursache, die bei der Prüfung von #96 auffiel, und #99 für paperless-ngx und uptime-kuma aus der zweiten Prüfrunde. Jede Änderung kam erst, nachdem ihr Fehlerbild live bestätigt war. Jede zurückgedrehte Datei bekam einen Inline-Kommentar mit dem konkreten, verifizierten Fehlerbild. Wer die pauschale Härtung später noch einmal versucht, findet den Beleg direkt im Manifest.
 
 Endstand: `allowPrivilegeEscalation: false` überall, denn es verhindert nur, dass ein Prozess mehr Rechte erlangt, als er beim Start hat, und das Abgeben von Rechten per `su-exec`/`setpriv` braucht es nicht. `capabilities.drop: [ALL]` blieb nur dort, wo es verifiziert funktioniert (cloudflared, gitea nach eigenem Fix und einige weitere). `runAsNonRoot: true` blieb nur bei Images, deren Standard-User nachweislich nicht root ist. Die Zahl der Trivy-Misconfiguration-Findings sank von 215 auf 171: echter Fortschritt, aber nicht der Komplettdurchlauf, den der erste PR versprochen hatte.
 

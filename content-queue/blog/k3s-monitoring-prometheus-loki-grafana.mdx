@@ -382,30 +382,35 @@ scrape_configs:
           source: output
 ```
 
+Ein Haken an der Zeile `container: attrs.name`, die genau so im Repo steht: Der `json-file`-Treiber von Docker schreibt ein `attrs`-Objekt nur, wenn im Daemon oder am Container die Log-Optionen `labels`, `env` (oder deren Regex-Varianten) oder `tag` gesetzt sind, und keine davon legt den Containernamen unter `name` ab. Die `daemon.json` in diesem Repo setzt nur `max-size` und `max-file`. `attrs.name` greift also nie, das Label `container` bleibt leer, und nur `stream` landet als Label in Loki. Wer Containernamen will, nimmt in Promtail `docker_sd_configs`, das sie über die Docker-API liest, und übernimmt `__meta_docker_container_name` per Relabeling als Label.
+
 ## Schritt 6: MikroTik per SNMP überwachen
 
 Der MikroTik-Router spricht SNMP, liefert aber von Haus aus keine Prometheus-Metriken. Der SNMP Exporter schließt die Lücke: Er fragt den Router per SNMP ab und übersetzt die Ergebnisse ins Prometheus-Format.
 
-In der Prometheus-Konfiguration (in den `additionalScrapeConfigs` von kube-prometheus-stack):
+In den Values von kube-prometheus-stack gehört der Job unter `prometheus.prometheusSpec.additionalScrapeConfigs`. Der Schlüssel nimmt die Liste der Jobs direkt, ohne `scrape_configs:` drumherum:
 
 ```yaml
-scrape_configs:
-  - job_name: 'mikrotik_snmp'
-    static_configs:
-      - targets:
-          - '10.0.10.1'     # MikroTik management IP
-    metrics_path: /snmp
-    params:
-      module: [if_mib]
-      auth: [public_v2]
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: snmp-exporter:9116
+prometheus:
+  prometheusSpec:
+    additionalScrapeConfigs:
+      - job_name: 'snmp-mikrotik'
+        metrics_path: /snmp
+        params:
+          module: [if_mib]
+        static_configs:
+          - targets:
+              - '10.0.10.1'     # MikroTik management IP
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - target_label: __address__
+            replacement: 'prometheus-snmp-exporter.monitoring.svc.cluster.local:9116'
+          - source_labels: [__param_target]
+            target_label: instance
 ```
+
+Ohne `auth`-Parameter nutzt der SNMP Exporter seinen Default `public_v2` (SNMP v2c, Community `public`).
 
 Damit bekommst du für jeden Port des Routers Traffic-Zähler, Fehlerzähler und Betriebsstatus pro Interface, alles in Grafana sichtbar.
 

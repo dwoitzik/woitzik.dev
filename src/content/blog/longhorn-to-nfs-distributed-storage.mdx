@@ -37,7 +37,7 @@ On a multi-host cluster, this is a real HA scenario: the volume legitimately nee
 
 NFS (Network File System) doesn't have a Multi-Attach problem because it isn't block storage. NFS exports a directory over the network, and any number of clients can mount it at the same time. There's no attachment state to conflict.
 
-The NFS server runs on a dedicated LXC (`ct-srv-nfs-01`) with a ZFS-backed dataset:
+The NFS server runs on a dedicated LXC (`ct-srv-nfs-01`) that exports `/nfs-data`, a directory bind-mounted from the Proxmox host. When I migrated in June 2026 that directory sat on the host's ZFS root pool (`rpool`). Since the host's boot and VM storage moved from ZFS to LVM-thin on 2026-08-13, it is a logical volume in `local-lvm` on the same NVMe.
 
 ```hcl
 # terraform/stacks/proxmox/lxc.tf
@@ -58,6 +58,7 @@ resource "proxmox_virtual_environment_container" "ct_srv_nfs_01" {
   mount_point {
     volume = "/nfs-data"
     path   = "/nfs-data"
+    backup = false
   }
   # ...
 }
@@ -94,7 +95,7 @@ When k3s-12 goes down, the pods reschedule to k3s-11 or k3s-13, mount the same N
 | Feature | Longhorn | NFS |
 |---|---|---|
 | Replication across nodes | Yes (3x by default) | No (single server) |
-| Snapshots | Yes (per-volume, CSI) | Yes (ZFS snapshots on the server, not CSI) |
+| Snapshots | Yes (per-volume, CSI) | No CSI snapshots; backups are file-level (Velero) |
 | ReadWriteMany | Yes | Yes |
 | Provisioner | CSI driver | nfs-subdir-external-provisioner (not CSI) |
 | Data path | Block device (iSCSI frontend, synchronous replica writes) | File-level over NFS |
@@ -106,7 +107,7 @@ NFS gives up replication and node-failure tolerance. If the NFS server dies, eve
 
 - **No Multi-Attach errors.** Pods reschedule freely without volume attachment conflicts.
 - **Simpler failure modes.** NFS is either up or down. No "rebuilding," "degraded," or "faulted" volume states.
-- **ZFS snapshots for backup.** PBS backs up the NFS server's ZFS dataset, giving point-in-time recovery without Longhorn's snapshot overhead.
+- **Plain files for backup.** Every PVC is an ordinary directory on the NFS server, and Velero backs each one up at file level through the pod that mounts it. The `/nfs-data` mount point is excluded from Proxmox backups (`backup = false` in Terraform), so the PVC data is covered by Velero, not by PBS.
 - **Lower resource usage.** Longhorn runs a manager, a CSI plugin, and instance-manager pods on every node. NFS is one server on one LXC.
 
 ## The Storage Decision Matrix
@@ -126,7 +127,7 @@ The principle: **embedded databases go on local-path (file-locking), everything 
 
 Moving PVCs from Longhorn to NFS required:
 
-1. Deploy the NFS server LXC with the correct ZFS dataset
+1. Deploy the NFS server LXC with the host directory bind-mounted in
 2. Install the `nfs-subdir-external-provisioner` Helm chart
 3. Copy data from Longhorn volumes to NFS (using `kubectl cp` or a temporary pod)
 4. Update each application's `storageClassName` from `longhorn` to `nfs-client`

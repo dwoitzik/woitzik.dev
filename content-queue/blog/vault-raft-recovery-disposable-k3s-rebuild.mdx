@@ -1,6 +1,6 @@
 ---
-title: "Recovering Vault's Raft Data (and a Lost Root Token) After Rebuilding the Cluster That Made Them"
-description: "Restoring Vault after a full k3s rebuild: a disposable, isolated k3s instance broke the unseal-key circular dependency, plus recovering a root token never written down."
+title: "Recovering Vault's Raft Data After Rebuilding the Cluster That Made It"
+description: "Restoring Vault after a full k3s rebuild: a disposable, isolated k3s node broke the unseal-key circular dependency, then the standing root token went away."
 date: "2027-01-11"
 tags: ["Kubernetes", "Vault", "Security", "Homelab"]
 ---
@@ -25,17 +25,22 @@ The datastore itself was a single SQLite file, already extracted during the read
 
 ```bash
 # On a throwaway VM, with no role in the real cluster:
-# 1. Copy the extracted (clean, pre-incident) datastore and the original join token
+# 1. Copy the extracted (clean, pre-incident) datastore and the original server token
 scp pve:/mnt/extracted/vm-k3s-server/k3s-db/state.db  ./state.db
 scp pve:/mnt/extracted/vm-k3s-server/token             ./token
 
-# 2. Install k3s pointed at that datastore, fully isolated
+# 2. Install a plain k3s server, fully isolated (this starts it with an empty datastore)
 INSTALL_K3S_EXEC="server --disable-agent --bind-address=127.0.0.1 \
   --disable=coredns,servicelb,traefik,metrics-server,local-storage" \
   ./install.sh
+
+# 3. Stop k3s and swap in the old datastore and token. My notes don't preserve
+#    the exact commands for this step; with k3s's embedded SQLite the files go to
+#    /var/lib/rancher/k3s/server/db/state.db and /var/lib/rancher/k3s/server/token
+#    (the token decrypts the bootstrap data stored in the datastore). Then start k3s again.
 ```
 
-One snag: the fresh install's auto-generated TLS and credential files were newer than the copied datastore, and k3s refused to start rather than risk a cluster outage. "Files newer than datastore" is the kind of self-check you want a system to have, even when it's inconvenient. Deleting the fresh install's generated cert and credential files, so k3s recreated them from the copied datastore, fixed it.
+One snag: the fresh install's auto-generated TLS and credential files were newer than the copied datastore, and k3s refused to start rather than risk a cluster outage (its fatal error lists the files as "newer than datastore and could cause a cluster outage"). That is the kind of self-check you want a system to have, even when it's inconvenient. Deleting the fresh install's generated cert and credential files, so k3s recreated them from the copied datastore, fixed it.
 
 With that single-node, network-isolated instance running, the target object came out with one command:
 
@@ -67,11 +72,15 @@ HA Enabled         true
 
 A Vault on an empty PVC reports `Initialized: false`. This one reported `true`, with the same 3-share, threshold-2 seal configuration as the old cluster, which can only come from the transplanted raft data. A sealed Vault doesn't show its Cluster ID or Raft index; those appear once it is unsealed. Applying the transplanted unseal-keys Secret and letting the [polling sidecar](/blog/vault-auto-unseal-polling-sidecar/) do its normal job unsealed it on the first attempt, and only then did `vault status` show the Cluster ID matching the pre-incident cluster. That's the same Vault continuing from where its data left off, not just "a Vault came up."
 
-## The Root Token Was a Different Problem
+## The Root Token Came Out the Same Way
 
-Unlike the unseal keys, the original root token had never been written to a Kubernetes Secret. That's by design: a root token is meant for initial setup and should then be revoked or stored outside the cluster. Correct practice, and it also meant there was no copy to recover.
+The root token didn't need a separate recovery path. It came out of the same preserved datastore, through the same disposable VM, under the same rule: written to a file, never displayed. What it did not do that night was go to work. A few credentials in Vault had gone stale on their own long before the disaster (a Headscale pre-auth key, a Garage access key), and those were fixed live where they were used, with the Vault copies left as written follow-ups rather than pulling the root token into the session to update them. External Secrets Operator didn't need it either: it authenticates with its own, separately scoped token, not the root token.
 
-Vault has a documented procedure for this: `generate-root`. With a quorum of unseal key shares available (2 of the 3 restored above meet the threshold), Vault mints a new root token without needing the old one:
+## Ten Days Later: No Standing Root Token at All
+
+The recovery left a different problem behind. By 2026-08-21 the root token had shown up in my recovery agent's own tool output four separate times, because every task that touched Vault had no narrower credential to reach for.
+
+The first fix was a narrow AppRole for the agent, scoped to the two secret paths it actually writes. Creating that AppRole needed privileged access one more time, so I generated a one-time root token with Vault's documented `generate-root` ceremony, meant to be revoked as soon as the AppRole worked. With a quorum of unseal key shares (2 of 3 meet the threshold), Vault mints a new root token without needing an old one:
 
 ```bash
 vault operator generate-root -init
@@ -84,7 +93,7 @@ vault operator generate-root -nonce=<nonce>
 vault operator generate-root -decode=<encoded-token> -otp=<otp>
 ```
 
-This is Vault's supported recovery path for a lost root token, gated by the same unseal-key quorum that protects everything else, not a workaround. The new token went straight to a file and was never displayed in a terminal, same discipline as the unseal keys. It was then applied into the `ClusterSecretStore`'s token Secret so External Secrets Operator could resume syncing.
+On 2026-08-23 that became the only procedure. The unseal key shares stay in the encrypted Ansible Vault file, because they are the deliberate out-of-cluster root of trust that breaks the circular dependency above. A standing root token next to them is a different thing: a live, permanently privileged credential, so whoever can decrypt that file gets root on Vault immediately, with no threshold step in between. The one-time token had ended up stored in that file anyway. Before removing it, a hash comparison (neither value printed) confirmed ESO's token didn't match it, and a `lookup-self` call showed it was already invalid: revoked at some point, never removed from the file. Inert or not, it had been a live root token sitting there until it was revoked. It was deleted, nothing in the repo referenced it, and the runbook now says: when root access is genuinely needed (a policy change, an AppRole bootstrap, a Vault upgrade), generate one from the unseal keys, use it, and revoke it with `vault token revoke -self` in the same sitting.
 
 ## What Made This Recoverable at All
 

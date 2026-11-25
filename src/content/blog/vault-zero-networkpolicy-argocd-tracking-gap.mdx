@@ -48,21 +48,47 @@ The result was simpler than expected:
 
 No other pod in the cluster calls Vault directly. ESO resolves centrally and writes plain Kubernetes Secrets into each app's namespace. So the policy only needs to allow cross-namespace access from `external-secrets`, not from every app namespace.
 
-## The Policy
+## The Policies
+
+Three policies, all in the `vault` namespace: deny all ingress by default, then allow the two callers the traffic map found.
 
 ```yaml
-# kubernetes/system/vault/network-policies.yml
+# kubernetes/system/vault/network-policies.yml (comments trimmed)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: vault-allow-external-secrets
+  name: default-deny-ingress
   namespace: vault
 spec:
-  podSelector: {}  # all pods in vault namespace
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: vault
+spec:
+  podSelector: {}
   policyTypes:
     - Ingress
   ingress:
-    # Allow External Secrets Operator to reach Vault API
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vault
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-external-secrets
+  namespace: vault
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
     - from:
         - namespaceSelector:
             matchLabels:
@@ -70,9 +96,6 @@ spec:
       ports:
         - port: 8200
           protocol: TCP
-    # Allow same-namespace (vault-unseal, vault-0)
-    - from:
-        - podSelector: {}
 ```
 
 `external-secrets` is the only cross-namespace caller. Individual app pods never touch Vault because ESO handles it centrally, so the policy is narrow because the traffic map says so, not because I guessed.
@@ -90,6 +113,7 @@ kubectl get secret renovate-token -n apps
 # → recreated within 5s - proves ESO→Vault traffic works
 
 # 3. Verify a pod OUTSIDE the allowed namespaces is blocked
+#    (the original check ran from the homepage pod in apps; any pod there works)
 kubectl run test-pod --rm -it --image=busybox -n apps -- \
   wget -q -O- --timeout=3 http://vault.vault.svc:8200/v1/sys/health
 # → timeout - proves the policy actually restricts
@@ -121,7 +145,7 @@ Loose files under `kubernetes/apps/` are never picked up, because they aren't su
 ```bash
 # Check if ArgoCD tracks these files
 kubectl get applications -A -o json | \
-  jq -r '.items[] | select(.spec.source.path | startswith("kubernetes/apps/")) | .spec.source.path'
+  jq -r '.items[] | select((.spec.source.path // "") | startswith("kubernetes/apps/")) | .spec.source.path'
 # → kubernetes/apps/*/ (only subdirectories)
 ```
 

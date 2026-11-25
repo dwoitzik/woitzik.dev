@@ -1,18 +1,18 @@
 ---
-title: "Backup ohne Komplexität: Velero + Garage S3 auf Longhorn im k3s-Cluster"
-description: "Garage statt MinIO als Backup-Ziel für Velero: ein einzelnes kleines Binary, tägliche Cluster-Backups inklusive Longhorn-Volumes, deployt per ArgoCD."
+title: "Backup ohne Komplexität: Velero + Garage S3 im k3s-Cluster"
+description: "Garage statt MinIO als Backup-Ziel für Velero: ein einzelnes kleines Binary, tägliche Cluster-Backups inklusive PVC-Daten, deployt per ArgoCD."
 lang: de
 translationOf: "velero-garage-k3s-backup"
 date: 2026-09-22
 updated: "2026-11-25"
 draft: false
 pinned: false
-tags: ["Kubernetes", "Backup", "Velero", "S3", "Longhorn"]
+tags: ["Kubernetes", "Backup", "Velero", "S3"]
 ---
 
-**Update (2026-09-05):** Der Cluster hat Garages Storage inzwischen von Longhorn auf ein statisches, Host-NFS-basiertes PV/PVC-Paar umgezogen. Den Umzug und die Gründe dafür beschreibt [ein eigener Artikel](/blog/longhorn-to-nfs-distributed-storage/) (Englisch). Am Velero/Garage-Setup unten (Architektur, `replication_factor = 1`, das Deployment selbst) ändert das nichts, nur die `storageClassName` der beiden PVCs ist eine andere.
+**Update (November 2026):** Dieser Artikel übersetzt die englische Fassung vom Juni 2026 und beschreibt den Stand von damals. Frühere Versionen sagten, Garages PVCs lägen auf Longhorn. Das stimmte schon im Juni nicht mehr: Am 2026-06-17 sind alle PVCs des Clusters von Longhorn auf die StorageClass `nfs-client` umgezogen ([Hintergrund](/blog/longhorn-to-nfs-distributed-storage/), Englisch), deshalb zeigen die Manifeste unten jetzt `nfs-client`. Seitdem hat sich Garages Storage mehrfach geändert: `garage-meta` kam am 2026-06-23 nach einer [SQLite-Korruption auf NFS](/blog/nfs-vs-local-path-sqlite-trap/) (Englisch) auf `local-path`, `garage-data` am 2026-06-25 auf ein statisches NFS-PV auf der Archiv-HDD, und am 2026-08-21 wechselten die Metadaten auf LMDB auf einer eigenen Disk. Im Juni lief der Cluster mit `db_engine = "sqlite"`; die Konfiguration unten zeigt `lmdb`, Garages Default und den heutigen Stand. Die Velero-Seite (Schedule, File-System-Backup, Restore) ist unverändert.
 
-Jeder Kubernetes-Cluster braucht eine Backup-Strategie. In einem Homelab auf Bare Metal mit Longhorn als verteiltem Storage sind die Optionen überschaubar. `etcd`-Snapshots sichern den Cluster-Zustand, aber keine Persistent Volumes. MinIO ist das übliche S3-Ziel für Velero, für ein Single-Node-Homelab aber groß, eigenwillig und schlicht überdimensioniert.
+Jeder Kubernetes-Cluster braucht eine Backup-Strategie. In einem Homelab auf Bare Metal mit NFS-basiertem Storage sind die Optionen überschaubar. `etcd`-Snapshots sichern den Cluster-Zustand, aber keine Persistent Volumes. MinIO ist das übliche S3-Ziel für Velero, für ein Single-Node-Homelab aber groß, eigenwillig und schlicht überdimensioniert.
 
 [Garage](https://garagehq.deuxfleurs.fr/) ist ein schlanker, quelloffener, S3-kompatibler Object Store in Rust. Er kommt als einzelnes Binary, die Konfiguration ist eine TOML-Datei, und er funktioniert mit jedem S3-Client, auch mit dem AWS-Plugin von Velero. Fürs Homelab passt das deutlich besser als MinIO.
 
@@ -20,7 +20,7 @@ Jeder Kubernetes-Cluster braucht eine Backup-Strategie. In einem Homelab auf Bar
 
 ## Die Architektur
 
-> **🇬🇧 English:** Die englische Fassung dieses Artikels: [k3s Backup Without the Complexity: Velero + Garage S3 on Longhorn →](/blog/velero-garage-k3s-backup/).
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [k3s Backup with Velero and Garage S3 Instead of MinIO →](/blog/velero-garage-k3s-backup/).
 
 ```
 Velero (tägliches Backup um 03:00)
@@ -37,7 +37,7 @@ Sowohl die Kubernetes-API-Objekte als auch die eigentlichen Volume-Daten landen 
 
 ## Schritt 1: Garage auf k3s deployen
 
-Garage braucht zwei Storage-Verzeichnisse: eins für Metadaten (klein, schnell) und eins für die Objektdaten (größer). Zwei getrennte Longhorn-PVCs halten sie auf verschiedenen Volumes.
+Garage braucht zwei Storage-Verzeichnisse: eins für Metadaten (klein, schnell) und eins für die Objektdaten (größer). Zwei getrennte PVCs halten sie auf verschiedenen Volumes.
 
 ```yaml
 # kubernetes/apps/garage/pvc.yaml
@@ -49,7 +49,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: longhorn
+  storageClassName: nfs-client
   resources:
     requests:
       storage: 10Gi
@@ -62,7 +62,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: longhorn
+  storageClassName: nfs-client
   resources:
     requests:
       storage: 2Gi
@@ -99,7 +99,7 @@ data:
     admin_token_file = "/etc/garage/secrets/admin_token"
 ```
 
-`replication_factor = 1` ist für ein Single-Node-Setup richtig. Garage kann über mehrere Nodes replizieren, das braucht es hier aber nicht: Die Redundanz übernimmt Longhorn auf der Storage-Ebene.
+`replication_factor = 1` ist für ein Single-Node-Setup richtig. Garage kann über mehrere Nodes replizieren, aber mit nur einem physischen Host gibt es nichts Unabhängiges, auf das sich replizieren ließe. Schutz für diese Daten muss aus Kopien an anderer Stelle kommen, nicht aus Replikation innerhalb derselben Kiste.
 
 RPC-Secret und Admin-Token kommen aus einem Kubernetes-Secret:
 
@@ -269,13 +269,11 @@ Velero legt PVCs und PVs neu an, der Node Agent spielt die Daten zurück, und di
 
 | | Garage | MinIO |
 |---|---|---|
-| Binary-Größe | ~50MB | ~400MB |
-| Speicher (idle) | ~20MB | ~200MB+ |
 | Konfiguration | Eine TOML-Datei | Env-Variablen + Web-UI |
-| S3-Kompatibilität | Voll (Path-Style) | Voll |
+| S3-Kompatibilität | Die Kern-API, die Velero braucht (Path-Style) | Breit |
 | Cluster-Modus | Optional | Erfordert verteiltes Setup |
 
-Als Velero-Ziel im Homelab kann Garage alles, was MinIO kann, bei einem Bruchteil des Ressourcenbedarfs. Verzichten muss man nur auf die MinIO-Webkonsole, und `garage bucket info` plus `garage key list` decken auf der CLI alles Nötige ab.
+Als Velero-Ziel im Homelab kann Garage alles, was Velero von MinIO braucht, mit weniger Betriebs- und Konfigurationsaufwand. Verzichten muss man nur auf die MinIO-Webkonsole, und `garage bucket info` plus `garage key list` decken auf der CLI alles Nötige ab.
 
 ---
 

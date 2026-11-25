@@ -14,6 +14,8 @@ Three times in one week, my Proxmox host froze completely. No SSH, no web UI, no
 
 The first time, I blamed a kernel bug. The second time, I blamed ZFS. The third time, I found the actual chain: a marginal PSU causing CPU throttling under load, which pushed ZFS into a deadlock that locked the entire host.
 
+**Update (November 2026):** The ZFS setup described here no longer exists in this form. On 2026-08-13 the host's boot and VM storage moved from the ZFS pool `rpool` to LVM-thin; ZFS now only backs the archive pool on the USB HDD. The ARC cap also moved after this post: the Ansible role that took over `/etc/modprobe.d/zfs.conf` on 2026-07-04 set `zfs_arc_max` to 16 GiB, and by late August the host was running with that value. It was lowered to 8 GiB on 2026-08-29 and to 4 GiB on 2026-09-09 after two host memory-pressure incidents, and 4 GiB is the baseline today.
+
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Symptoms
@@ -40,7 +42,7 @@ ZFS batches writes into transaction groups (txgs). Dirty data accumulates in mem
 
 When the CPU throttles mid-sync and I/O latency spikes at the same time, the sync takes far longer than usual. Writers pile up behind it, memory pressure rises, and the ARC has to evict to make room.
 
-My working theory for ZFS 2.4.1, the version running on this host, is that ARC eviction ended up blocked behind the stalled txg sync. That matches a deadlock class OpenZFS has documented before under memory pressure ([txg_sync hung task when shrinking ARC, openzfs/zfs#4319](https://github.com/openzfs/zfs/issues/4319), [ARC eviction thread blocking on allocations, openzfs/zfs#12985](https://github.com/openzfs/zfs/pull/12985)). The result is a circular wait: ARC eviction needs the txg to complete, the txg needs I/O bandwidth, I/O is delayed by CPU throttling, CPU throttling is caused by the PSU sag, and the PSU sags because everything is running at once.
+My working theory for ZFS 2.4.1, the version running on this host at the time, is that ARC eviction ended up blocked behind the stalled txg sync. The closest match is an open report against the exact same build, `2.4.1-pve1` on Proxmox VE: [openzfs/zfs#18426](https://github.com/openzfs/zfs/issues/18426), a system-wide deadlock under ARC memory pressure and concurrent I/O where `txg_sync` hangs, the ZFS I/O worker threads sit idle, and there is no panic. That matched what I saw. OpenZFS has fixed similar problems before ([txg_sync hung task when shrinking ARC, openzfs/zfs#4319](https://github.com/openzfs/zfs/issues/4319), [ARC eviction thread blocking on allocations, openzfs/zfs#12985](https://github.com/openzfs/zfs/pull/12985)). The result is a circular wait: ARC eviction needs the txg to complete, the txg needs I/O bandwidth, I/O is delayed by CPU throttling, CPU throttling is caused by the PSU sag, and the PSU sags because everything is running at once.
 
 The host doesn't panic. It just stops responding to anything that touches disk.
 
@@ -62,9 +64,11 @@ disk {
 }
 ```
 
-`cache=none` opens the disk with `O_DIRECT`, bypassing the host page cache, so the guest handles its own caching. `aio=native` uses Linux native AIO instead of Proxmox VE's default `io_uring` (or the `threads` pool). It requires `O_DIRECT`, which is why it pairs with `cache=none`. This alone reduced I/O latency variance by 40% under load.
+`cache=none` opens the disk with `O_DIRECT`, bypassing the host page cache, so the guest handles its own caching. `aio=native` uses Linux native AIO instead of Proxmox VE's default `io_uring` (or the `threads` pool). It requires `O_DIRECT`, which is why it pairs with `cache=none`.
 
-### Fix 2: ZFS ARC Limits
+### Fix 2: ZFS Upgrade and ARC Limits
+
+First, I upgraded ZFS from 2.4.1 to 2.4.2 (2026-06-22). That is not a guaranteed fix: the issue above is still open, and later comments report the same hang on 2.4.2 and 2.4.3. The limits below are what actually shrinks the window.
 
 Without a cap, the ARC can grow to a large share of RAM and then has to shrink under memory pressure, which is exactly the eviction path implicated above. I capped it:
 
@@ -74,7 +78,7 @@ Without a cap, the ARC can grow to a large share of RAM and then has to shrink u
 options zfs zfs_arc_max=4294967296
 ```
 
-On a 64GB host, 4GB is enough for read caching and leaves the rest to the VMs, so the ARC rarely has to evict under pressure. (Dirty data has its own limit, `zfs_dirty_data_max`, which defaults to 10% of RAM capped at 4GB.)
+On a 64GB host, 4GB is enough for read caching and leaves the rest to the VMs, so the ARC rarely has to evict under pressure. Dirty data has its own limit, `zfs_dirty_data_max`, which defaults to 10% of RAM capped at 4GB; I capped that at 1GB as well, so each txg has less to write out. (See the update note at the top for how the ARC value changed later.)
 
 ### Fix 3: txg Timeout Tuning
 

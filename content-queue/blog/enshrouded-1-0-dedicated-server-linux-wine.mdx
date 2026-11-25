@@ -60,8 +60,10 @@ The current server version writes only `queryPort` (15637) into its config and d
 Enshrouded 1.0 shipped on 2026-10-15, and clients on the new version refused to talk to a server on the old build. So I updated. SteamCMD printed its usual success message and the server never came back. The journal showed the unit crash-looping on:
 
 ```text
-wine: failed to open "/home/enshrouded/enshroudedserver/enshrouded_server.exe": c0000135
+wine: failed to open ".../enshrouded_server.exe": c0000135
 ```
+
+`c0000135` is `STATUS_DLL_NOT_FOUND`, so the line reads like a missing DLL. It wasn't one: the executable itself was gone.
 
 The real story was in Steam's content log. On 2026-10-21 the depot configuration for app `2278520` changed:
 
@@ -83,7 +85,7 @@ I checked the current depot list against Steam's public app info (via the steamc
 
 Two things made this harder to see than it should have been:
 
-- **The savegame was never touched.** `savegame/world0.ksd` and `enshrouded_server.json` (including the password) survived. Only the executable and the 32 `.dat` containers were gone, and those can be downloaded again. The failure was loud in systemd and silent in SteamCMD.
+- **The savegame was never touched.** `savegame/world0.ksd` and `enshrouded_server.json` (including the password) survived. Only game content was gone, including the executable and the `.dat` data containers, all of which can be downloaded again. The failure was loud in systemd and silent in SteamCMD.
 - **The three-argument depot form did nothing.** `+app_update <appid> <depot> <manifest>`, which I tried in order to ask for the content depot explicitly, was ignored by the current SteamCMD client. It fetched zero bytes and reported success.
 
 ## Fix 1: Always Request the Windows Depot

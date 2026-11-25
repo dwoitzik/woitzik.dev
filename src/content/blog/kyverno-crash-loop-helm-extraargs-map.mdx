@@ -2,7 +2,7 @@
 title: "How a YAML List vs Map Difference Crash-Looped My Kyverno Fix"
 description: "Kyverno's cleanup-controller extraArgs expects a map, not a list, so my leader-election fix crash-looped the pod it was meant to stabilize. How to catch it."
 date: "2026-10-08"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Security", "Debugging"]
 ---
 
@@ -10,25 +10,15 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Kyverno's cleanup-controller was restarting every few hours. Its leader-election lease kept expiring under load (the same class of instability that [CPU contention causes for etcd](/blog/cpu-scheduling-etcd-proxmox-units/)), so the controller lost its lock and a new leader took over, leaving a brief gap in cleanup processing. The fix looked simple: increase `leaderElectionRetryPeriod`. Instead, it crash-looped the very pod it was meant to stabilize.
+Kyverno's cleanup-controller had restarted 337 times in 16 days. Its leader-election lease renewal kept timing out against the API server (the same class of instability that [CPU contention causes for etcd](/blog/cpu-scheduling-etcd-proxmox-units/)), and the single-replica controller shut itself down every time it lost leadership. The fix looked simple: increase `leaderElectionRetryPeriod`. Instead, it crash-looped the very pod it was meant to stabilize.
 
 ## The Symptom
 
-```
-cleanup-controller-7f8b9c4d6-xk2p4   0/1     CrashLoopBackOff   3 (42s ago)
-```
-
-The pod started, crashed immediately, and Kubernetes restarted it: three crashes in under two minutes, with the cleanup controller showing as unavailable.
+Within minutes of the change syncing, the pod from the new ReplicaSet was in `CrashLoopBackOff`: it started, exited immediately, and Kubernetes kept restarting it.
 
 ## The Investigation
 
-A crash right at startup usually means the binary is rejecting its flags. The pod's logs confirmed it:
-
-```
-Error: unknown flag: --0=--leaderElectionRetryPeriod=10s
-```
-
-The binary received `--0=--leaderElectionRetryPeriod=10s` as a single flag. That is not a valid argument. It is what the chart template renders when the values have the wrong YAML structure.
+A crash right at startup usually means the binary is rejecting its flags, and that is what happened here. The binary received `--0=--leaderElectionRetryPeriod=10s` as a single argument. Kyverno's binaries parse their arguments with Go's standard `flag` package, which splits that at the first `=`, looks for a flag named `0`, and exits with `flag provided but not defined: -0` followed by the usage text. That is not a valid argument. It is what the chart template renders when the values have the wrong YAML structure.
 
 ## The Root Cause: List vs Map
 
@@ -60,9 +50,9 @@ The binary sees `0` as a flag name, doesn't recognize it, and exits with a non-z
 
 ## Why This Is a Production Risk
 
-This wasn't a staging environment. The cleanup-controller executes Kyverno's `CleanupPolicy` and `ClusterCleanupPolicy` resources and the TTL-based deletions driven by the `cleanup.kyverno.io/ttl` label. While it is down, none of that runs, and a crash-looping pod also keeps churning the leader lock it was supposed to stabilize.
+This wasn't a staging environment. The cleanup-controller executes Kyverno's `CleanupPolicy` and `ClusterCleanupPolicy` resources and the TTL-based deletions driven by the `cleanup.kyverno.io/ttl` label. If the controller is down, none of that runs.
 
-The fix for leader-election instability *caused* a worse instability. The cleanup-controller restarted three times before I caught it, and scheduled cleanups did not run in that window.
+The fix for leader-election instability *caused* a worse instability. I caught it within minutes from the new pod's status and corrected the values on the cluster before the git-side fix landed.
 
 ## How to Catch This Before It Hits Production
 

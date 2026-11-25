@@ -2,7 +2,7 @@
 title: "I Hardened Pod securityContext and Broke 9 Containers in Production"
 description: "capabilities.drop: [ALL] and runAsNonRoot: true passed validation. Minutes after merge, nine containers were down, including both Postgres instances."
 date: "2026-06-25"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Security", "Homelab"]
 ---
 
@@ -39,13 +39,15 @@ This broke gitea, authelia, headscale, mealie and both Postgres instances (paper
 
 **Assumption 2: `runAsNonRoot: true` is safe to set on any container, since "obviously" you don't want it running as root.**
 
-Wrong in the opposite direction. `runAsNonRoot: true` doesn't change how the container runs. It is a check the kubelet performs before starting the container, and it fails outright if the image's default user is root and nothing in the pod spec overrides it. `vault-unseal` (hashicorp/vault), the Nextcloud and Paperless Redis instances, and `cloudflare-ddns` (curlimages/curl) all default to root. These containers didn't crash-loop. They never started at all:
+Wrong in the opposite direction. `runAsNonRoot: true` doesn't change how the container runs. It is a check the kubelet performs before starting the container, and it fails outright if the image's default user is root and nothing in the pod spec overrides it. `vault-unseal` (hashicorp/vault) and the Nextcloud and Paperless Redis instances default to root. These containers didn't crash-loop. They never started at all, and the kubelet said why:
 
 ```
-Error: container has runAsNonRoot and image will run as root
+container has runAsNonRoot and image will run as root
 ```
 
-That surfaces as `CreateContainerConfigError`, a clean failure with a clear message, which made it the easier category to diagnose. The crash-looping containers from Assumption 1 were the harder half.
+`cloudflare-ddns` (curlimages/curl) failed the same check for a different reason. That image does not run as root: it sets `USER curl_user`. But `curl_user` is a name, not a numeric UID, and the kubelet cannot prove from a name that the user isn't root, so with no `runAsUser` in the pod spec it refuses the container with `container has runAsNonRoot and image has non-numeric user (curl_user), cannot verify user is non-root`. My own fix comment in the repo blamed root for this one too; the image says otherwise. Setting `runAsUser` to the image's UID would have satisfied the check.
+
+All of these surface as `CreateContainerConfigError`, a clean failure with a clear message, which made it the easier category to diagnose. The crash-looping containers from Assumption 1 were the harder half.
 
 ## Catching It: Why "Application: Synced/Healthy" Lied
 
@@ -74,29 +76,27 @@ kubectl logs <name> -n apps --previous
 Once you're looking at the right pod, `kubectl logs` on the crashing container is unambiguous:
 
 ```
-chown: /config: Operation not permitted
 su-exec: setgroups(0): Operation not permitted
 setpriv: setresuid failed: Operation not permitted
 ```
 
-Three error formats, one root cause: the entrypoint tried to fix ownership or drop privileges and couldn't, because the capability for that had already been dropped. This was the most useful debugging fact of the whole incident. If you see any of these three patterns after a `securityContext` change, the fix is to give the capability back, not to investigate the application.
+Those two are quoted from the fix comments for Authelia and the Redis instances. The other images failed the same way on `chown` or on `setpriv`'s setgroups call. Three failing calls, one root cause: the entrypoint tried to fix ownership or drop privileges and couldn't, because the capability for that had already been dropped. This was the most useful debugging fact of the whole incident. If you see any of these three patterns after a `securityContext` change, the fix is to give the capability back, not to investigate the application.
 
 ## The Recovery Trap: selfHeal Undoes Manual Fixes
 
 To restore service faster than a PR review cycle allows, the instinct during an outage is to patch the live cluster directly:
 
 ```bash
-kubectl patch deployment authelia -n apps --type=json \
-  -p '[{"op": "remove", "path": "/spec/template/spec/containers/0/securityContext/capabilities"}]'
+kubectl apply -f kubernetes/apps/authelia/authelia.yml   # the fixed manifest, not yet merged
 ```
 
-This works until ArgoCD's next reconciliation notices the drift. With `selfHeal: true`, ArgoCD's whole job is to make the live cluster match Git. A manual `kubectl patch` that diverges from the committed manifest *is* drift by definition, and it gets silently reverted to the still-broken state.
+This works until ArgoCD's next reconciliation notices the drift. With `selfHeal: true`, ArgoCD's whole job is to make the live cluster match Git. A manual `kubectl apply` that diverges from the committed manifest *is* drift by definition, and it gets silently reverted to the still-broken state.
 
-**With selfHeal enabled, Git is the only place a fix can stick.** In this incident the real fix only survived once it landed as a merged change. The manual patch bought a few minutes at best and gave a false sense of "it's fixed" that evaporated on the next sync. Under selfHeal, the fastest path to recovery is a fast-tracked PR, not a live patch.
+**With selfHeal enabled, Git is the only place a fix can stick.** In this incident the real fix only survived once it landed as a merged change. The manual apply bought a few minutes at best and gave a false sense of "it's fixed" that evaporated on the next sync. Under selfHeal, the fastest path to recovery is a fast-tracked PR, not a live fix.
 
 ## The Fix, Applied Selectively
 
-Five follow-up PRs, each fixing one failure mode after it was confirmed live, instead of a blanket revert of everything:
+Four follow-up PRs instead of a blanket revert of everything: #95 for gitea, #96 for the bulk of it, #97 for a Redis-specific cause found while verifying #96, and #99 for paperless-ngx and uptime-kuma, found in the extended pass. Each change was made only after its failure mode was confirmed live:
 
 ```yaml
 # Reverted only what was proven to break - capabilities stay dropped
@@ -179,7 +179,7 @@ securityContext:
   fsGroupChangePolicy: OnRootMismatch
 ```
 
-This is the better fix for each of the five images the follow-up PRs reverted. Restoring capabilities was the right call during an active incident because it was the fastest recovery. `fsGroup` with a non-root `runAsUser` (plus the initContainer pattern for the stubborn unconditional-chown images) is the version worth landing as the final state, because it restores the hardening without reopening the exposure it was meant to close.
+This is the better fix for each of the images the follow-up PRs reverted. Restoring capabilities was the right call during an active incident because it was the fastest recovery. `fsGroup` with a non-root `runAsUser` (plus the initContainer pattern for the stubborn unconditional-chown images) is the version worth landing as the final state, because it restores the hardening without reopening the exposure it was meant to close.
 
 ---
 

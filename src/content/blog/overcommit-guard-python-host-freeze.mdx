@@ -1,6 +1,6 @@
 ---
 title: "The Overcommit Guard: How a Python Script Prevents Host Freezes"
-description: "VM dedicated memory is a reservation, LXC dedicated a soft ceiling. Summing them overstated pressure by 40GB. A two-tier CI guard now prevents ZFS freezes."
+description: "VM dedicated memory is a reservation, LXC dedicated a soft ceiling. Summing them overstated pressure by 44GB. A two-tier CI guard now prevents ZFS freezes."
 date: "2026-09-03"
 updated: "2026-11-25"
 tags: ["Proxmox", "Homelab", "Debugging", "CI/CD"]
@@ -12,7 +12,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 My Proxmox host froze three times in one week. The root cause was RAM pressure pushing ZFS into an I/O stall on a single shared NVMe. After fixing the freeze (ZFS tuning, cache=none+aio=native), I needed a way to stop it from happening again: a CI guard that catches memory overcommit before it reaches the host. It's the same host where uncontrolled boot storms once pushed the load average to 147; memory pressure and I/O pressure are two versions of the same single-host bottleneck.
 
-The first version of the guard was wrong. It summed VM and LXC memory allocations together against one ceiling, and flagged 85 GB as "allocated" on a host with 62 GB of physical RAM. A live check showed only 41 GB in use, with 21 GB available. The guard was overstating pressure by 40 GB because it treated two different memory physics as the same thing.
+The first version of the guard was wrong. It summed VM and LXC memory allocations together against one ceiling, and flagged 85 GB as "allocated" on a host with 62 GB of physical RAM. A live check showed only 41 GB in use, with 21 GB available. The guard was overstating pressure by 44 GB because it treated two different memory physics as the same thing.
 
 The fix was a two-tier model that understands the difference between a VM reservation and an LXC ceiling.
 

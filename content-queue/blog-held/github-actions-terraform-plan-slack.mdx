@@ -9,7 +9,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-By default, `terraform plan` exits with code 0 whether there are changes or not. In a GitOps workflow with [Atlantis](/blog/mikrotik-terraform-gitops-firewall-management/) on a [BMAX Mini PC*](/go/4bv3yF1), that means a plan can show 15 resources to destroy and CI still passes green. A GitHub Actions job that runs the plan with `-detailed-exitcode`, counts additions, changes and deletions, and posts a summary to Slack gives the team visibility without opening the Atlantis UI.
+By default, `terraform plan` exits with code 0 whether there are changes or not. In a PR-comment GitOps workflow like [Atlantis](/blog/mikrotik-terraform-gitops-firewall-management/), or the comment-triggered GitHub Actions workflows that replaced it on my [BMAX Mini PC*](/go/4bv3yF1) homelab, that means a plan can show 15 resources to destroy and CI still passes green. A GitHub Actions job that runs the plan with `-detailed-exitcode`, counts additions, changes and deletions, and posts a summary to Slack gives the team visibility without anyone having to open the full plan.
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -157,7 +157,7 @@ The job needs `permissions: pull-requests: write` for this. Reviewers get the pl
 
 ## The Atlantis Alternative
 
-If you use Atlantis (like the homelab-infrastructure repo), the same parsing works on Atlantis plan output. Atlantis posts the plan as a PR comment in a fixed format, and a GitHub Action that watches for those comments and extracts the summary avoids running `terraform plan` twice against the same state.
+If you use Atlantis, the same parsing works on Atlantis plan output. Atlantis posts the plan as a PR comment in a fixed format, and a GitHub Action that watches for those comments and extracts the summary avoids running `terraform plan` twice against the same state. The homelab-infrastructure repo used Atlantis until August 2026, when comment-triggered GitHub Actions workflows on a self-hosted runner replaced it. Those workflows already run the plan themselves, so the parsing step can go straight into the plan job instead of watching for comments.
 
 Either way, the plan needs real state access. `terraform init -backend=false` is fine for `validate` in CI, but a plan without the configured backend either refuses to run or, with no state at all, shows every resource as "to add", which makes the counts meaningless. Give the alert job read access to the state backend and read-only provider credentials. It's a lighter-weight version of the same verification-gap problem covered in [why a "merged" GitOps change isn't proof it's deployed](/blog/gitops-merged-not-applied-argocd-drift/): a green pipeline confirms the command ran, not that the outcome matches intent.
 

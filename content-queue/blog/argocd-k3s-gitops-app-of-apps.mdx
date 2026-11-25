@@ -1,6 +1,6 @@
 ---
-title: "ArgoCD auf k3s: GitOps fürs ganze Homelab mit App-of-Apps"
-description: "ArgoCD auf k3s mit App-of-Apps: eine Root-Application deployt das Homelab aus Git. Repo-Aufbau, Bootstrap-Reihenfolge, selfHeal, Rebuild in unter 10 Minuten."
+title: "ArgoCD auf k3s: GitOps fürs ganze Homelab aus einem Repo"
+description: "Wie ein Git-Repo mit ArgoCD ein ganzes k3s-Homelab steuert: Repo-Aufbau, ein ApplicationSet für Apps, eigene System-Applications, selfHeal und die Bootstrap-Lücke."
 lang: "de"
 translationOf: "argocd-gitops-k3s-homelab"
 date: "2026-12-07"
@@ -9,15 +9,17 @@ tags: ["Kubernetes", "GitOps", "Homelab"]
 
 <em>Werbung: Dieser Beitrag enthält Amazon-Affiliate-Links (mit &#42; markiert). Als Amazon-Partner verdiene ich an qualifizierten Verkäufen. Für dich kostet es nichts extra.</em>
 
-**Update (2026-09-09):** Der persistente Storage dieses Clusters ist inzwischen von Longhorn auf NFS umgezogen (dieselbe Änderung steht im [Artikel zum k3s/Authelia/Longhorn-Homelab](/blog/k3s-authelia-proxmox-homelab/), englischer Artikel). Die Applications `kubernetes/system/longhorn/` und `longhorn-config/` weiter unten gibt es im aktuellen Repository nicht mehr. Die GitOps-Mechanik, um die es in diesem Artikel geht (das App-of-Apps-Muster, die Trennung in Helm-Chart-Application und Config-Application, die Bootstrap-Reihenfolge), ist davon nicht betroffen. Longhorn bleibt unten als Beispiel für "Muster 1 / Muster 2" stehen, weil es für alle, die es auf verteilten Nodes betreiben, weiterhin richtig ist.
+**Update (2026-09-09):** Der persistente Storage dieses Clusters ist inzwischen von Longhorn auf NFS umgezogen (dieselbe Änderung steht im [Artikel zum k3s/Authelia/Longhorn-Homelab](/blog/k3s-authelia-proxmox-homelab/), englischer Artikel). Die Application `kubernetes/system/longhorn/` weiter unten gibt es im aktuellen Repository nicht mehr. Die GitOps-Mechanik, um die es in diesem Artikel geht (das ApplicationSet für Apps, die Trennung in Helm-Chart-Application und Config-Application, die Bootstrap-Reihenfolge), ist davon nicht betroffen. Longhorn bleibt unten als Beispiel für "Muster 1" stehen, weil es für alle, die es auf verteilten Nodes betreiben, weiterhin richtig ist.
+
+**Update (November 2026):** Eine frühere Fassung dieses Artikels beschrieb eine einzelne `root-app` in `kubernetes/system/argocd-config/`, die alle anderen Applications bootstrappt. Die gab es in diesem Repo nie: In `argocd-config/` lag immer nur das Ingress für ArgoCD. Die Abschnitte unten beschreiben jetzt, was das Repo tatsächlich gemacht hat. Eine Prüfung aller 41 laufenden Applications im Juli 2026 ergab, dass 18 davon per einmaligem `kubectl apply` angelegt und von nichts verfolgt wurden, sodass eine Änderung an ihrer eigenen Definition in Git keine Wirkung hatte. Seit August 2026 verfolgt eine Application namens `system-app-bootstrap` (`kubernetes/system/argocd/system-app-bootstrap.yml`) diese Definitionsdateien.
 
 Die meisten Kubernetes-Tutorials enden mit `kubectl apply -f`. Du deployst etwas, es läuft, und du machst weiter. Drei Wochen später weißt du nicht mehr, was in deinem Cluster läuft, warum es so konfiguriert ist und wie du es nach einem Ausfall wieder aufbaust. Mein Cluster läuft auf einem [BMAX Mini PC\*](/go/4bv3yF1): klein genug für ein 10-Zoll-Rack, stark genug für einen kompletten k3s-Stack.
 
 GitOps löst das. Mit ArgoCD ist das Git-Repository die einzige Quelle der Wahrheit für alles im Cluster. Kein manuelles `kubectl apply`, keine Helm-Befehle in der Shell-History, keine von Hand editierten Ressourcen. Was nicht in Git steht, existiert nicht.
 
-So verwalte ich meinen kompletten Homelab-Stack (MetalLB, Traefik, Longhorn, cert-manager, Authelia und Vaultwarden) als ein einziges Git-Repository mit dem App-of-Apps-Muster von ArgoCD.
+So verwalte ich meinen kompletten Homelab-Stack (MetalLB, Traefik, Longhorn, cert-manager, Authelia und Vaultwarden) als ein einziges Git-Repository mit ArgoCD.
 
-> **🇬🇧 English:** Die englische Fassung dieses Artikels: [ArgoCD on k3s: GitOps for a Whole Homelab with App-of-Apps →](/blog/argocd-gitops-k3s-homelab/).
+> **🇬🇧 English:** Die englische Fassung dieses Artikels: [ArgoCD on k3s: GitOps for a Whole Homelab from One Repo →](/blog/argocd-gitops-k3s-homelab/).
 
 **[Den kompletten Quellcode der Homelab-Infrastruktur gibt es auf GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -31,53 +33,68 @@ homelab-infrastructure/
     ├── apps/                    # User-facing applications
     │   ├── authelia/
     │   │   ├── authelia.yml     # Deployment + Service
-    │   │   ├── configuration.yml # ConfigMap
+    │   │   ├── configmap.yml    # ConfigMap
     │   │   ├── ingress.yml
-    │   │   └── users_database.yml
+    │   │   └── users_database_secret.yml
     │   └── vaultwarden/
     │       ├── ingress.yml
     │       └── pvc.yml
-    └── system/                  # Cluster infrastructure
-        ├── argocd-config/       # ArgoCD Application definitions
-        ├── cert-manager/        # Helm chart Application
-        ├── cert-manager-config/ # ClusterIssuer + Certificate CRDs
-        ├── longhorn/            # Helm chart Application
-        ├── metallb/             # Helm chart Application
-        ├── metallb-config/      # IPAddressPool + L2Advertisement
-        ├── traefik/             # Helm chart Application
-        └── test-app/            # nginx for smoke testing
+    ├── system/                  # Cluster infrastructure
+    │   ├── argocd/              # ApplicationSet + ArgoCD config
+    │   ├── argocd-config/       # ArgoCD's own ingress
+    │   ├── cert-manager/        # Helm chart Application
+    │   ├── cert-manager-config/ # ClusterIssuer
+    │   ├── longhorn/            # Helm chart Application
+    │   ├── metallb/             # Helm chart Application
+    │   ├── metallb-config/      # IPAddressPool + L2Advertisement
+    │   └── traefik/             # Helm chart Application
+    └── test-app/                # nginx for smoke testing
 ```
 
 Die Trennung zwischen `apps/` und `system/` ist Absicht. Systemkomponenten sind Cluster-Infrastruktur und müssen existieren, bevor Anwendungen laufen können. Anwendungen sind Workloads, die davon abhängen. Wenn beides getrennt liegt, ist diese Abhängigkeit schon am Repo-Aufbau zu sehen.
 
-## Das App-of-Apps-Muster in ArgoCD
+## Zwei Wege, wie Applications entstehen
 
-Statt jede ArgoCD-Application von Hand anzulegen, nutze ich das App-of-Apps-Muster: eine einzige Root-Application, die auf das Verzeichnis `argocd-config/` zeigt. Dort liegen die Application-Manifeste für alles andere.
+Eine einzelne Root-Application gibt es in diesem Repo nicht. Applications kommen aus zwei Quellen.
 
-Die Root-Application:
+**Alles unter `kubernetes/apps/`** greift ein einziges ApplicationSet ab, `kubernetes/system/argocd/apps-applicationset.yaml`. Sein Git-Directory-Generator macht aus jedem Unterverzeichnis eine eigene Application, benannt nach dem Verzeichnis:
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
-kind: Application
+kind: ApplicationSet
 metadata:
-  name: root-app
+  name: homelab-apps
   namespace: argocd
 spec:
-  project: default
-  source:
-    repoURL: https://github.com/dwoitzik/homelab-infrastructure.git
-    targetRevision: HEAD
-    path: kubernetes/system/argocd-config
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: argocd
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
+  generators:
+    - git:
+        repoURL: 'https://github.com/dwoitzik/homelab-infrastructure.git'
+        revision: main
+        directories:
+          - path: kubernetes/apps/*
+  template:
+    metadata:
+      name: '{{path.basename}}'
+    spec:
+      project: default
+      source:
+        repoURL: 'https://github.com/dwoitzik/homelab-infrastructure.git'
+        targetRevision: main
+        path: '{{path}}'
+      destination:
+        server: 'https://kubernetes.default.svc'
+        namespace: apps
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
 ```
 
-Diese eine Application bootstrappt alles Weitere. Sobald ArgoCD installiert und die Root-Application angelegt ist, baut sich der Cluster aus Git selbst zusammen.
+Eine neue App ist ein neues Verzeichnis und ein Push. Ein Application-Manifest musst du dafür nicht schreiben.
+
+**Alles unter `kubernetes/system/`** hat pro Komponente eine eigene `application.yml` (`cert-manager/application.yml`, `metallb/application.yml` und so weiter). Nichts hat diese Dateien erzeugt oder verfolgt: Jede musste einmal per `kubectl apply` angelegt werden. Genau das war die Schwachstelle dieses Setups, mehr dazu im Bootstrap-Abschnitt unten.
 
 ## Wie die Applications aufgebaut sind
 
@@ -143,7 +160,7 @@ spec:
       selfHeal: true
 ```
 
-Dieses Muster (Helm-Chart-Application plus eigene Config-Application) gibt es für MetalLB, cert-manager und Longhorn. Die Trennung existiert, weil die CRDs aus dem Helm-Chart da sein müssen, bevor die Konfigurationsressourcen angewendet werden können. Sync Waves nutzt dieses Repo dafür nicht. Liegt die Konfiguration in einer eigenen Application, scheitert ein Sync mit fehlenden CRDs nur dort, ohne das Chart zu blockieren, und die Konfiguration zieht nach, sobald die CRDs da sind. Das ist einfacher, als die Reihenfolge innerhalb einer einzigen Application zu steuern.
+Dieses Muster (Helm-Chart-Application plus eigene Config-Application) gibt es für MetalLB und cert-manager. Die Trennung existiert, weil die CRDs aus dem Helm-Chart da sein müssen, bevor die Konfigurationsressourcen angewendet werden können. Sync Waves nutzt dieses Repo dafür nicht. Liegt die Konfiguration in einer eigenen Application, scheitert ein Sync mit fehlenden CRDs nur dort, ohne das Chart zu blockieren, und die Konfiguration zieht nach, sobald die CRDs da sind. Das ist einfacher, als die Reihenfolge innerhalb einer einzigen Application zu steuern.
 
 ## Der Deployment-Ablauf mit GitOps
 
@@ -168,13 +185,16 @@ Ein Henne-Ei-Problem bleibt: ArgoCD muss existieren, bevor es irgendetwas verwal
 kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-# 2. Create the root Application (one-time manual step)
-kubectl apply -f kubernetes/system/argocd-config/root-app.yaml
+# 2. Create the ApplicationSet for kubernetes/apps/*
+kubectl apply -f kubernetes/system/argocd/apps-applicationset.yaml
 
-# 3. Everything else is automatic
+# 3. Create each system Application once
+kubectl apply -f kubernetes/system/metallb/application.yml
+kubectl apply -f kubernetes/system/cert-manager/application.yml
+# ...one per component under kubernetes/system/
 ```
 
-Nach Schritt 2 liest ArgoCD das Verzeichnis `argocd-config/`, legt alle Child-Applications an, und der Cluster baut sich selbst zusammen. Dieser zweistufige Bootstrap ist der einzige Handgriff, den ein kompletter Neuaufbau des Clusters braucht.
+Nach Schritt 2 bauen sich die Apps aus Git selbst zusammen. Der Haken ist Schritt 3: Jede System-Application ist ein einmaliges `kubectl apply`, und sobald sie existiert, beobachtet nichts in ArgoCD die Datei, die sie definiert. Änderst du diese `application.yml` in Git, bleibt die laufende Application, wie sie war. Eine Prüfung im Juli 2026 fand 18 von 41 laufenden Applications in genau diesem Zustand. Die Lösung war eine weitere Application, `system-app-bootstrap`, die auf `kubernetes/system/` zeigt und jede `*/application.yml` einschließt. Damit werden auch die Definitionen selbst aus Git synchronisiert.
 
 ## Automatischer oder manueller Sync
 
@@ -192,12 +212,12 @@ Für Produktiv-Workloads, bei denen du Änderungen vor dem Anwenden prüfen will
 
 Mit ArgoCD als Verwalter des gesamten Stacks:
 
-- **Reproduzierbarkeit:** Ein frischer Cluster baut sich mit dem zweistufigen Bootstrap in unter 10 Minuten selbst wieder auf
+- **Reproduzierbarkeit:** Der Sollzustand des Clusters liegt komplett in Git, und ein Neuaufbau ist eine kurze, bekannte Liste von `kubectl apply`-Befehlen
 - **Nachvollziehbarkeit:** Jede Änderung ist ein Git-Commit mit Autor, Zeitstempel und Diff
 - **Schutz vor Drift:** `selfHeal: true` setzt manuelle Änderungen automatisch zurück
 - **Klare Abhängigkeiten:** Systemkomponenten und ihre Konfiguration liegen in eigenen Applications, getrennt von den Workloads, die sie brauchen
 
-Das gesamte Homelab, vom Bare Metal bis zu laufendem Authelia und Vaultwarden, ist ein Git-Repository. Brennt der Cluster ab: ArgoCD installieren, `kubectl apply -f root-app.yaml`, warten.
+Das gesamte Homelab, vom Bare Metal bis zu laufendem Authelia und Vaultwarden, ist ein Git-Repository. Brennt der Cluster ab: ArgoCD installieren, das ApplicationSet und die System-Applications anlegen, warten.
 
 Eine Einschränkung habe ich erst später gelernt: Ein `Synced`-Badge beweist nicht, dass eine gemergte Änderung auch live ist. Über [drei gemergte Fixes, die nie wirksam wurden](/blog/gitops-merged-not-applied-argocd-drift/) (englischer Artikel), und wie man das prüft, habe ich separat geschrieben.
 

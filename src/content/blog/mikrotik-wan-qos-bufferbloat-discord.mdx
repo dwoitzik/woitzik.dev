@@ -2,7 +2,7 @@
 title: "Discord Voice Choppy? It Was Bufferbloat: 51 Lines of Terraform"
 description: "Discord voice sounded robotic to others but clean over mobile data. With no WAN QoS, a 50 Mbit upload saturated easily. The fix and its FastTrack catch."
 date: "2026-07-12"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Networking", "Homelab", "Debugging"]
 ---
 
@@ -12,13 +12,15 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 Discord voice was choppy, and in one direction only: I heard everyone fine, but others heard me as robotic, garbled audio that came and went. Over mobile data it was clean, which put the problem on my home network path, not Discord or the ISP.
 
-The investigation led to a textbook bufferbloat setup on the [MikroTik RB5009\*](/go/4w08b21): no QoS or AQM on the WAN interface, a 50 Mbit upload ceiling that is easy to saturate, and RouterOS's default `pfifo` queue doing nothing to stop one bulk transfer from monopolizing the link against latency-sensitive UDP voice traffic.
+The investigation led to a textbook bufferbloat setup on the [MikroTik RB5009\*](/go/4w08b21): no QoS or AQM on the WAN interface, a 50 Mbit upload ceiling that is easy to saturate, and only the default interface queue, with no active queue management, doing nothing to stop one bulk transfer from monopolizing the link against latency-sensitive UDP voice traffic.
+
+> **Update (November 2026):** The PCQ simple queue below never shaped most traffic, for the FastTrack reason in the correction further down. On 2026-11-11 it was replaced by a CAKE queue tree on `ether1` (`kind=cake`, `diffserv4`, `nat`, `dual-srchost`). That queue tree counted 0 bytes at first, even after a test that limited FastTrack to non-WAN traffic with a 68M cap; that test cost download throughput (849 to 711 Mbit/s) and doubled router CPU, so it was rolled back the same day. The real cause came on 2026-11-12: a queue tree leaf with an empty `packet-mark` receives no packets, and unmarked traffic needs `packet-mark=no-mark`. With that set and the cap raised to 68M (about 90% of the 74 Mbit/s upload measured then; the 50 Mbit figure below is from July), the post-apply check counted 159 MB through the queue, upload was 64.8 Mbit/s, and a ping to 1.1.1.1 under full upload was 11.3 ms against 10.2 ms idle (16.8 to 19.6 ms before). Interface-parented queue trees also see FastTracked packets, so global FastTrack stayed on. On 2026-11-22 a mangle rule started marking traffic from `ether1` to the Fritz!Box LAN so it skips the shaper, because that LAN also hangs off `ether1` and 4K streams to the TVs were being capped at 68 Mbit/s. The sections below describe the July attempt as it was.
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
 ## The Investigation
 
-First step: check what was actually configured on the WAN. `/queue simple` and `/queue tree` were both empty, so `ether1` (WAN) was running on RouterOS's default `pfifo` (plain FIFO, no active queue management).
+First step: check what was actually configured on the WAN. `/queue simple` and `/queue tree` were both empty, so `ether1` (WAN) was running on its default interface queue. MikroTik's [Queues documentation](https://help.mikrotik.com/docs/spaces/ROS/pages/328088/Queues) gives `only-hardware-queue` as the default on its own hardware, which leaves queuing to the NIC's transmit ring: plain FIFO behaviour, no active queue management.
 
 The ISP profile is asymmetric cable: 1000 Mbit down, 50 Mbit up. That is the value from repeated live speed tests, not MySpeed's configured target, which happened to match but wasn't the authoritative source. A 50 Mbit uplink is easy to fill, and without AQM, nothing stops the send buffer from filling up and inflating latency for everything sharing the link.
 
@@ -76,7 +78,7 @@ A second claim from the original also needs correcting. I had concluded there wa
 
 Terraform: `fmt -check`, `validate`, and `tflint` were all clean on the change.
 
-It was not applied when I wrote this. It went up as a PR for `atlantis plan` review, because I want to see the plan before any apply on the network stack. This is the gateway router, and a misconfiguration here affects every device in the apartment. Given the correction above, the plan and the change itself need another pass before the bufferbloat can count as fixed.
+It was not applied when I wrote this. It went up as a PR for `atlantis plan` review (Atlantis has since been replaced by GitHub Actions workflows that keep the same PR comments), because I want to see the plan before any apply on the network stack. This is the gateway router, and a misconfiguration here affects every device in the apartment. Given the correction above, the plan and the change itself need another pass before the bufferbloat can count as fixed. That pass is the CAKE queue tree in the update at the top.
 
 ---
 

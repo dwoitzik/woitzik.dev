@@ -2,7 +2,7 @@
 title: "MetalLB + Traefik on k3s: Fix LoadBalancer Stuck in Pending"
 description: "On bare-metal k3s, a LoadBalancer Service stays <pending>. Disable ServiceLB, give MetalLB an L2 IP pool and put Traefik behind it, all managed with ArgoCD."
 date: "2026-05-18"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Homelab", "Networking"]
 ---
 
@@ -150,7 +150,7 @@ spec:
               enabled: true
         ingressRoute:
           dashboard:
-            enabled: false
+            enabled: true
         tlsStore:
           default:
             defaultCertificate:
@@ -170,7 +170,7 @@ Three deliberate decisions here:
 
 **`tlsStore.default.defaultCertificate`** makes the [wildcard certificate](/blog/cert-manager-wildcard-k3s-cloudflare/) the default for every Ingress that doesn't specify its own. Every service behind Traefik gets HTTPS automatically.
 
-**`dashboard.enabled: false`** keeps the Traefik dashboard, which exposes routing configuration and middleware details, off the network. Access it via `kubectl port-forward` when needed.
+**`ingressRoute.dashboard.enabled: true`** is the chart default, written out on purpose. The setting does not switch the dashboard itself on or off (the chart always starts Traefik with `--api.dashboard=true`). It controls whether the chart creates an IngressRoute for it, and that route only listens on the internal `traefik` entrypoint (port 9000), which the LoadBalancer Service does not expose. So the dashboard, which shows routing configuration and middleware details, stays off the network, and `kubectl port-forward -n kube-system deploy/traefik 9000:9000` reaches it at `http://localhost:9000/dashboard/`. Setting it to `false` does not hide anything further: it only leaves the dashboard with no route at all, so port-forward stops working too. If you want it on a hostname, add your own IngressRoute on `websecure` to `api@internal` behind an auth middleware, which is what my repo does with Authelia.
 
 One setting this Service does not show matters later if you add Traefik middlewares: without `externalTrafficPolicy: Local`, Traefik sees a node address instead of the client IP, and [Traefik rate limiting on k3s](/blog/traefik-rate-limit-middleware-k3s/) then puts every visitor into one bucket.
 

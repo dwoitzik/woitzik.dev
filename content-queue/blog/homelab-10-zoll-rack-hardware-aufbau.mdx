@@ -61,7 +61,7 @@ In der Netzwerkschicht passiert der Großteil der Technik. Sie ist das physische
 
 **Verkabelung:** Um Router, Patchpanel und Server auf dem engen Raum des 10-Zoll-Racks zu verbinden, nutze ich kurze [deleyCON CAT7-Patchkabel mit 0,5 m\*](/go/4plOgZ5). Kabel mit 50 cm halten das Rack auch ohne Kabelführungsbügel aufgeräumt.
 
-Den RB5009 habe ich gezielt den günstigeren hEX- oder hAP-Modellen von MikroTik vorgezogen, und zwar wegen des Switch-Chips. Volles Hardware-Offloading für VLAN-getaggten Traffic wird wichtig, sobald ein Proxmox-Trunk-Port mehrere VLANs trägt. Software-geswitchte VLANs auf den günstigeren Modellen bringen Latenz mit, die du unter Dauerlast *bemerken wirst*.
+Den RB5009 habe ich den günstigeren hEX- oder hAP-Modellen von MikroTik wegen der CPU-Reserven vorgezogen. Am VLAN-Switching selbst liegt es nicht: Laut [Switch-Chip-Doku von MikroTik](https://help.mikrotik.com/docs/spaces/ROS/pages/15302988/Switch+Chip+Features) beherrscht auch der MT7621-Switch-Chip des hEX seit RouterOS 7.1 Bridge-VLAN-Filtering in Hardware. Was der Switch-Chip nicht übernimmt, ist Traffic über VLAN-Grenzen hinweg. Inter-VLAN-Routing und jede Firewall-Regel laufen auf der CPU des Routers, und bei einer Default-Deny-Firewall zwischen fünf VLANs ist das eine Menge Traffic. Die Quad-Core-ARM64-CPU des RB5009 mit 1,4 GHz hat dafür deutlich mehr Luft als der Dual-Core-MT7621A des hEX mit 880 MHz.
 
 Hier ist der echte Terraform-Code, der die VLAN-Matrix konfiguriert, derselbe Code, der jede Firewall-Regel, jeden Bridge-Eintrag und jede IP-Adresse im Netzwerk erzeugt:
 
@@ -114,7 +114,7 @@ Ein Homelab ist nie fertig, und für die Pflege braucht es das richtige Werkzeug
 
 Drei Dinge, in umgekehrter Reihenfolge ihrer Wichtigkeit:
 
-**1. Den RB5009 zuerst kaufen, nicht als zweiten Router.** Ich habe mit einem günstigeren MikroTik hEX angefangen und bin ihm schnell entwachsen: Die software-geswitchten VLANs kamen mit dem Trunk-Traffic von Proxmox nicht mit. Sobald mehrere getaggte VLANs über einen Trunk laufen, ist das Hardware-Offloading des RB5009 für VLAN-getaggten Traffic Pflicht und keine nette Zugabe.
+**1. Den RB5009 zuerst kaufen, nicht als zweiten Router.** Ich habe mit einem günstigeren MikroTik hEX angefangen und bin ihm entwachsen. Sobald mehrere VLANs über die Firewall miteinander reden, belasten Routing und Filterung die CPU, nicht den Switch-Chip, und die kleine Dual-Core-CPU des hEX ist dann die Grenze. Die CPU-Reserven des RB5009 sind dafür Pflicht und keine nette Zugabe.
 
 **2. Mit dem Pi 5 anfangen, nicht mit dem Pi 4.** Der Pi 4B reicht für DNS und Keepalived völlig aus, aber der Pi 5 ist bei containerisierten Workloads ein großer Schritt nach vorn. Wenn du heute neu kaufst, lass den 4er ganz weg.
 
@@ -124,4 +124,4 @@ Drei Dinge, in umgekehrter Reihenfolge ihrer Wichtigkeit:
 
 Wenn du den Terraform- und Ansible-Code sehen willst, der aus dieser Hardware den k3s-Cluster, die Proxmox-VMs und die Netzwerksegmentierung macht, über die dieser Blog schreibt: Das komplette [homelab-infrastructure-Repo](https://github.com/dwoitzik/homelab-infrastructure) ist öffentlich auf GitHub. Die Ansible-Schicht, die den ganzen Stack orchestriert, erkläre ich im Artikel über meine [Homelab-Architektur auf Enterprise-Niveau](/blog/enterprise-homelab-architecture-ansible/) (englischer Artikel).
 
-Nichts davon ist nur fürs Homelab relevant: Terraform + Ansible + Atlantis ist derselbe Steuerkreis, den Unternehmen auf Azure betreiben, und die Hub-and-Spoke-Topologie, die Mikrosegmentierung per NSG und das Forced Tunneling erwachsen alle aus dem Denkmodell, das du dir aufbaust, wenn du einen MikroTik und ein paar Proxmox-Nodes verwaltest.
+Nichts davon ist nur fürs Homelab relevant: Terraform + Ansible + Plan und Apply per Pull Request (bis August 2026 mit Atlantis, seitdem mit GitHub-Actions-Workflows über PR-Kommentare) ist derselbe Steuerkreis, den Unternehmen auf Azure betreiben, und die Hub-and-Spoke-Topologie, die Mikrosegmentierung per NSG und das Forced Tunneling erwachsen alle aus dem Denkmodell, das du dir aufbaust, wenn du einen MikroTik und ein paar Proxmox-Nodes verwaltest.

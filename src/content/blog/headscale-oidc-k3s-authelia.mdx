@@ -1,6 +1,6 @@
 ---
 title: "Self-Hosted Tailscale Control Plane: Headscale on k3s with Authelia OIDC"
-description: "Deploy Headscale on a bare-metal k3s cluster with Longhorn persistence, Traefik ingress, and Authelia OIDC authentication, fully GitOps-managed via ArgoCD."
+description: "Deploy Headscale on a bare-metal k3s cluster with Authelia OIDC, managed via ArgoCD, and why its TS2021 upgrade later had to bypass Traefik."
 date: "2026-06-13"
 updated: "2026-11-25"
 tags: ["Kubernetes", "Homelab", "Security", "Networking"]
@@ -15,6 +15,8 @@ Tailscale solves the "access everything from anywhere" problem better than any V
 [Headscale](https://github.com/juanfont/headscale) is a self-hosted, open-source implementation of the Tailscale control plane. Same WireGuard mesh, same clients, but your data stays on your infrastructure. If you already run k3s with ArgoCD, adding Headscale takes one more Application.
 
 > **Update (November 2026):** Longhorn is gone from this cluster. Headscale's PVC now uses `local-path` storage, and its SQLite database is replicated with Litestream to a warm standby on a separate host. The Longhorn steps below show the original setup; swap the `storageClassName` for whatever your cluster uses.
+>
+> Headscale is also no longer behind Traefik, and the Traefik route in Step 4 is the part not to copy. Tailscale clients register over TS2021, an HTTP request with `Upgrade: tailscale-control-protocol`. Traefik only handles `websocket` upgrades, so the custom upgrade gets lost and Headscale logs "No Upgrade header in TS2021 request" ([traefik/traefik#12609](https://github.com/traefik/traefik/issues/12609)). Here that showed up as intermittent client disconnects. Since 2026-08-28, `headscale.yourdomain.com` reaches Headscale through an nginx reverse proxy with CrowdSec in the DMZ, which passes the `Upgrade` header through, via a dedicated MetalLB LoadBalancer Service that only accepts the DMZ subnet. The workaround in that Traefik issue (a `TLSOption` that forces HTTP/1.1 for the route) is the other option.
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
@@ -24,7 +26,7 @@ Tailscale solves the "access everything from anywhere" problem better than any V
 Tailscale Client (any device)
         │
         ▼
-Traefik IngressRoute (headscale.yourdomain.com)
+Traefik IngressRoute (headscale.yourdomain.com)   [replaced, see update above]
         │
         ▼
 Headscale Service (port 8080)
@@ -165,6 +167,8 @@ spec:
           persistentVolumeClaim:
             claimName: headscale-data
 ```
+
+`args: [headscale, serve]` is right for 0.22.x, whose image has no entrypoint and only `CMD ["headscale"]`. From 0.23 the image sets the `headscale` binary as its entrypoint, so the args become just `serve`.
 
 `strategy: Recreate` matters. With SQLite, two pods writing at the same time can corrupt the database. Recreate stops the old pod before starting the new one instead of doing a rolling update.
 

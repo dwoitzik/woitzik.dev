@@ -1,7 +1,8 @@
 ---
 title: "Unable to mkstemp /tmp/apt.sig: How /tmp 0755 Broke apt"
-description: "A /tmp at mode 0755 left apt on my Proxmox host unable to verify signatures for two months. A week later, unattended-upgrades skipped 69 Pi updates."
+description: "A /tmp at mode 0755 left apt on my Proxmox host unable to verify signatures for up to two months. A week later, unattended-upgrades skipped 69 Pi updates."
 date: "2026-11-08"
+updated: "2026-11-25"
 tags: ["Proxmox", "Homelab", "Debugging", "Ansible", "Security"]
 ---
 
@@ -9,7 +10,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-For about two months, apt on my Proxmox host could not refresh a single repository. `/tmp` had drifted from mode 1777 to 0755, apt's unprivileged `_apt` sandbox user could no longer create its signature temp files, and every `apt-get update` quietly fell back to stale index files. The fix was one `chmod`, plus a watchdog check so the next drift raises an alert instead of waiting for me to trip over it.
+For up to two months, apt on my Proxmox host could not refresh a single repository. `/tmp` had drifted from mode 1777 to 0755, apt's unprivileged `_apt` sandbox user could no longer create its signature temp files, and every `apt-get update` quietly fell back to stale index files. The fix was one `chmod`, plus a watchdog check so the next drift raises an alert instead of waiting for me to trip over it.
 
 A week later I found a second version of the same problem on the Raspberry Pi nodes: `unattended-upgrades` ran every day, logged success, and left 69 updates untouched, including Docker Engine and containerd. Both failures share a shape. The update machinery was running, and nothing was getting updated.
 
@@ -50,7 +51,7 @@ That is `root:root 0755`. A normal `/tmp` is `drwxrwxrwt`, mode 1777: world-writ
 
 The reason this only broke apt is privilege separation. apt does not do its downloading and signature checking as root. It drops to a sandbox user, `_apt`, configured by `APT::Sandbox::User`, and that user writes temporary signature files to `/tmp` while verifying repository metadata. With `/tmp` at 0755, only root can create files there. `_apt` gets `Permission denied`, signature verification fails for every source, and apt keeps the old indexes.
 
-Root, meanwhile, can still write to `/tmp` without complaint. Every root-run cron job, every script, every Proxmox service I touched kept working. Nothing else on the host needed a non-root user to write a temp file, so nothing else complained. That is why this went unnoticed for two months.
+Root, meanwhile, can still write to `/tmp` without complaint. Every root-run cron job, every script, every Proxmox service I touched kept working. Nothing else on the host needed a non-root user to write a temp file, so nothing else complained. That is why this could go unnoticed for weeks.
 
 ## How Long, and Why I Can't Say What Did It
 
@@ -60,9 +61,13 @@ Root, meanwhile, can still write to `/tmp` without complaint. Every root-run cro
 Options=mode=1777,strictatime,nosuid,nodev,size=50%,nr_inodes=1m
 ```
 
-The running mount matched the unit on `size` and `nr_inodes`, but `mode` and `strictatime` were missing from its effective options. The mount had been active since `2026-08-23 12:29:28 CEST`, which puts the broken state at roughly two months by the time I found it on October 16.
+The running mount matched the unit on `size` and `nr_inodes`, and showed neither `mode` nor `strictatime` in its effective options. At first I read that as a sign the mount had come up without `mode=1777`. It isn't. tmpfs only lists `mode=` in `/proc/mounts` when the mount option differs from the default 1777, and `strictatime` shows up as the absence of `relatime` or `noatime`, not as its own flag. A tmpfs mounted with exactly the unit's options looks like this. The listed `mode=` is also the value the filesystem was mounted with, not the root directory's current mode: after a `chmod 0755` on a test tmpfs, `/proc/mounts` still showed no `mode=` while `stat` said 755.
 
-I could not reconstruct the trigger. Nothing in the repository and nothing on the host (scripts, cron, shell history) runs `chmod` on `/tmp`. The most plausible explanation is a single manual `chmod 0755`, or a `remount` issued without `mode=`. I'd rather write "unknown" in the incident record than invent a cause that fits.
+That also rules out a remount as the cause. The [tmpfs documentation](https://docs.kernel.org/filesystems/tmpfs.html) says `mode`, `uid` and `gid` have no effect on remount, and a test confirmed it: remounting with a different `mode=` left the root directory's mode unchanged. A boot-time mount from `tmp.mount` gives 1777, so the 0755 came from something changing the directory's mode afterwards, which in practice means a `chmod` (or a tool doing the same thing) on `/tmp`.
+
+The mount had been active since `2026-08-23 12:29:28 CEST`. That is an upper bound, not a start date: the mode changed at some point after that, and I found it on October 16, so the broken state lasted anywhere up to about two months.
+
+I could not reconstruct the trigger. Nothing in the repository and nothing on the host (scripts, cron, shell history) runs `chmod` on `/tmp`. A single manual `chmod 0755` that left no trace is the most plausible explanation, but it is a guess. I'd rather write "unknown" in the incident record than invent a cause that fits.
 
 ## The Fix
 

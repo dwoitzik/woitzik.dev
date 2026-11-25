@@ -3,7 +3,7 @@ title: "How a Single Volume Was 65% of My Velero Backup and What I Almost Exclud
 seoTitle: "One Volume Was 65% of My Velero Backup"
 description: "The nfs-provisioner's root-mount volume backed up the whole NFS export as one 33.4GB blob every night, duplicating every PVC. My first guess was the wrong disk."
 date: "2026-07-26"
-updated: "2026-11-04"
+updated: "2026-11-25"
 tags: ["Kubernetes", "Backup", "NFS", "Velero"]
 ---
 
@@ -11,7 +11,7 @@ import NewsletterCTA from "@components/NewsletterCTA.astro";
 
 <em>Disclosure: This post contains Amazon affiliate links (marked with &#42;). As an Amazon Associate I earn from qualifying purchases. Buying through them costs you nothing extra.</em>
 
-Velero's nightly backup was moving about 51GB, and a single volume took 33.4GB and 207 seconds of that. Backup size alone is unremarkable for a cluster with 15+ PVCs; one volume accounting for 65% of the bytes is not. The nfs-provisioner's root-mount volume was backing up the entire shared NFS export as a single blob, even though every app's individual PVC (a subdirectory of the same tree) was already backed up separately.
+In one of Velero's nightly backups, a single volume took 33.4GB and 207 seconds, about 65% of all bytes in that run. Backup size alone is unremarkable for a cluster with many PVCs; one volume accounting for two thirds of the bytes is not. The nfs-provisioner's root-mount volume was backing up the entire shared NFS export as a single blob, even though every app's individual PVC (a subdirectory of the same tree) was already backed up separately.
 
 The fix was a one-line annotation. The investigation almost went wrong, because my first hypothesis pointed at the wrong disk entirely.
 
@@ -19,16 +19,7 @@ The fix was a one-line annotation. The investigation almost went wrong, because 
 
 ## The Symptom
 
-Velero's backup stats showed a disproportionate volume:
-
-```
-PodVolumeBackup: nfs-provisioner-root
-Namespace: nfs-provisioner
-Size: 33.4GB
-Duration: 207s
-```
-
-Total backup for that run: ~51GB. This single volume was 65% of the total. Every other PVC was 1-4GB.
+The PodVolumeBackup stats of a real nightly run showed one disproportionate entry: the volume `nfs-subdir-external-provisioner-root` in the nfs-provisioner's pod, 33.4GB uploaded in 207 seconds, about 65% of the total bytes of that backup.
 
 ## The Investigation
 
@@ -38,26 +29,24 @@ Each app's own pod also mounts its PVC subdirectory separately. Velero backs tha
 
 ## The First Hypothesis (Wrong)
 
-My first guess was `garage-data/immich-library`, Immich's photo library, which lives on separate USB-attached disks ([Seagate Portable 2TB External HDD&#42;](/go/4vxwLpY)). Excluding it would have reduced backup size, but the USB disks aren't on the contended rpool. The bottleneck was the SSD, not USB, so excluding the Immich volume would have been the wrong fix for the right symptom.
+My first guess was to exclude `garage-data` and `immich-library`, Garage's object data and Immich's photo library, which live on separate USB-attached disks ([Seagate Portable 2TB External HDD&#42;](/go/4vxwLpY)). Excluding it would have reduced backup size, but the USB disks aren't on the contended rpool. The bottleneck was the SSD, not USB, so excluding the Immich volume would have been the wrong fix for the right symptom.
 
 ## The Right Fix
 
-I verified the target before acting:
+I verified the target before acting. Inside the provisioner pod, `/persistentvolumes` is just an NFS mount of the export (`10.0.20.100:/nfs-data/k8s-general`), so `findmnt` there only tells you which export it is, not which disk is underneath. The disk question has to be answered on the Proxmox host: `findmnt` and `zfs list` there showed that the directory behind the export, `/nfs-data`, lived on `rpool`, the contended SSD pool.
 
 ```bash
-# Confirm the root-mount volume targets rpool (the contended disk)
-findmnt /persistentvolumes
-# /dev/zvol/rpool/nfs  ← confirmed rpool
+# In the provisioner pod: the root mount is the NFS export itself
+kubectl -n nfs-provisioner exec deploy/nfs-provisioner-nfs-subdir-external-provisioner -- \
+  ls /persistentvolumes/
+# one <namespace>/ directory per namespace, one <pvc-name>/ directory per PVC below it
 
-# Confirm the individual PVCs are subdirectories of the same tree
-ls /persistentvolumes/
-# default-elasticsearch-data-0/
-# default-immich-redis-data-0/
-# default-minecraft-data/
-# ... (each is a separate PVC)
+# On the Proxmox host: which pool holds the exported directory
+findmnt -T /nfs-data
+zfs list
 ```
 
-The root mount is the entire NFS export on rpool, and every individual PVC is a subdirectory of it. Backing up the root mount backs up every PVC a second time.
+The provisioner creates every PVC as `<namespace>/<pvc-name>` under that export (its `pathPattern`), so the root mount contains every individual PVC. Backing up the root mount backs up every PVC a second time.
 
 ### The Exclusion
 
@@ -71,12 +60,7 @@ One annotation. Velero skips the root-mount volume entirely. Every app's individ
 
 ## Result
 
-```
-Before: 51GB total, 33.4GB from root mount (65%)
-After:  17.6GB total, 0GB from root mount
-```
-
-Backup duration dropped from 207s to ~60s. Nothing lost coverage: every PVC is still backed up individually.
+The 33.4GB and 207 seconds of the root-mount volume drop out of every nightly run, which on that run's numbers is roughly two thirds of the uploaded bytes. Nothing lost coverage: every PVC is still backed up individually.
 
 ## The Pattern
 
