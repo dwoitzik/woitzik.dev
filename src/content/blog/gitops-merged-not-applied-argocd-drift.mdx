@@ -2,7 +2,7 @@
 title: "Three Fixes Were Merged. None of Them Had Taken Effect."
 description: "A drift audit found merged Traefik, Velero and monitoring fixes that never took effect while ArgoCD showed Synced. How the gap opens and how to check it."
 date: "2026-10-11"
-updated: "2026-11-25"
+updated: "2026-11-28"
 tags: ["Kubernetes", "GitOps", "Homelab"]
 ---
 
@@ -16,16 +16,16 @@ It doesn't always hold. A drift audit of my k3s cluster turned up three merged f
 
 **[View the complete homelab infrastructure source on GitHub](https://github.com/dwoitzik/homelab-infrastructure)**
 
-## How the Gap Opens: ArgoCD's App-of-Apps Bootstrap Problem
+## How the Gap Opens: Application Files Nothing Tracks
 
-The cluster uses ArgoCD's app-of-apps pattern ([full ArgoCD homelab setup here](/blog/argocd-gitops-k3s-homelab/)): a root Application watches a directory, creates child Applications for each manifest it finds, and those child Applications sync the actual workloads. The root Application uses a `directory.include` glob to decide which files to track.
+Every system component in the cluster has an ArgoCD Application, and that Application is itself defined in a YAML file in the repo ([full ArgoCD homelab setup here](/blog/argocd-gitops-k3s-homelab/)). Each Application was applied once by hand when the component was bootstrapped. After that, a change to the Application's own file only reaches the cluster if some other Application tracks that file, usually through a `directory.include` glob.
 
-That glob is set once, at bootstrap time, and files added to the directory later are only tracked if they match it. A file that doesn't match is invisible to ArgoCD. It won't create an Application for it, won't sync it, and won't alert about it. As far as ArgoCD is concerned, the file doesn't exist.
+That glob is written once, and files in the directory are only tracked if they match it. A file that doesn't match is invisible to ArgoCD. It won't create an Application for it, won't sync it, and won't alert about it. As far as ArgoCD is concerned, the file doesn't exist.
 
-The monitoring stack had this problem. Two files, `application.yml` and `manifests-application.yml`, had been added to the `kubernetes/system/monitoring/` directory but were missing from the parent Application's `directory.include` glob:
+The monitoring stack had this problem. Two files in `kubernetes/system/monitoring/`, `application.yml` and `manifests-application.yml`, were missing from the `directory.include` glob of the `monitoring-manifests` Application:
 
 ```yaml
-# monitoring-bootstrap/application.yml (the root)
+# the monitoring-manifests Application, before the fix
 spec:
   source:
     directory:
@@ -33,7 +33,7 @@ spec:
       # application.yml and manifests-application.yml: invisible
 ```
 
-A fix for a broken `configSecret` reference had been merged to `application.yml`. It was valid YAML and would have worked, but ArgoCD never picked it up. The live cluster kept running the broken version from the initial bootstrap.
+A fix for a broken `configSecret` reference had been merged to `application.yml` on 2026-06-27. ArgoCD never picked it up, and Discord alerting stayed dead for more than eight days. Once applied by hand, the config still failed with `undefined receiver`: the Prometheus Operator expects an `AlertmanagerConfig` to carry its own complete route. Only a real test alert, with `alertmanager_notifications_total` for Discord going up and no failures, closed it.
 
 ## Finding the Gap: What the Drift Audit Actually Checks
 
@@ -51,7 +51,7 @@ for dir in kubernetes/system/*/; do
 done
 ```
 
-The audit found about 14 directories with the same untracked-after-bootstrap gap. Most had no current drift, but nothing would stop drift from accumulating silently as soon as someone added a file there.
+The audit found about 14 more files with the same untracked-after-bootstrap gap. A full sweep of all 41 live Applications a few days later put the number at 18: the defining files of cert-manager, Vault, Velero, Traefik, the CloudNativePG operator and others were tracked by nothing. Since 2026-08-04 a dedicated `system-app-bootstrap` Application tracks every `application.yml` and `manifests-application.yml` under `kubernetes/system/`, so an edit to an Application file now reaches the cluster like any other change.
 
 On the Terraform side, a scheduled plan that alerts to Slack on drift closes the same class of gap. A green pipeline or a `Synced` badge tells you the command ran, not that the running state matches intent.
 
@@ -61,17 +61,14 @@ Traefik's `allowCrossNamespace` fix had been merged to git on 2026-07-04. The ch
 
 The fix was in git. ArgoCD showed the Traefik Application as `Synced`. But the endpoints were still 404ing.
 
-The Traefik Application's last successful sync predated the fix. `Synced` only means the live objects matched the manifests ArgoCD last rendered from git; it says nothing about whether those rendered manifests contain your latest commit. ArgoCD caches rendered manifests, and if the new revision never made it into what the Application compared against, the badge stays green while the cluster runs the old config. A hard refresh throws that cache away and re-renders from the current HEAD.
+The cause was the same gap as above. The flag lives in the Helm values inside `kubernetes/system/traefik/application.yml`, the file that defines the Traefik Application itself, and nothing tracked that file. The live Application object kept its old values, and measured against those, everything was in sync. `Synced` means the cluster matches what the Application describes. Whether the Application matches git is a different question.
 
 ```bash
-# Force a sync of the Application (--force replaces resources)
-argocd app sync traefik --force
-# or discard ArgoCD's cached manifests and re-compare against git:
-kubectl annotate application traefik -n argocd \
-  argocd.argoproj.io/refresh=hard --overwrite
+# Apply the Application definition itself, so its new Helm values reach the cluster
+kubectl apply -f kubernetes/system/traefik/application.yml
 ```
 
-After the manual sync, all three endpoints returned 302 within seconds of the rollout completing.
+After the manual apply, all three endpoints returned 302 once the rollout finished.
 
 ## The Second Finding: Velero's Fix That Couldn't Have Worked
 
@@ -123,12 +120,12 @@ velero:
 
 All three failures share the same shape:
 
-| | Traefik allowCrossNamespace | Velero maintenance frequency | Monitoring bootstrap files |
+| | Traefik allowCrossNamespace | Velero maintenance frequency | Monitoring Application files |
 |---|---|---|---|
 | Git state | Correct | Wrong key and flag name | Correct |
-| Live state | Unsynced | Synced but inert | Never tracked |
+| Live state | Old Application values | Wrong values, inert even once applied | Never tracked |
 | ArgoCD showed | `Synced/Healthy` | `Synced/Healthy` | No Application (invisible) |
-| Found by | Manual sync + endpoint check | Checking running container args | Directory vs. glob comparison |
+| Found by | Endpoint check, manual apply | Checking running container args | Directory vs. glob comparison |
 
 Each PR was closed in the reasonable belief that the fix was live, and each time it wasn't. The merge was the easy part. The skipped part was verifying that the change took effect in the running cluster.
 
